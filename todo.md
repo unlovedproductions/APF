@@ -59,3 +59,22 @@
 - [x] Final UI polish and responsive design check
 - [x] Create checkpoint
 - [x] Deliver to user with documentation
+
+## Phase 9: Digistore24 Integration
+- [x] Research Digistore24 API and marketplace data access methods
+- [x] Implement Digistore24 marketplace scraping client
+- [x] Create Hidden Gem scoring algorithm for Digistore24 products
+- [x] Integrate Digistore24 fetching into products.refresh procedure
+- [x] Add marketplace selection state to Home page
+- [x] Update API setup screen to support both marketplaces
+- [x] Add marketplace selector card to main dashboard
+- [x] Update product queries to support marketplace parameter
+- [x] Write and pass tests for Digistore24 scoring algorithm
+- [x] Verify all existing tests still pass
+- [x] Update UI descriptions to mention "multiple marketplaces"
+
+## Phase 10: GitHub Deployment
+- [ ] Create GitHub repository
+- [ ] Push all code to GitHub
+- [ ] Add README with setup instructions
+- [ ] Add GitHub Actions CI/CD (optional)

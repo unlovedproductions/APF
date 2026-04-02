@@ -5,6 +5,7 @@ import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
 import { z } from "zod";
 import * as db from "./db";
 import { fetchAndProcessWarriorPlusOffers } from "./warriorplus";
+import { fetchAndProcessDigistore24Products } from "./digistore24";
 import { TRPCError } from "@trpc/server";
 
 export const appRouter = router({
@@ -158,11 +159,13 @@ export const appRouter = router({
           let processedProducts;
           if (input.platform === "warriorplus") {
             processedProducts = await fetchAndProcessWarriorPlusOffers(credential.apiKey);
+          } else if (input.platform === "digistore24") {
+            // Note: Digistore24 doesn't require API key for marketplace scraping
+            processedProducts = await fetchAndProcessDigistore24Products();
           } else {
-            // TODO: Implement Digistore24 fetching
             throw new TRPCError({
-              code: "NOT_IMPLEMENTED",
-              message: "Digistore24 integration coming soon",
+              code: "BAD_REQUEST",
+              message: "Unknown platform",
             });
           }
 

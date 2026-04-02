@@ -19,7 +19,7 @@ import {
 } from "@/components/ui/table";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, RefreshCw, Search, Bookmark, BookmarkCheck } from "lucide-react";
+import { Loader2, RefreshCw, Search } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import { ProductDetailModal } from "@/components/ProductDetailModal";
@@ -48,21 +48,22 @@ export default function Home() {
   const [showApiKeySetup, setShowApiKeySetup] = useState(false);
   const [apiKey, setApiKey] = useState("");
   const [selectedProductId, setSelectedProductId] = useState<number | null>(null);
+  const [selectedMarketplace, setSelectedMarketplace] = useState<"warriorplus" | "digistore24">("warriorplus");
 
   // tRPC queries and mutations
   const credentialsQuery = trpc.credentials.get.useQuery(
-    { platform: "warriorplus" },
+    { platform: selectedMarketplace },
     { enabled: isAuthenticated }
   );
 
   const productsQuery = trpc.products.list.useQuery(
-    { platform: "warriorplus", limit: 100 },
-    { enabled: isAuthenticated && !!credentialsQuery.data }
+    { platform: selectedMarketplace, limit: 100 },
+    { enabled: isAuthenticated && (selectedMarketplace === "digistore24" || !!credentialsQuery.data) }
   );
 
   const refreshMutation = trpc.products.refresh.useMutation({
     onSuccess: () => {
-      toast.success("Products refreshed successfully!");
+      toast.success(`${selectedMarketplace === "warriorplus" ? "WarriorPlus" : "Digistore24"} products refreshed successfully!`);
       productsQuery.refetch();
     },
     onError: (error) => {
@@ -83,15 +84,27 @@ export default function Home() {
   });
 
   const handleSaveApiKey = () => {
+    if (selectedMarketplace === "digistore24") {
+      toast.success("Digistore24 marketplace is ready to use!");
+      setShowApiKeySetup(false);
+      credentialsQuery.refetch();
+      return;
+    }
     if (!apiKey.trim()) {
       toast.error("Please enter an API key");
       return;
     }
-    saveCredentialsMutation.mutate({ platform: "warriorplus", apiKey });
+    saveCredentialsMutation.mutate({ platform: selectedMarketplace, apiKey });
+  };
+
+  const handleMarketplaceChange = (value: string) => {
+    setSelectedMarketplace(value as "warriorplus" | "digistore24");
+    setShowApiKeySetup(false);
+    setApiKey("");
   };
 
   const handleRefresh = () => {
-    refreshMutation.mutate({ platform: "warriorplus" });
+    refreshMutation.mutate({ platform: selectedMarketplace });
   };
 
   // Filter and sort products
@@ -147,36 +160,64 @@ export default function Home() {
     );
   }
 
-  // Show API key setup if no credentials
+  // Show setup screen if no credentials
   if (!credentialsQuery.data?.isActive) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100 p-4">
         <Card className="w-full max-w-md">
           <CardHeader>
-            <CardTitle>Connect WarriorPlus</CardTitle>
-            <CardDescription>Add your API key to get started</CardDescription>
+            <CardTitle>Connect {selectedMarketplace === "warriorplus" ? "WarriorPlus" : "Digistore24"}</CardTitle>
+            <CardDescription>
+              {selectedMarketplace === "warriorplus"
+                ? "Add your API key to get started"
+                : "Ready to discover products"}
+            </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div>
-              <label className="text-sm font-medium mb-2 block">WarriorPlus API Key</label>
-              <Input
-                type="password"
-                placeholder="Paste your API key here"
-                value={apiKey}
-                onChange={(e) => setApiKey(e.target.value)}
-              />
-              <p className="text-xs text-slate-500 mt-2">
-                Get your API key from{" "}
-                <a
-                  href="https://warriorplus.com/user/api-access.php"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-blue-600 hover:underline"
-                >
-                  WarriorPlus Account Settings
-                </a>
-              </p>
+              <label className="text-sm font-medium mb-2 block">Select Marketplace</label>
+              <Select value={selectedMarketplace} onValueChange={handleMarketplaceChange}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="warriorplus">WarriorPlus</SelectItem>
+                  <SelectItem value="digistore24">Digistore24</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
+
+            {selectedMarketplace === "warriorplus" && (
+              <div>
+                <label className="text-sm font-medium mb-2 block">WarriorPlus API Key</label>
+                <Input
+                  type="password"
+                  placeholder="Paste your API key here"
+                  value={apiKey}
+                  onChange={(e) => setApiKey(e.target.value)}
+                />
+                <p className="text-xs text-slate-500 mt-2">
+                  Get your API key from{" "}
+                  <a
+                    href="https://warriorplus.com/user/api-access.php"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-blue-600 hover:underline"
+                  >
+                    WarriorPlus Account Settings
+                  </a>
+                </p>
+              </div>
+            )}
+
+            {selectedMarketplace === "digistore24" && (
+              <div className="bg-blue-50 border border-blue-200 rounded p-3">
+                <p className="text-sm text-blue-900">
+                  Digistore24 marketplace is ready to use. No API key required.
+                </p>
+              </div>
+            )}
+
             <Button
               className="w-full"
               onClick={handleSaveApiKey}
@@ -185,7 +226,7 @@ export default function Home() {
               {saveCredentialsMutation.isPending ? (
                 <>
                   <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  Saving...
+                  {selectedMarketplace === "warriorplus" ? "Saving..." : "Connecting..."}
                 </>
               ) : (
                 "Connect"
@@ -204,12 +245,39 @@ export default function Home() {
         <div className="mb-8 flex justify-between items-start">
           <div>
             <h1 className="text-3xl font-bold text-slate-900 mb-2">Product Discovery</h1>
-            <p className="text-slate-600">Find hidden gem affiliate products from WarriorPlus</p>
+            <p className="text-slate-600">Find hidden gem affiliate products from multiple marketplaces</p>
           </div>
           <Button asChild variant="outline">
             <a href="/bookmarks">View Bookmarks</a>
           </Button>
         </div>
+
+        {/* Marketplace Selector */}
+        <Card className="mb-6 border-blue-200 bg-blue-50">
+          <CardContent className="pt-6">
+            <div className="flex items-center gap-4">
+              <div className="flex-1">
+                <label className="text-sm font-medium text-slate-700 mb-2 block">Select Marketplace</label>
+                <Select value={selectedMarketplace} onValueChange={handleMarketplaceChange}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="warriorplus">WarriorPlus</SelectItem>
+                    <SelectItem value="digistore24">Digistore24</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex-1">
+                <p className="text-xs text-slate-600 mt-8">
+                  {selectedMarketplace === "warriorplus"
+                    ? "Requires WarriorPlus API key"
+                    : "No API key needed - marketplace scraping enabled"}
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
 
         {/* Controls */}
         <Card className="mb-6">
