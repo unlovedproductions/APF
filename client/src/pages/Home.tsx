@@ -291,11 +291,37 @@ export default function Home() {
           <CardContent>
             {productsQuery.isLoading ? (
               <div className="flex items-center justify-center py-12">
-                <Loader2 className="w-6 h-6 animate-spin text-slate-400" />
+                <div className="text-center">
+                  <Loader2 className="w-6 h-6 animate-spin text-slate-400 mx-auto mb-2" />
+                  <p className="text-slate-500 text-sm">Loading products...</p>
+                </div>
+              </div>
+            ) : productsQuery.isError ? (
+              <div className="text-center py-12">
+                <p className="text-red-600 font-medium mb-2">Failed to load products</p>
+                <p className="text-slate-500 text-sm mb-4">There was an error fetching your products. Please try refreshing.</p>
+                <Button onClick={handleRefresh} disabled={refreshMutation.isPending} variant="outline">
+                  <RefreshCw className="w-4 h-4 mr-2" />
+                  Try Again
+                </Button>
               </div>
             ) : filteredProducts.length === 0 ? (
               <div className="text-center py-12">
-                <p className="text-slate-500">No products found. Try refreshing your data.</p>
+                {productsQuery.data?.length === 0 ? (
+                  <>
+                    <p className="text-slate-600 font-medium mb-2">No products in database</p>
+                    <p className="text-slate-500 text-sm mb-4">Click "Refresh Data" to fetch products from WarriorPlus</p>
+                    <Button onClick={handleRefresh} disabled={refreshMutation.isPending}>
+                      <RefreshCw className="w-4 h-4 mr-2" />
+                      Refresh Now
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-slate-600 font-medium mb-2">No products match your filters</p>
+                    <p className="text-slate-500 text-sm">Try adjusting your category or search query</p>
+                  </>
+                )}
               </div>
             ) : (
               <div className="overflow-x-auto">

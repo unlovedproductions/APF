@@ -125,15 +125,32 @@ export default function Bookmarks() {
           <CardContent>
             {bookmarksQuery.isLoading ? (
               <div className="flex items-center justify-center py-12">
-                <Loader2 className="w-6 h-6 animate-spin text-slate-400" />
+                <div className="text-center">
+                  <Loader2 className="w-6 h-6 animate-spin text-slate-400 mx-auto mb-2" />
+                  <p className="text-slate-500 text-sm">Loading bookmarks...</p>
+                </div>
+              </div>
+            ) : bookmarksQuery.isError ? (
+              <div className="text-center py-12">
+                <p className="text-red-600 font-medium mb-2">Failed to load bookmarks</p>
+                <p className="text-slate-500 text-sm">There was an error loading your saved products</p>
               </div>
             ) : filteredBookmarks.length === 0 ? (
               <div className="text-center py-12">
-                <p className="text-slate-500">
-                  {bookmarksQuery.data?.length === 0
-                    ? "No bookmarks yet. Start saving products from the discovery page!"
-                    : "No bookmarks match this filter."}
-                </p>
+                {bookmarksQuery.data?.length === 0 ? (
+                  <>
+                    <p className="text-slate-600 font-medium mb-2">No bookmarks yet</p>
+                    <p className="text-slate-500 text-sm mb-4">Start saving products from the discovery page to track your hidden gems</p>
+                    <Button asChild>
+                      <a href="/">Go to Discovery</a>
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-slate-600 font-medium mb-2">No bookmarks match this filter</p>
+                    <p className="text-slate-500 text-sm">Try selecting a different status</p>
+                  </>
+                )}
               </div>
             ) : (
               <div className="overflow-x-auto">
