@@ -38,7 +38,7 @@
 - [x] Display sales metrics and hidden gem score breakdown
 - [x] Create bookmark button (add/remove)
 - [x] Show bookmark status (interested, researching, promoting, archived)
-- [ ] Create bookmarks list view (separate page)
+- [x] Create bookmarks list view (separate page)
 
 ## Phase 6: Frontend - Data Management
 - [x] Create API credentials setup page
@@ -50,6 +50,7 @@
 ## Phase 7: Testing & Polish
 - [x] Write vitest tests for Hidden Gem scoring algorithm
 - [x] All tests passing
+- [x] Add navigation between pages (Discovery and Bookmarks)
 - [ ] Test product filtering and search (manual)
 - [ ] Test bookmark functionality (manual)
 - [ ] Handle edge cases (no API key, no products, network errors)
