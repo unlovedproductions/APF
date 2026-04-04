@@ -17,7 +17,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { BookmarkCheck, Bookmark, Copy, ExternalLink, Loader2 } from "lucide-react";
+import { BookmarkCheck, Bookmark, Copy, ExternalLink, Loader2, Download, Send } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 
@@ -96,6 +96,82 @@ export function ProductDetailModal({ productId, open, onOpenChange }: ProductDet
       navigator.clipboard.writeText(product.affiliateLink);
       toast.success("Affiliate link copied!");
     }
+  };
+
+  const exportToShadowCast = () => {
+    if (!product) return;
+
+    const shadowCastData = {
+      product_name: product.name,
+      niche: product.category,
+      key_features: product.description
+        ? product.description.split(/[,;.]/).map(f => f.trim()).filter(f => f && f.length > 0).slice(0, 5)
+        : [],
+      affiliate_link: product.affiliateLink || "[YOUR_AFFILIATE_LINK]",
+      keywords: product.keywords ? (typeof product.keywords === 'string' ? JSON.parse(product.keywords) : product.keywords) : [],
+      product_category: product.platform || product.category,
+      competitors: product.vendor ? [product.vendor] : [],
+      discount_info: product.commissionRate ? `${product.commissionRate}% commission` : "",
+      unique_selling_point: product.hiddenGemScore ? `Hidden Gem Score: ${Number(product.hiddenGemScore).toFixed(1)}/50` : "",
+      content_style: "honest_review",
+      price: "$49.99",
+      target_audience: "General consumers",
+      coupon_code: "",
+      common_complaints: "",
+      common_praises: "",
+      who_not_for: "",
+      series_name: "",
+      price_comparison: "",
+    };
+
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
+    const filename = `shadowcast_import_${timestamp}.json`;
+    const dataStr = JSON.stringify([shadowCastData], null, 2);
+    const dataBlob = new Blob([dataStr], { type: 'application/json' });
+    const url = URL.createObjectURL(dataBlob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+
+    toast.success("Product exported to ShadowCast JSON!");
+  };
+
+  const sendToShadowCast = () => {
+    if (!product) return;
+
+    const shadowCastData = {
+      product_name: product.name,
+      niche: product.category,
+      key_features: product.description
+        ? product.description.split(/[,;.]/).map(f => f.trim()).filter(f => f && f.length > 0).slice(0, 5)
+        : [],
+      affiliate_link: product.affiliateLink || "[YOUR_AFFILIATE_LINK]",
+      keywords: product.keywords ? (typeof product.keywords === 'string' ? JSON.parse(product.keywords) : product.keywords) : [],
+      product_category: product.platform || product.category,
+      competitors: product.vendor ? [product.vendor] : [],
+      discount_info: product.commissionRate ? `${product.commissionRate}% commission` : "",
+      unique_selling_point: product.hiddenGemScore ? `Hidden Gem Score: ${Number(product.hiddenGemScore).toFixed(1)}/50` : "",
+      content_style: "honest_review",
+    };
+
+    const params = new URLSearchParams();
+    params.append('product_name', shadowCastData.product_name);
+    params.append('niche', shadowCastData.niche);
+    params.append('key_features', JSON.stringify(shadowCastData.key_features));
+    params.append('affiliate_link', shadowCastData.affiliate_link);
+    params.append('keywords', JSON.stringify(shadowCastData.keywords));
+    params.append('product_category', shadowCastData.product_category);
+    params.append('competitors', JSON.stringify(shadowCastData.competitors));
+    params.append('discount_info', shadowCastData.discount_info);
+    params.append('unique_selling_point', shadowCastData.unique_selling_point);
+    params.append('content_style', shadowCastData.content_style);
+
+    window.open(`http://localhost:8000?${params.toString()}`, '_blank');
+    toast.success("Opening ShadowCast with product data...");
   };
 
   // Load current bookmark status when modal opens
@@ -266,6 +342,33 @@ export function ProductDetailModal({ productId, open, onOpenChange }: ProductDet
               </CardContent>
             </Card>
           )}
+
+          {/* Export to ShadowCast Section */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Export to ShadowCast</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <p className="text-sm text-slate-600">Export this product to ShadowCast for video generation.</p>
+              <div className="flex gap-2">
+                <Button
+                  className="flex-1"
+                  variant="outline"
+                  onClick={exportToShadowCast}
+                >
+                  <Download className="w-4 h-4 mr-2" />
+                  Download JSON
+                </Button>
+                <Button
+                  className="flex-1"
+                  onClick={sendToShadowCast}
+                >
+                  <Send className="w-4 h-4 mr-2" />
+                  Send to ShadowCast
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
 
           {/* Bookmark Section */}
           <Card>

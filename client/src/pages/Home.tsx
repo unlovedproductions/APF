@@ -19,7 +19,7 @@ import {
 } from "@/components/ui/table";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, RefreshCw, Search } from "lucide-react";
+import { Loader2, RefreshCw, Search, Download } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import { ProductDetailModal } from "@/components/ProductDetailModal";
@@ -49,6 +49,7 @@ export default function Home() {
   const [apiKey, setApiKey] = useState("");
   const [selectedProductId, setSelectedProductId] = useState<number | null>(null);
   const [selectedMarketplace, setSelectedMarketplace] = useState<"warriorplus" | "digistore24">("warriorplus");
+  const [selectedProducts, setSelectedProducts] = useState<Set<number>>(new Set());
 
   // tRPC queries and mutations
   const credentialsQuery = trpc.credentials.get.useQuery(
@@ -105,6 +106,71 @@ export default function Home() {
 
   const handleRefresh = () => {
     refreshMutation.mutate({ platform: selectedMarketplace });
+  };
+
+  const toggleProductSelection = (productId: number) => {
+    const newSelected = new Set(selectedProducts);
+    if (newSelected.has(productId)) {
+      newSelected.delete(productId);
+    } else {
+      newSelected.add(productId);
+    }
+    setSelectedProducts(newSelected);
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedProducts.size === filteredProducts.length) {
+      setSelectedProducts(new Set());
+    } else {
+      setSelectedProducts(new Set(filteredProducts.map(p => p.id)));
+    }
+  };
+
+  const exportSelectedToShadowCast = () => {
+    const productsToExport = filteredProducts.filter(p => selectedProducts.has(p.id));
+    if (productsToExport.length === 0) {
+      toast.error("Please select products to export");
+      return;
+    }
+
+    const shadowCastProducts = productsToExport.map(product => ({
+      product_name: product.name,
+      niche: product.category,
+      key_features: product.description
+        ? product.description.split(/[,;.]/).map(f => f.trim()).filter(f => f && f.length > 0).slice(0, 5)
+        : [],
+      affiliate_link: product.affiliateLink || "[YOUR_AFFILIATE_LINK]",
+      keywords: product.keywords ? (typeof product.keywords === 'string' ? JSON.parse(product.keywords) : product.keywords) : [],
+      product_category: product.platform || product.category,
+      competitors: product.vendor ? [product.vendor] : [],
+      discount_info: product.commissionRate ? `${product.commissionRate}% commission` : "",
+      unique_selling_point: product.hiddenGemScore ? `Hidden Gem Score: ${Number(product.hiddenGemScore).toFixed(1)}/50` : "",
+      content_style: "honest_review",
+      price: "$49.99",
+      target_audience: "General consumers",
+      coupon_code: "",
+      common_complaints: "",
+      common_praises: "",
+      who_not_for: "",
+      series_name: "",
+      price_comparison: "",
+    }));
+
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
+    const filename = `shadowcast_import_${timestamp}.json`;
+    const dataStr = JSON.stringify(shadowCastProducts, null, 2);
+    const dataBlob = new Blob([dataStr], { type: 'application/json' });
+    const url = URL.createObjectURL(dataBlob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+
+    toast.success(`Exported ${productsToExport.length} products to ShadowCast JSON!`);
+    setSelectedProducts(new Set());
   };
 
   // Filter and sort products
@@ -323,7 +389,7 @@ export default function Home() {
               </Select>
             </div>
 
-            <div className="flex gap-2">
+            <div className="flex gap-2 flex-wrap">
               <Button
                 onClick={handleRefresh}
                 disabled={refreshMutation.isPending}
@@ -342,6 +408,16 @@ export default function Home() {
                   </>
                 )}
               </Button>
+              {selectedProducts.size > 0 && (
+                <Button
+                  onClick={exportSelectedToShadowCast}
+                  variant="outline"
+                  className="flex-1 md:flex-none"
+                >
+                  <Download className="w-4 h-4 mr-2" />
+                  Export {selectedProducts.size} to ShadowCast
+                </Button>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -396,6 +472,14 @@ export default function Home() {
                 <Table>
                   <TableHeader>
                     <TableRow>
+                      <TableHead className="w-10">
+                        <input
+                          type="checkbox"
+                          checked={selectedProducts.size === filteredProducts.length && filteredProducts.length > 0}
+                          onChange={toggleSelectAll}
+                          className="rounded"
+                        />
+                      </TableHead>
                       <TableHead>Product Name</TableHead>
                       <TableHead>Category</TableHead>
                       <TableHead className="text-right">Sales</TableHead>
@@ -406,8 +490,16 @@ export default function Home() {
                   </TableHeader>
                   <TableBody>
                     {filteredProducts.map((product) => (
-                      <TableRow key={product.id} className="hover:bg-slate-50 cursor-pointer">
-                        <TableCell className="font-medium">
+                      <TableRow key={product.id} className="hover:bg-slate-50">
+                        <TableCell className="w-10">
+                          <input
+                            type="checkbox"
+                            checked={selectedProducts.has(product.id)}
+                            onChange={() => toggleProductSelection(product.id)}
+                            className="rounded"
+                          />
+                        </TableCell>
+                        <TableCell className="font-medium cursor-pointer" onClick={() => setSelectedProductId(product.id)}>
                           <div>
                             <p className="font-semibold text-slate-900">{product.name}</p>
                             <p className="text-sm text-slate-500">{product.vendor}</p>
