@@ -6,6 +6,8 @@ import { z } from "zod";
 import * as db from "./db";
 import { fetchAndProcessWarriorPlusOffers } from "./warriorplus";
 import { fetchAndProcessDigistore24Products } from "./digistore24";
+import { fetchAndProcessClickBankProducts } from "./clickbank";
+import { fetchAndProcessShareASale } from "./shareasale";
 import { TRPCError } from "@trpc/server";
 
 export const appRouter = router({
@@ -25,7 +27,7 @@ export const appRouter = router({
   credentials: router({
     save: protectedProcedure
       .input(z.object({
-        platform: z.enum(["warriorplus", "digistore24"]),
+        platform: z.enum(["warriorplus", "digistore24", "clickbank", "shareasale"]),
         apiKey: z.string().min(1, "API key is required"),
       }))
       .mutation(async ({ input, ctx }) => {
@@ -43,7 +45,7 @@ export const appRouter = router({
 
     get: protectedProcedure
       .input(z.object({
-        platform: z.enum(["warriorplus", "digistore24"]),
+        platform: z.enum(["warriorplus", "digistore24", "clickbank", "shareasale"]),
       }))
       .query(async ({ input, ctx }) => {
         try {
@@ -64,7 +66,7 @@ export const appRouter = router({
   products: router({
     list: protectedProcedure
       .input(z.object({
-        platform: z.enum(["warriorplus", "digistore24"]),
+        platform: z.enum(["warriorplus", "digistore24", "clickbank", "shareasale"]),
         limit: z.number().min(1).max(100).default(50),
         offset: z.number().min(0).default(0),
       }))
@@ -83,7 +85,7 @@ export const appRouter = router({
 
     search: protectedProcedure
       .input(z.object({
-        platform: z.enum(["warriorplus", "digistore24"]),
+        platform: z.enum(["warriorplus", "digistore24", "clickbank", "shareasale"]),
         query: z.string().min(1),
       }))
       .query(async ({ input, ctx }) => {
@@ -101,7 +103,7 @@ export const appRouter = router({
 
     getByCategory: protectedProcedure
       .input(z.object({
-        platform: z.enum(["warriorplus", "digistore24"]),
+        platform: z.enum(["warriorplus", "digistore24", "clickbank", "shareasale"]),
         category: z.string().min(1),
       }))
       .query(async ({ input, ctx }) => {
@@ -142,7 +144,7 @@ export const appRouter = router({
 
     refresh: protectedProcedure
       .input(z.object({
-        platform: z.enum(["warriorplus", "digistore24"]),
+        platform: z.enum(["warriorplus", "digistore24", "clickbank", "shareasale"]),
       }))
       .mutation(async ({ input, ctx }) => {
         try {
@@ -162,6 +164,20 @@ export const appRouter = router({
           } else if (input.platform === "digistore24") {
             // Note: Digistore24 doesn't require API key for marketplace scraping
             processedProducts = await fetchAndProcessDigistore24Products();
+          } else if (input.platform === "clickbank") {
+            // Note: ClickBank uses public feed or credentials depending on depth
+            processedProducts = await fetchAndProcessClickBankProducts();
+          } else if (input.platform === "shareasale") {
+            // Note: ShareASale requires affiliateId, token, and secretKey (passed as apiKey in this context for now)
+            // In a real scenario, apiKey would be a JSON string or we'd have multiple fields
+            const [affiliateId, token, secretKey] = credential.apiKey.split(":");
+            if (!affiliateId || !token || !secretKey) {
+              throw new TRPCError({
+                code: "BAD_REQUEST",
+                message: "ShareASale credentials must be in format affiliateId:token:secretKey",
+              });
+            }
+            processedProducts = await fetchAndProcessShareASale(affiliateId, token, secretKey);
           } else {
             throw new TRPCError({
               code: "BAD_REQUEST",

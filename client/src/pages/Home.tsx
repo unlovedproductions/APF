@@ -48,7 +48,7 @@ export default function Home() {
   const [showApiKeySetup, setShowApiKeySetup] = useState(false);
   const [apiKey, setApiKey] = useState("");
   const [selectedProductId, setSelectedProductId] = useState<number | null>(null);
-  const [selectedMarketplace, setSelectedMarketplace] = useState<"warriorplus" | "digistore24">("warriorplus");
+  const [selectedMarketplace, setSelectedMarketplace] = useState<"warriorplus" | "digistore24" | "clickbank" | "shareasale">("warriorplus");
   const [selectedProducts, setSelectedProducts] = useState<Set<number>>(new Set());
 
   // tRPC queries and mutations
@@ -59,7 +59,7 @@ export default function Home() {
 
   const productsQuery = trpc.products.list.useQuery(
     { platform: selectedMarketplace, limit: 100 },
-    { enabled: isAuthenticated && (selectedMarketplace === "digistore24" || !!credentialsQuery.data) }
+    { enabled: isAuthenticated && (selectedMarketplace === "digistore24" || selectedMarketplace === "clickbank" || !!credentialsQuery.data) }
   );
 
   const refreshMutation = trpc.products.refresh.useMutation({
@@ -85,10 +85,12 @@ export default function Home() {
   });
 
   const handleSaveApiKey = () => {
-    if (selectedMarketplace === "digistore24") {
-      toast.success("Digistore24 marketplace is ready to use!");
+    if (selectedMarketplace === "digistore24" || selectedMarketplace === "clickbank") {
+      const platformName = selectedMarketplace === "digistore24" ? "Digistore24" : "ClickBank";
+      toast.success(`${platformName} marketplace is ready to use!`);
+      // For ClickBank, we can still save a dummy key to mark it as active in the DB
+      saveCredentialsMutation.mutate({ platform: selectedMarketplace, apiKey: "PUBLIC_FEED" });
       setShowApiKeySetup(false);
-      credentialsQuery.refetch();
       return;
     }
     if (!apiKey.trim()) {
@@ -99,7 +101,7 @@ export default function Home() {
   };
 
   const handleMarketplaceChange = (value: string) => {
-    setSelectedMarketplace(value as "warriorplus" | "digistore24");
+    setSelectedMarketplace(value as "warriorplus" | "digistore24" | "clickbank" | "shareasale");
     setShowApiKeySetup(false);
     setApiKey("");
   };
@@ -249,6 +251,8 @@ export default function Home() {
                 <SelectContent>
                   <SelectItem value="warriorplus">WarriorPlus</SelectItem>
                   <SelectItem value="digistore24">Digistore24</SelectItem>
+                  <SelectItem value="clickbank">ClickBank</SelectItem>
+                  <SelectItem value="shareasale">ShareASale</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -276,10 +280,25 @@ export default function Home() {
               </div>
             )}
 
-            {selectedMarketplace === "digistore24" && (
+            {selectedMarketplace === "shareasale" && (
+              <div>
+                <label className="text-sm font-medium mb-2 block">ShareASale Credentials</label>
+                <Input
+                  type="password"
+                  placeholder="affiliateId:token:secretKey"
+                  value={apiKey}
+                  onChange={(e) => setApiKey(e.target.value)}
+                />
+                <p className="text-xs text-slate-500 mt-2">
+                  Format: <strong>affiliateId:token:secretKey</strong>. Get these from your ShareASale API settings.
+                </p>
+              </div>
+            )}
+
+            {(selectedMarketplace === "digistore24" || selectedMarketplace === "clickbank") && (
               <div className="bg-blue-50 border border-blue-200 rounded p-3">
                 <p className="text-sm text-blue-900">
-                  Digistore24 marketplace is ready to use. No API key required.
+                  {selectedMarketplace === "digistore24" ? "Digistore24" : "ClickBank"} marketplace is ready to use. No API key required for public data.
                 </p>
               </div>
             )}
