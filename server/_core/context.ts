@@ -12,12 +12,17 @@ export async function createContext(
   opts: CreateExpressContextOptions
 ): Promise<TrpcContext> {
   let user: User | null = null;
+  const serviceKey = opts.req.headers["x-service-key"];
+  const internalSecret = process.env.INTERNAL_SERVICE_SECRET;
 
-  try {
-    user = await sdk.authenticateRequest(opts.req);
-  } catch (error) {
-    // Authentication is optional for public procedures.
-    user = null;
+  if (serviceKey && internalSecret && serviceKey === internalSecret) {
+    user = { id: 0, openId: "system", role: "admin" } as User;
+  } else {
+    try {
+      user = await sdk.authenticateRequest(opts.req);
+    } catch (error) {
+      user = null;
+    }
   }
 
   return {
