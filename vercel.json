@@ -1,9 +1,8 @@
 {
   "version": 2,
-  "installCommand": "pnpm install",
-  "buildCommand": "pnpm build",
-  "outputDirectory": "dist/public",
   "framework": "vite",
+  "buildCommand": "npm install -g pnpm && pnpm install && pnpm build",
+  "outputDirectory": "dist/public",
   "rewrites": [
     { "source": "/api/(.*)", "destination": "server/_core/index.ts" },
     { "source": "/(.*)", "destination": "/$1" }
