@@ -148,9 +148,13 @@ export const appRouter = router({
       }))
       .mutation(async ({ input, ctx }) => {
         try {
-          // Get API credentials
-          const credential = await db.getActiveApiCredential(ctx.user.id, input.platform);
-          if (!credential) {
+          // Public marketplaces do not need stored API credentials.
+          const publicPlatforms = ["clickbank"];
+          const credential = publicPlatforms.includes(input.platform)
+            ? await db.getActiveApiCredential(ctx.user.id, input.platform)
+            : await db.getActiveApiCredential(ctx.user.id, input.platform);
+
+          if (!credential && !publicPlatforms.includes(input.platform)) {
             throw new TRPCError({
               code: "BAD_REQUEST",
               message: `No API credentials found for ${input.platform}. Please add your API key first.`,
@@ -160,17 +164,16 @@ export const appRouter = router({
           // Fetch and process products based on platform
           let processedProducts;
           if (input.platform === "warriorplus") {
-            processedProducts = await fetchAndProcessWarriorPlusOffers(credential.apiKey);
+            processedProducts = await fetchAndProcessWarriorPlusOffers(credential!.apiKey);
           } else if (input.platform === "digistore24") {
-            // Note: Digistore24 doesn't require API key for marketplace scraping
-            processedProducts = await fetchAndProcessDigistore24Products();
+            console.log("[Products] Refreshing Digistore24 public marketplace");
+            processedProducts = await fetchAndProcessDigistore24Products(credential?.apiKey);
           } else if (input.platform === "clickbank") {
-            // Note: ClickBank uses public feed or credentials depending on depth
+            console.log("[Products] Refreshing ClickBank public marketplace/feed");
             processedProducts = await fetchAndProcessClickBankProducts();
           } else if (input.platform === "shareasale") {
-            // Note: ShareASale requires affiliateId, token, and secretKey (passed as apiKey in this context for now)
-            // In a real scenario, apiKey would be a JSON string or we'd have multiple fields
-            const [affiliateId, token, secretKey] = credential.apiKey.split(":");
+            // Note: ShareASale requires affiliateId, token, and secretKey.
+            const [affiliateId, token, secretKey] = credential!.apiKey.split(":");
             if (!affiliateId || !token || !secretKey) {
               throw new TRPCError({
                 code: "BAD_REQUEST",

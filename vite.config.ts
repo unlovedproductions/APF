@@ -1,4 +1,3 @@
-import { jsxLocPlugin } from "@builder.io/vite-plugin-jsx-loc";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import fs from "node:fs";
@@ -92,8 +91,7 @@ function vitePluginManusDebugCollector(): Plugin {
               defer: true,
             },
             injectTo: "head",
-          },
-        ],
+          }],
       };
     },
 
@@ -150,7 +148,7 @@ function vitePluginManusDebugCollector(): Plugin {
   };
 }
 
-const plugins = [react(), tailwindcss(), jsxLocPlugin(), vitePluginManusRuntime(), vitePluginManusDebugCollector()];
+const plugins = [react(), tailwindcss(), vitePluginManusRuntime(), vitePluginManusDebugCollector()];
 
 export default defineConfig({
   plugins,
@@ -177,8 +175,7 @@ export default defineConfig({
       ".manuscomputer.ai",
       ".manusvm.computer",
       "localhost",
-      "127.0.0.1",
-    ],
+      "127.0.0.1"],
     fs: {
       strict: true,
       deny: ["**/.*"],

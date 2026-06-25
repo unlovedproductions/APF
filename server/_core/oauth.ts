@@ -10,6 +10,40 @@ function getQueryParam(req: Request, key: string): string | undefined {
 }
 
 export function registerOAuthRoutes(app: Express) {
+
+  // Local development login route.
+  // This avoids requiring Manus OAuth during local Pop!_OS development.
+  app.get("/api/oauth/login", async (req: Request, res: Response) => {
+    const openId = process.env.OWNER_OPEN_ID || "local-dev-owner";
+    const name = process.env.LOCAL_DEV_USER_NAME || "Local Developer";
+
+    try {
+      await db.upsertUser({
+        openId,
+        name,
+        email: "local-dev@example.test",
+        loginMethod: "local",
+        lastSignedIn: new Date(),
+      });
+
+      const sessionToken = await sdk.createSessionToken(openId, {
+        name,
+        expiresInMs: ONE_YEAR_MS,
+      });
+
+      const cookieOptions = getSessionCookieOptions(req);
+      res.cookie(COOKIE_NAME, sessionToken, {
+        ...cookieOptions,
+        maxAge: ONE_YEAR_MS,
+      });
+
+      res.redirect(302, "/");
+    } catch (error) {
+      console.error("[OAuth] Local dev login failed", error);
+      res.status(500).json({ error: "Local dev login failed" });
+    }
+  });
+
   app.get("/api/oauth/callback", async (req: Request, res: Response) => {
     const code = getQueryParam(req, "code");
     const state = getQueryParam(req, "state");

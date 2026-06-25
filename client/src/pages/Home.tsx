@@ -40,6 +40,52 @@ const CATEGORIES = [
   "Finance",
 ];
 
+const MARKETPLACES = {
+  warriorplus: {
+    label: "WarriorPlus",
+    requiresApiKey: true,
+    helper: "Requires WarriorPlus API key",
+  },
+  digistore24: {
+    label: "Digistore24",
+    requiresApiKey: false,
+    helper: "No API key needed - public marketplace scraping enabled",
+  },
+  clickbank: {
+    label: "ClickBank",
+    requiresApiKey: false,
+    helper: "No API key needed - public marketplace/feed discovery enabled",
+  },
+  shareasale: {
+    label: "ShareASale",
+    requiresApiKey: true,
+    helper: "Requires affiliateId:token:secretKey",
+  },
+} as const;
+
+type Marketplace = keyof typeof MARKETPLACES;
+
+
+function getHiddenGemScore(product: any): number {
+  const score = Number(product?.hiddenGemScore ?? 0);
+  if (!Number.isFinite(score)) return 0;
+  return Math.max(0, Math.min(100, score));
+}
+
+function getHiddenGemLabel(score: number): string {
+  if (score >= 80) return "Excellent Gem";
+  if (score >= 65) return "Strong Gem";
+  if (score >= 45) return "Possible Gem";
+  return "Low Priority";
+}
+
+function getHiddenGemBadgeClass(score: number): string {
+  if (score >= 80) return "bg-emerald-100 text-emerald-800 border-emerald-200";
+  if (score >= 65) return "bg-green-100 text-green-800 border-green-200";
+  if (score >= 45) return "bg-blue-100 text-blue-800 border-blue-200";
+  return "bg-slate-100 text-slate-800 border-slate-200";
+}
+
 export default function Home() {
   const { user, isAuthenticated } = useAuth();
   const [selectedCategory, setSelectedCategory] = useState("All Categories");
@@ -48,7 +94,7 @@ export default function Home() {
   const [showApiKeySetup, setShowApiKeySetup] = useState(false);
   const [apiKey, setApiKey] = useState("");
   const [selectedProductId, setSelectedProductId] = useState<number | null>(null);
-  const [selectedMarketplace, setSelectedMarketplace] = useState<"warriorplus" | "digistore24" | "clickbank" | "shareasale">("warriorplus");
+  const [selectedMarketplace, setSelectedMarketplace] = useState<Marketplace>("digistore24");
   const [selectedProducts, setSelectedProducts] = useState<Set<number>>(new Set());
 
   // tRPC queries and mutations
@@ -64,7 +110,7 @@ export default function Home() {
 
   const refreshMutation = trpc.products.refresh.useMutation({
     onSuccess: () => {
-      toast.success(`${selectedMarketplace === "warriorplus" ? "WarriorPlus" : "Digistore24"} products refreshed successfully!`);
+      toast.success(`${MARKETPLACES[selectedMarketplace].label} products refreshed successfully!`);
       productsQuery.refetch();
     },
     onError: (error) => {
@@ -85,10 +131,8 @@ export default function Home() {
   });
 
   const handleSaveApiKey = () => {
-    if (selectedMarketplace === "digistore24" || selectedMarketplace === "clickbank") {
-      const platformName = selectedMarketplace === "digistore24" ? "Digistore24" : "ClickBank";
-      toast.success(`${platformName} marketplace is ready to use!`);
-      // For ClickBank, we can still save a dummy key to mark it as active in the DB
+    if (!MARKETPLACES[selectedMarketplace].requiresApiKey) {
+      toast.success(`${MARKETPLACES[selectedMarketplace].label} marketplace is ready to use!`);
       saveCredentialsMutation.mutate({ platform: selectedMarketplace, apiKey: "PUBLIC_FEED" });
       setShowApiKeySetup(false);
       return;
@@ -101,7 +145,7 @@ export default function Home() {
   };
 
   const handleMarketplaceChange = (value: string) => {
-    setSelectedMarketplace(value as "warriorplus" | "digistore24" | "clickbank" | "shareasale");
+    setSelectedMarketplace(value as Marketplace);
     setShowApiKeySetup(false);
     setApiKey("");
   };
@@ -217,7 +261,7 @@ export default function Home() {
           </CardHeader>
           <CardContent>
             <p className="text-sm text-slate-600 mb-4">
-              Sign in to start finding high-potential affiliate products from WarriorPlus.
+              Sign in to start finding high-potential affiliate products from multiple marketplaces.
             </p>
             <Button className="w-full" onClick={() => window.location.href = "/api/oauth/login"}>
               Sign In
@@ -234,10 +278,10 @@ export default function Home() {
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100 p-4">
         <Card className="w-full max-w-md">
           <CardHeader>
-            <CardTitle>Connect {selectedMarketplace === "warriorplus" ? "WarriorPlus" : "Digistore24"}</CardTitle>
+            <CardTitle>Connect {MARKETPLACES[selectedMarketplace].label}</CardTitle>
             <CardDescription>
-              {selectedMarketplace === "warriorplus"
-                ? "Add your API key to get started"
+              {MARKETPLACES[selectedMarketplace].requiresApiKey
+                ? "Add your API credentials to get started"
                 : "Ready to discover products"}
             </CardDescription>
           </CardHeader>
@@ -298,7 +342,7 @@ export default function Home() {
             {(selectedMarketplace === "digistore24" || selectedMarketplace === "clickbank") && (
               <div className="bg-blue-50 border border-blue-200 rounded p-3">
                 <p className="text-sm text-blue-900">
-                  {selectedMarketplace === "digistore24" ? "Digistore24" : "ClickBank"} marketplace is ready to use. No API key required for public data.
+                  {MARKETPLACES[selectedMarketplace].label} marketplace is ready to use. No API key required for public data.
                 </p>
               </div>
             )}
@@ -350,14 +394,14 @@ export default function Home() {
                   <SelectContent>
                     <SelectItem value="warriorplus">WarriorPlus</SelectItem>
                     <SelectItem value="digistore24">Digistore24</SelectItem>
+                    <SelectItem value="clickbank">ClickBank</SelectItem>
+                    <SelectItem value="shareasale">ShareASale</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
               <div className="flex-1">
                 <p className="text-xs text-slate-600 mt-8">
-                  {selectedMarketplace === "warriorplus"
-                    ? "Requires WarriorPlus API key"
-                    : "No API key needed - marketplace scraping enabled"}
+                  {MARKETPLACES[selectedMarketplace].helper}
                 </p>
               </div>
             </div>
@@ -473,7 +517,7 @@ export default function Home() {
                 {productsQuery.data?.length === 0 ? (
                   <>
                     <p className="text-slate-600 font-medium mb-2">No products in database</p>
-                    <p className="text-slate-500 text-sm mb-4">Click "Refresh Data" to fetch products from WarriorPlus</p>
+                    <p className="text-slate-500 text-sm mb-4">Click "Refresh Data" to fetch products from the selected marketplace</p>
                     <Button onClick={handleRefresh} disabled={refreshMutation.isPending}>
                       <RefreshCw className="w-4 h-4 mr-2" />
                       Refresh Now
@@ -518,14 +562,31 @@ export default function Home() {
                             className="rounded"
                           />
                         </TableCell>
-                        <TableCell className="font-medium cursor-pointer" onClick={() => setSelectedProductId(product.id)}>
-                          <div>
+                        <TableCell className="font-medium cursor-pointer min-w-[260px]" onClick={() => setSelectedProductId(product.id)}>
+                          <div className="space-y-1">
                             <p className="font-semibold text-slate-900">{product.name}</p>
                             <p className="text-sm text-slate-500">{product.vendor}</p>
+                            <div className="flex items-center gap-2">
+                              <Badge
+                                variant="outline"
+                                className={getHiddenGemBadgeClass(getHiddenGemScore(product))}
+                              >
+                                Hidden Gem: {getHiddenGemScore(product).toFixed(0)}/100
+                              </Badge>
+                              <span className="text-xs text-slate-500">
+                                {getHiddenGemLabel(getHiddenGemScore(product))}
+                              </span>
+                            </div>
                           </div>
                         </TableCell>
-                        <TableCell>
-                          <Badge variant="outline">{product.category}</Badge>
+                        <TableCell className="max-w-[260px]">
+                          <Badge
+                            variant="outline"
+                            title={String(product.category || "")}
+                            className="max-w-[240px] truncate block"
+                          >
+                            {product.category}
+                          </Badge>
                         </TableCell>
                         <TableCell className="text-right font-mono text-sm">
                           {product.saleCount || 0}
@@ -535,18 +596,18 @@ export default function Home() {
                             <div className="w-16 bg-slate-200 rounded-full h-2">
                               <div
                                 className="bg-green-500 h-2 rounded-full"
-                                style={{ width: `${Math.min(Number(product.hiddenGemScore) * 2, 100)}%` }}
+                                style={{ width: `${getHiddenGemScore(product)}%` }}
                               />
                             </div>
                             <span className="font-semibold text-slate-900 w-8 text-right">
-                              {Number(product.hiddenGemScore).toFixed(0)}
+                              {getHiddenGemScore(product).toFixed(0)}
                             </span>
                           </div>
                         </TableCell>
                         <TableCell>
-                          {Number(product.hiddenGemScore) > 60 ? (
+                          {getHiddenGemScore(product) > 60 ? (
                             <Badge className="bg-green-100 text-green-800">Hot</Badge>
-                          ) : Number(product.hiddenGemScore) > 40 ? (
+                          ) : getHiddenGemScore(product) > 40 ? (
                             <Badge className="bg-blue-100 text-blue-800">Warm</Badge>
                           ) : (
                             <Badge className="bg-slate-100 text-slate-800">Cold</Badge>
