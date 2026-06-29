@@ -4,6 +4,60 @@ import path from "node:path";
 import process from "node:process";
 import mysql from "mysql2/promise";
 
+// BEGIN UNLOVED_MYSQL_NAN_GUARD
+function unlovedSanitizeSqlValue(v) {
+  if (typeof v === "number" && !Number.isFinite(v)) return null;
+  if (Array.isArray(v)) return v.map(unlovedSanitizeSqlValue);
+  if (v && typeof v === "object") {
+    const out = {};
+    for (const [k, val] of Object.entries(v)) out[k] = unlovedSanitizeSqlValue(val);
+    return out;
+  }
+  return v;
+}
+
+function unlovedSanitizeSqlText(sql) {
+  if (typeof sql !== "string") return sql;
+  return sql.replace(/NaN/g, "NULL");
+}
+
+function unlovedPatchMysqlNanGuard(mysqlModule) {
+  if (!mysqlModule || mysqlModule.__unlovedNanGuardPatched) return;
+
+  const originalCreateConnection = mysqlModule.createConnection?.bind(mysqlModule);
+  if (!originalCreateConnection) return;
+
+  mysqlModule.createConnection = async (...args) => {
+    const conn = await originalCreateConnection(...args);
+
+    for (const method of ["query", "execute"]) {
+      if (!conn[method] || conn[method].__unlovedNanGuardPatched) continue;
+
+      const original = conn[method].bind(conn);
+
+      conn[method] = (sql, params, ...rest) => {
+        return original(
+          unlovedSanitizeSqlText(sql),
+          unlovedSanitizeSqlValue(params),
+          ...rest.map(unlovedSanitizeSqlValue)
+        );
+      };
+
+      conn[method].__unlovedNanGuardPatched = true;
+    }
+
+    return conn;
+  };
+
+  mysqlModule.__unlovedNanGuardPatched = true;
+}
+
+if (typeof mysql !== "undefined") {
+  unlovedPatchMysqlNanGuard(mysql);
+}
+// END UNLOVED_MYSQL_NAN_GUARD
+
+
 function loadEnv(file = ".env") {
   if (!fs.existsSync(file)) return;
 

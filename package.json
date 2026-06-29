@@ -26,7 +26,14 @@
     "digistore24:intake": "node scripts/digistore24-intake.mjs",
     "digistore24:browser": "node scripts/digistore24-browser-collector.mjs",
     "digistore24:browser:health": "node --check scripts/digistore24-browser-collector.mjs",
-    "digistore24:login": "node scripts/digistore24-login-session.mjs"
+    "digistore24:login": "node scripts/digistore24-login-session.mjs",
+    "score:explain": "node scripts/marketplace-score-backfill.mjs --dry-run --limit 25",
+    "score:backfill": "node scripts/marketplace-score-backfill.mjs",
+    "score:digistore24": "node scripts/marketplace-score-backfill.mjs --marketplace digistore24",
+    "score:digistore24:explain": "node scripts/marketplace-score-backfill.mjs --marketplace digistore24 --dry-run --limit 25",
+    "score:clickbank:explain": "node scripts/marketplace-score-backfill.mjs --marketplace clickbank --dry-run --limit 25",
+    "digistore24:guided": "node scripts/digistore24-guided-collector.mjs",
+    "digistore24:guided:firefox": "node scripts/digistore24-guided-collector.mjs --browser firefox"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1075.0",
