@@ -5,10 +5,10 @@ import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
 import { z } from "zod";
 import * as db from "./db";
 import { fetchAndProcessWarriorPlusOffers } from "./warriorplus";
-import { fetchAndProcessDigistore24Products } from "./digistore24";
 import { fetchAndProcessClickBankProducts } from "./clickbank";
 import { fetchAndProcessShareASale } from "./shareasale";
 import { TRPCError } from "@trpc/server";
+import { exportProductsToShadowCast, runDigistore24RefreshWorkflow, runPostRefreshWorkflow } from "./apfWorkflows";
 
 export const appRouter = router({
   system: systemRouter,
@@ -148,6 +148,17 @@ export const appRouter = router({
       }))
       .mutation(async ({ input, ctx }) => {
         try {
+          // Digistore24 requires an authenticated browser session, so it uses
+          // the local Firefox workflow instead of the placeholder API importer.
+          if (input.platform === "digistore24") {
+            console.log("[Products] Refreshing Digistore24 through local Firefox workflow");
+            const workflow = await runDigistore24RefreshWorkflow(ctx.user.id);
+
+            await db.logDataRefresh(ctx.user.id, input.platform, "success", workflow.productsCount);
+
+            return workflow;
+          }
+
           // Public marketplaces do not need stored API credentials.
           const publicPlatforms = ["clickbank"];
           const credential = publicPlatforms.includes(input.platform)
@@ -165,9 +176,6 @@ export const appRouter = router({
           let processedProducts;
           if (input.platform === "warriorplus") {
             processedProducts = await fetchAndProcessWarriorPlusOffers(credential!.apiKey);
-          } else if (input.platform === "digistore24") {
-            console.log("[Products] Refreshing Digistore24 public marketplace");
-            processedProducts = await fetchAndProcessDigistore24Products(credential?.apiKey);
           } else if (input.platform === "clickbank") {
             console.log("[Products] Refreshing ClickBank public marketplace/feed");
             processedProducts = await fetchAndProcessClickBankProducts();
@@ -191,12 +199,15 @@ export const appRouter = router({
           // Store in database
           await db.upsertProducts(ctx.user.id, input.platform, processedProducts);
 
+          const postWorkflow = await runPostRefreshWorkflow(input.platform, ctx.user.id);
+
           // Log the refresh
           await db.logDataRefresh(ctx.user.id, input.platform, "success", processedProducts.length);
 
           return {
             success: true,
             productsCount: processedProducts.length,
+            steps: postWorkflow.steps,
           };
         } catch (error) {
           console.error("[Products] Error refreshing products:", error);
@@ -217,6 +228,22 @@ export const appRouter = router({
           throw new TRPCError({
             code: "INTERNAL_SERVER_ERROR",
             message: error instanceof Error ? error.message : "Failed to refresh products",
+          });
+        }
+      }),
+
+    exportToShadowCast: protectedProcedure
+      .input(z.object({
+        productIds: z.array(z.number()).min(1).max(100),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        try {
+          return await exportProductsToShadowCast(ctx.user.id, input.productIds);
+        } catch (error) {
+          console.error("[Products] Error exporting to ShadowCast:", error);
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: error instanceof Error ? error.message : "Failed to export products to ShadowCast",
           });
         }
       }),

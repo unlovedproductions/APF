@@ -60,6 +60,275 @@ function extractAffiliateLinkFromAnchors(anchors, affiliateId) {
   return preferred?.href || "";
 }
 
+async function extractPromolinksFromPage(page, affiliateId) {
+  const aff = clean(affiliateId).toLowerCase();
+
+  const fromDom = await page.evaluate((affArg) => {
+    const clean = v => String(v ?? "").replace(/\s+/g, " ").trim();
+    const raw = [];
+
+    for (const a of Array.from(document.querySelectorAll("a"))) {
+      raw.push(a.href || "");
+      raw.push(a.innerText || "");
+      raw.push(a.textContent || "");
+      raw.push(a.getAttribute("href") || "");
+    }
+
+    for (const input of Array.from(document.querySelectorAll("input, textarea"))) {
+      raw.push(input.value || "");
+      raw.push(input.placeholder || "");
+      raw.push(input.getAttribute("value") || "");
+    }
+
+    for (const el of Array.from(document.querySelectorAll("[data-clipboard-text], [data-copy], [data-url], [data-link]"))) {
+      raw.push(el.getAttribute("data-clipboard-text") || "");
+      raw.push(el.getAttribute("data-copy") || "");
+      raw.push(el.getAttribute("data-url") || "");
+      raw.push(el.getAttribute("data-link") || "");
+      raw.push(el.textContent || "");
+    }
+
+    raw.push(document.body?.innerText || "");
+    raw.push(document.body?.textContent || "");
+
+    const text = raw.join("\n");
+
+    const urls = [];
+
+    for (const m of text.matchAll(/https?:\/\/[^\s"'<>]+/gi)) {
+      urls.push(m[0]);
+    }
+
+    for (const m of text.matchAll(/www\.[^\s"'<>]+/gi)) {
+      urls.push("https://" + m[0]);
+    }
+
+    return Array.from(new Set(urls.map(u => u.replace(/[),.;\]]+$/g, "")))).filter(url => {
+      const u = url.toLowerCase();
+
+      return (
+        u.includes("checkout-ds24.com/redir") ||
+        u.includes(`#aff=${affArg}`) ||
+        u.includes(`?aff=${affArg}`) ||
+        u.includes(`&aff=${affArg}`) ||
+        u.includes(`affiliate=${affArg}`) ||
+        u.includes(`aff=${affArg}`) ||
+        u.includes(encodeURIComponent(`#aff=${affArg}`))
+      );
+    });
+  }, aff);
+
+  let fromClipboard = [];
+
+  try {
+    const clip = await page.evaluate(async () => {
+      if (!navigator.clipboard || !navigator.clipboard.readText) return "";
+      return await navigator.clipboard.readText();
+    });
+
+    if (clip) {
+      const urls = Array.from(String(clip).matchAll(/https?:\/\/[^\s"'<>]+/gi)).map(m => m[0]);
+      fromClipboard = urls.filter(url => {
+        const u = url.toLowerCase();
+        return (
+          u.includes("checkout-ds24.com/redir") ||
+          u.includes(`#aff=${aff}`) ||
+          u.includes(`?aff=${aff}`) ||
+          u.includes(`&aff=${aff}`) ||
+          u.includes(`aff=${aff}`)
+        );
+      });
+    }
+  } catch {}
+
+  return Array.from(new Set([...fromDom, ...fromClipboard]));
+}
+
+async function savePromoteDebug(page, productId, reason) {
+  try {
+    fs.mkdirSync("exports", { recursive: true });
+
+    const safe = String(productId || "unknown").replace(/[^a-z0-9_-]+/gi, "_");
+    const base = `exports/digistore24_promote_debug_${safe}_${reason}`;
+
+    const anchors = await page.evaluate(() =>
+      Array.from(document.querySelectorAll("a")).map(a => ({
+        text: (a.innerText || a.textContent || "").replace(/\s+/g, " ").trim(),
+        href: a.href,
+        rawHref: a.getAttribute("href")
+      }))
+    );
+
+    const fields = await page.evaluate(() =>
+      Array.from(document.querySelectorAll("input, textarea, button, [role='button'], [data-clipboard-text]")).map(el => ({
+        tag: el.tagName,
+        type: el.getAttribute("type"),
+        text: (el.innerText || el.textContent || "").replace(/\s+/g, " ").trim(),
+        value: el.value || el.getAttribute("value") || "",
+        placeholder: el.getAttribute("placeholder") || "",
+        dataClipboardText: el.getAttribute("data-clipboard-text") || "",
+        ariaLabel: el.getAttribute("aria-label") || ""
+      }))
+    );
+
+    fs.writeFileSync(`${base}.html`, await page.content());
+    fs.writeFileSync(`${base}_anchors.json`, JSON.stringify(anchors, null, 2));
+    fs.writeFileSync(`${base}_fields.json`, JSON.stringify(fields, null, 2));
+    await page.screenshot({ path: `${base}.png`, fullPage: true }).catch(() => {});
+
+    console.log("Promote debug saved:");
+    console.log(`  ${base}.html`);
+    console.log(`  ${base}.png`);
+    console.log(`  ${base}_anchors.json`);
+    console.log(`  ${base}_fields.json`);
+  } catch (err) {
+    console.warn("Could not save promote debug:", err?.message || err);
+  }
+}
+
+
+async function clickVisibleText(page, patterns, timeoutMs = 2500) {
+  for (const pattern of patterns) {
+    try {
+      const locator = page.getByText(pattern, { exact: false }).first();
+      await locator.click({ timeout: timeoutMs });
+      return String(pattern);
+    } catch {}
+  }
+
+  try {
+    const clicked = await page.evaluate((patternStrings) => {
+      const patterns = patternStrings.map(s => new RegExp(s, "i"));
+      const candidates = Array.from(document.querySelectorAll("button, a, input[type='button'], input[type='submit'], [role='button']"));
+
+      for (const el of candidates) {
+        const text = `${el.innerText || ""} ${el.textContent || ""} ${el.value || ""} ${el.ariaLabel || ""}`.replace(/\s+/g, " ").trim();
+
+        if (!text) continue;
+        if (!patterns.some(re => re.test(text))) continue;
+
+        const rect = el.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) continue;
+
+        el.click();
+        return text;
+      }
+
+      return "";
+    }, patterns.map(p => p.source || String(p)));
+
+    if (clicked) return clicked;
+  } catch {}
+
+  return "";
+}
+
+async function maybePromoteAndExtractLink(page, affiliateId) {
+  const shouldPromote =
+    hasFlag("--promote") ||
+    process.env.DIGISTORE24_AUTO_PROMOTE === "true" ||
+    process.env.DIGISTORE24_AUTO_PROMOTE === "1";
+
+  const shouldConfirm =
+    hasFlag("--confirm-promote") ||
+    process.env.DIGISTORE24_CONFIRM_PROMOTE === "true" ||
+    process.env.DIGISTORE24_CONFIRM_PROMOTE === "1";
+
+  const result = {
+    attempted: false,
+    confirmed: false,
+    affiliateLink: "",
+    status: "not_attempted",
+    clicked: []
+  };
+
+  let links = await extractPromolinksFromPage(page, affiliateId);
+  if (links.length) {
+    result.affiliateLink = links[0];
+    result.status = "approved";
+    return result;
+  }
+
+  if (!shouldPromote) {
+    result.status = "promote_disabled";
+    return result;
+  }
+
+  result.attempted = true;
+
+  for (let step = 0; step < 5; step++) {
+    links = await extractPromolinksFromPage(page, affiliateId);
+    if (links.length) break;
+
+    const clicked = await clickVisibleText(page, [
+      /copy promolink/i,
+      /copy link/i,
+      /copy/i,
+      /show promolink/i,
+      /show link/i,
+      /open promolink/i,
+      /promolink/i,
+      /promote now/i,
+      /promote/i,
+      /request promolink/i,
+      /get promolink/i,
+      /request affiliate link/i,
+      /request partnership/i,
+      /^confirm$/i,
+      /confirm/i,
+      /yes/i,
+      /i agree/i,
+      /accept/i,
+      /request now/i,
+      /request approval/i,
+      /start promoting/i
+    ], 1800);
+
+    if (clicked) {
+      result.clicked.push(clicked);
+      if (/confirm|yes|agree|accept|request|start/i.test(clicked)) {
+        result.confirmed = true;
+      }
+    }
+
+    if (shouldConfirm) {
+      try {
+        await page.evaluate(() => {
+          const boxes = Array.from(document.querySelectorAll("input[type='checkbox']"));
+          for (const box of boxes) {
+            const rect = box.getBoundingClientRect();
+            if (rect.width > 0 && rect.height > 0 && !box.checked) box.click();
+          }
+        });
+      } catch {}
+    }
+
+    await page.waitForTimeout(3000);
+  }
+
+  links = await extractPromolinksFromPage(page, affiliateId);
+
+  if (links.length) {
+    result.affiliateLink = links[0];
+    result.status = "approved";
+    return result;
+  }
+
+  const pageText = await page.locator("body").innerText({ timeout: 3000 }).catch(() => "");
+
+  if (/manual|approve|approval|request sent|pending|review/i.test(pageText)) {
+    result.status = result.confirmed ? "approval_requested" : "needs_manual_approval";
+  } else if (result.clicked.length) {
+    result.status = "promote_clicked_no_link_found";
+  } else {
+    result.status = "promote_button_not_found";
+  }
+
+  await savePromoteDebug(page, page.url().match(/detail\/(\d+)/)?.[1] || "unknown", result.status);
+
+  return result;
+}
+
 async function saveDebug(page, reason) {
   fs.mkdirSync("exports", { recursive: true });
 
@@ -88,8 +357,27 @@ async function saveDebug(page, reason) {
 }
 
 async function upsertProduct(conn, product) {
+  const [existingRows] = await conn.query(`
+    SELECT id, affiliateLink
+    FROM products
+    WHERE platform='digistore24'
+      AND platformProductId=?
+    ORDER BY
+      CASE WHEN affiliateLink IS NOT NULL AND affiliateLink != '' THEN 0 ELSE 1 END,
+      id ASC
+    LIMIT 1
+  `, [product.platformProductId]);
+
+  const existingId = existingRows?.[0]?.id || null;
+  const existingAffiliateLink = existingRows?.[0]?.affiliateLink || "";
+
+  if (!product.affiliateLink && existingAffiliateLink) {
+    product.affiliateLink = existingAffiliateLink;
+  }
+
   const scored = scoreProduct({
     ...product,
+    platform: "digistore24",
     source_count: 0,
     confidence_score: 0,
     link_status: product.affiliateLink ? "approved" : "needs_approval"
@@ -128,7 +416,37 @@ async function upsertProduct(conn, product) {
     new Date()
   ].map(v => (typeof v === "number" && !Number.isFinite(v)) ? null : v);
 
-  const [result] = await conn.query(`
+  let result = { insertId: existingId || 0 };
+
+  if (existingId) {
+    await conn.query(`
+      UPDATE products
+      SET
+        name=?,
+        vendor=?,
+        category=?,
+        keywords=?,
+        description=?,
+        affiliateLink=?,
+        hiddenGemScore=?,
+        scoreComponents=?,
+        dataFetchedAt=?,
+        lastUpdatedAt=NOW()
+      WHERE id=?
+    `, [
+      product.name,
+      product.vendor,
+      product.category,
+      JSON.stringify(product.keywords),
+      product.description,
+      product.affiliateLink || "",
+      scored.score,
+      JSON.stringify(components),
+      new Date(),
+      existingId
+    ]);
+  } else {
+    const [insertResult] = await conn.query(`
     INSERT INTO products (
       userId,
       platform,
@@ -162,6 +480,8 @@ async function upsertProduct(conn, product) {
       dataFetchedAt=VALUES(dataFetchedAt),
       lastUpdatedAt=NOW()
   `, params);
+    result = insertResult;
+  }
 
   const [rows] = await conn.query(`
     SELECT id FROM products
@@ -245,53 +565,108 @@ async function main() {
 
   console.log("Browser:", browserName);
 
-  const browser = await browserType.launch({
-    headless: false
+  const profileDir =
+    process.env.DIGISTORE24_BROWSER_PROFILE ||
+    `/home/unloved/.config/unloved-digistore24-${browserName}-profile`;
+
+  fs.mkdirSync(profileDir, { recursive: true });
+
+  console.log("Browser profile:", profileDir);
+  console.log("This profile keeps cookies/session data so Digistore24 should stay logged in between runs.");
+
+  const context = await browserType.launchPersistentContext(profileDir, {
+    headless: false,
+    viewport: { width: 1440, height: 1000 },
+    acceptDownloads: true
   });
 
-  const context = await browser.newContext({
-    viewport: { width: 1440, height: 1000 }
-  });
-
-  const page = await context.newPage();
+  let page =
+    context.pages().find(p => /digistore24/i.test(p.url())) ||
+    context.pages()[0] ||
+    await context.newPage();
   await page.goto(startUrl, { waitUntil: "domcontentloaded", timeout: 60000 }).catch(() => {});
 
-  const rl = readline.createInterface({ input, output });
-  await rl.question("After you are logged in and can see marketplace products, press Enter to collect...");
-  rl.close();
+  const autoMode = hasFlag("--auto");
+  const waitSeconds = Number(arg("--wait-seconds", process.env.DIGISTORE24_REFRESH_WAIT_SECONDS || "600"));
 
-  await page.waitForTimeout(2000);
+  async function collectDetailLinksFromPage(candidatePage) {
+    await candidatePage.waitForTimeout(1000);
 
-  // Try a few auto-scrolls to lazy-load product cards.
-  for (let i = 0; i < 8; i++) {
-    await page.mouse.wheel(0, 1400).catch(() => {});
-    await page.waitForTimeout(700);
+    // Try a few auto-scrolls to lazy-load product cards.
+    for (let i = 0; i < 8; i++) {
+      await candidatePage.mouse.wheel(0, 1400).catch(() => {});
+      await candidatePage.waitForTimeout(500);
+    }
+
+    const anchors = await candidatePage.evaluate(() =>
+      Array.from(document.querySelectorAll("a")).map(a => ({
+        text: (a.innerText || a.textContent || "").replace(/\s+/g, " ").trim(),
+        href: a.href
+      }))
+    );
+
+    const detailLinks = [];
+    const seen = new Set();
+
+    for (const a of anchors) {
+      const href = clean(a.href);
+      if (!href) continue;
+
+      const isDetail =
+        /digistore24-app\.com\/app\/[^/]+\/affiliate\/account\/marketplace\/.*\/detail\/\d+/i.test(href) ||
+        /\/affiliate\/account\/marketplace\/.*\/detail\/\d+/i.test(href);
+
+      if (!isDetail) continue;
+
+      const normalized = href.split("#")[0];
+      if (seen.has(normalized)) continue;
+      seen.add(normalized);
+      detailLinks.push({ href: normalized, text: clean(a.text) });
+    }
+
+    return detailLinks;
   }
 
-  const anchors = await page.evaluate(() =>
-    Array.from(document.querySelectorAll("a")).map(a => ({
-      text: (a.innerText || a.textContent || "").replace(/\s+/g, " ").trim(),
-      href: a.href
-    }))
-  );
+  let detailLinks = [];
 
-  const detailLinks = [];
-  const seen = new Set();
+  if (autoMode) {
+    console.log("");
+    console.log("Auto mode enabled.");
+    console.log("Log in and navigate to a marketplace listing. APF will detect product detail links automatically.");
+    console.log(`Waiting up to ${waitSeconds} seconds...`);
 
-  for (const a of anchors) {
-    const href = clean(a.href);
-    if (!href) continue;
+    const startedAt = Date.now();
 
-    const isDetail =
-      /digistore24-app\.com\/app\/[^/]+\/affiliate\/account\/marketplace\/.*\/detail\/\d+/i.test(href) ||
-      /\/affiliate\/account\/marketplace\/.*\/detail\/\d+/i.test(href);
+    while (Date.now() - startedAt < waitSeconds * 1000) {
+      const pages = context.pages();
 
-    if (!isDetail) continue;
+      for (const candidate of pages) {
+        const url = candidate.url();
+        if (!/digistore24/i.test(url)) continue;
 
-    const normalized = href.split("#")[0];
-    if (seen.has(normalized)) continue;
-    seen.add(normalized);
-    detailLinks.push({ href: normalized, text: clean(a.text) });
+        const links = await collectDetailLinksFromPage(candidate).catch(() => []);
+        if (links.length > 0) {
+          page = candidate;
+          detailLinks = links;
+          break;
+        }
+      }
+
+      if (detailLinks.length > 0) break;
+
+      console.log("Waiting for Digistore24 marketplace product links...");
+      await page.waitForTimeout(3000).catch(() => {});
+    }
+
+    if (detailLinks.length === 0) {
+      console.log("Auto mode timed out without visible product detail links.");
+    }
+  } else {
+    const rl = readline.createInterface({ input, output });
+    await rl.question("After you are logged in and can see marketplace products, press Enter to collect...");
+    rl.close();
+
+    detailLinks = await collectDetailLinksFromPage(page);
   }
 
   console.log("");
@@ -302,7 +677,7 @@ async function main() {
     console.log("");
     console.log("No products imported.");
     console.log("This means Digistore24 is using different link markup than expected, or the page was not on a marketplace listing.");
-    await browser.close();
+    await context.close();
     return;
   }
 
@@ -339,7 +714,21 @@ async function main() {
         return { title, body, anchors };
       });
 
-      const affiliateLink = extractAffiliateLinkFromAnchors(detail.anchors, affiliateId);
+      const promoteResult = await maybePromoteAndExtractLink(detailPage, affiliateId);
+      const refreshedDetail = await detailPage.evaluate(() => {
+        const txt = el => (el?.innerText || el?.textContent || "").replace(/\s+/g, " ").trim();
+
+        const anchors = Array.from(document.querySelectorAll("a")).map(a => ({
+          text: txt(a),
+          href: a.href
+        }));
+
+        return { anchors };
+      }).catch(() => ({ anchors: [] }));
+
+      const affiliateLink =
+        promoteResult.affiliateLink ||
+        extractAffiliateLinkFromAnchors(refreshedDetail.anchors || detail.anchors, affiliateId);
 
       const product = {
         userId,
@@ -363,18 +752,20 @@ async function main() {
         platformProductId,
         name: product.name,
         score: saved.score,
-        affiliate: affiliateLink ? "approved" : "needs_approval"
+        affiliate: affiliateLink ? "approved" : (promoteResult.status || "needs_approval")
       });
 
       console.log(`Imported: ${product.name}`);
       console.log(`Score: ${saved.score}`);
-      console.log(`Affiliate: ${affiliateLink ? "approved" : "needs_approval"}`);
+      console.log(`Affiliate: ${affiliateLink ? "approved" : (promoteResult.status || "needs_approval")}`);
+      if (promoteResult.clicked?.length) console.log(`Promote clicks: ${promoteResult.clicked.join(" -> ")}`);
+      if (affiliateLink) console.log(`Promolink: ${affiliateLink}`);
 
       await detailPage.close().catch(() => {});
     }
   } finally {
     await conn.end();
-    await browser.close();
+    await context.close();
   }
 
   console.log("");

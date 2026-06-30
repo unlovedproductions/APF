@@ -160,11 +160,11 @@ export function ProductDetailModal({ productId, open, onOpenChange }: ProductDet
 
     const params = new URLSearchParams();
     params.append('product_name', shadowCastData.product_name);
-    params.append('niche', shadowCastData.niche);
+    params.append('niche', shadowCastData.niche ?? '');
     params.append('key_features', JSON.stringify(shadowCastData.key_features));
     params.append('affiliate_link', shadowCastData.affiliate_link);
     params.append('keywords', JSON.stringify(shadowCastData.keywords));
-    params.append('product_category', shadowCastData.product_category);
+    params.append('product_category', shadowCastData.product_category ?? '');
     params.append('competitors', JSON.stringify(shadowCastData.competitors));
     params.append('discount_info', shadowCastData.discount_info);
     params.append('unique_selling_point', shadowCastData.unique_selling_point);

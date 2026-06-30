@@ -49,7 +49,7 @@ const MARKETPLACES = {
   digistore24: {
     label: "Digistore24",
     requiresApiKey: false,
-    helper: "No API key needed - public marketplace scraping enabled",
+    helper: "Firefox collector opens on Refresh Data; log in to Digistore24 and APF imports visible marketplace products.",
   },
   clickbank: {
     label: "ClickBank",
@@ -109,12 +109,28 @@ export default function Home() {
   );
 
   const refreshMutation = trpc.products.refresh.useMutation({
-    onSuccess: () => {
-      toast.success(`${MARKETPLACES[selectedMarketplace].label} products refreshed successfully!`);
+    onSuccess: (data: any) => {
+      const count = data?.productsCount ?? data?.importedOrUpdatedCount ?? "";
+      toast.success(`${MARKETPLACES[selectedMarketplace].label} refresh complete${count !== "" ? ` (${count} products)` : ""}.`);
       productsQuery.refetch();
     },
     onError: (error) => {
       toast.error(error.message || "Failed to refresh products");
+    },
+  });
+
+  const shadowCastExportMutation = trpc.products.exportToShadowCast.useMutation({
+    onSuccess: (data: any) => {
+      const count = data?.count ?? selectedProducts.size;
+      toast.success(`Sent ${count} product${count === 1 ? "" : "s"} to ShadowCast.`);
+      setSelectedProducts(new Set());
+
+      if (data?.firstOpenUrl) {
+        window.open(data.firstOpenUrl, "_blank", "noopener,noreferrer");
+      }
+    },
+    onError: (error) => {
+      toast.error(error.message || "Failed to export products to ShadowCast");
     },
   });
 
@@ -173,50 +189,14 @@ export default function Home() {
   };
 
   const exportSelectedToShadowCast = () => {
-    const productsToExport = filteredProducts.filter(p => selectedProducts.has(p.id));
-    if (productsToExport.length === 0) {
+    const productIds = Array.from(selectedProducts);
+
+    if (productIds.length === 0) {
       toast.error("Please select products to export");
       return;
     }
 
-    const shadowCastProducts = productsToExport.map(product => ({
-      product_name: product.name,
-      niche: product.category,
-      key_features: product.description
-        ? product.description.split(/[,;.]/).map(f => f.trim()).filter(f => f && f.length > 0).slice(0, 5)
-        : [],
-      affiliate_link: product.affiliateLink || "[YOUR_AFFILIATE_LINK]",
-      keywords: product.keywords ? (typeof product.keywords === 'string' ? JSON.parse(product.keywords) : product.keywords) : [],
-      product_category: product.platform || product.category,
-      competitors: product.vendor ? [product.vendor] : [],
-      discount_info: product.commissionRate ? `${product.commissionRate}% commission` : "",
-      unique_selling_point: product.hiddenGemScore ? `Hidden Gem Score: ${Number(product.hiddenGemScore).toFixed(1)}/50` : "",
-      content_style: "honest_review",
-      price: "$49.99",
-      target_audience: "General consumers",
-      coupon_code: "",
-      common_complaints: "",
-      common_praises: "",
-      who_not_for: "",
-      series_name: "",
-      price_comparison: "",
-    }));
-
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
-    const filename = `shadowcast_import_${timestamp}.json`;
-    const dataStr = JSON.stringify(shadowCastProducts, null, 2);
-    const dataBlob = new Blob([dataStr], { type: 'application/json' });
-    const url = URL.createObjectURL(dataBlob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = filename;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-
-    toast.success(`Exported ${productsToExport.length} products to ShadowCast JSON!`);
-    setSelectedProducts(new Set());
+    shadowCastExportMutation.mutate({ productIds });
   };
 
   // Filter and sort products
@@ -474,11 +454,21 @@ export default function Home() {
               {selectedProducts.size > 0 && (
                 <Button
                   onClick={exportSelectedToShadowCast}
+                  disabled={shadowCastExportMutation.isPending}
                   variant="outline"
                   className="flex-1 md:flex-none"
                 >
-                  <Download className="w-4 h-4 mr-2" />
-                  Export {selectedProducts.size} to ShadowCast
+                  {shadowCastExportMutation.isPending ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Sending to ShadowCast...
+                    </>
+                  ) : (
+                    <>
+                      <Download className="w-4 h-4 mr-2" />
+                      Export {selectedProducts.size} to ShadowCast
+                    </>
+                  )}
                 </Button>
               )}
             </div>

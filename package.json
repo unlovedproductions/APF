@@ -33,7 +33,17 @@
     "score:digistore24:explain": "node scripts/marketplace-score-backfill.mjs --marketplace digistore24 --dry-run --limit 25",
     "score:clickbank:explain": "node scripts/marketplace-score-backfill.mjs --marketplace clickbank --dry-run --limit 25",
     "digistore24:guided": "node scripts/digistore24-guided-collector.mjs",
-    "digistore24:guided:firefox": "node scripts/digistore24-guided-collector.mjs --browser firefox"
+    "digistore24:guided:firefox": "node scripts/digistore24-guided-collector.mjs --browser firefox",
+    "digistore24:session:check": "node scripts/digistore24-session-check.mjs",
+    "digistore24:daemon": "node scripts/digistore24-browser-daemon.mjs",
+    "digistore24:daemon:health": "node scripts/digistore24-daemon-client.mjs health",
+    "digistore24:daemon:open": "node scripts/digistore24-daemon-client.mjs open --ensure",
+    "digistore24:daemon:collect": "node scripts/digistore24-daemon-client.mjs collect --ensure",
+    "digistore24:daemon:stop": "node scripts/digistore24-daemon-client.mjs stop",
+    "local:start": "bash scripts/apf-local-start.sh",
+    "review:daemon:start": "bash scripts/start-review-enrichment-daemon.sh",
+    "review:daemon:logs": "tail -f exports/review-enrichment-daemon.log",
+    "review:daemon": "node scripts/review-enrichment-daemon.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1075.0",

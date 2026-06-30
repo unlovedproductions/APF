@@ -26,6 +26,36 @@ export function parseJson(v, fallback) {
   try { return JSON.parse(v); } catch { return fallback; }
 }
 
+function clean(v) {
+  return String(v ?? "").replace(/\s+/g, " ").trim();
+}
+
+function digistore24DetailUrlForShadowCast(product) {
+  const components = parseJson(product.scoreComponents, {}) || {};
+  const meta = components._meta || components.meta || {};
+
+  if (clean(meta.detail_url)) return clean(meta.detail_url);
+  if (clean(product.detailUrl)) return clean(product.detailUrl);
+
+  const platform = clean(product.platform).toLowerCase();
+  const pid = clean(product.platformProductId);
+
+  if ((platform.includes("digistore") || platform.includes("ds24")) && pid) {
+    return `https://www.digistore24-app.com/app/en/affiliate/account/marketplace/all/detail/${encodeURIComponent(pid)}`;
+  }
+
+  return "";
+}
+
+function shadowCastAffiliateUrl(product) {
+  const real = clean(product.affiliateLink);
+  if (real) return real;
+
+  // For products that still need vendor approval/promolink,
+  // give ShadowCast a usable product-detail URL instead of leaving the required field blank.
+  return digistore24DetailUrlForShadowCast(product);
+}
+
 export function shadowcastBaseUrl() {
   return process.env.SHADOWCAST_BASE_URL || "http://localhost:8000";
 }
@@ -138,7 +168,9 @@ export async function buildPayload(productId) {
         category: p.category || "",
         keywords: p.keywords || "",
         description: p.description || "",
-        affiliate_url: p.affiliateLink || "",
+        affiliate_url: shadowCastAffiliateUrl(p),
+        affiliate_url_status: p.affiliateLink ? "approved" : "needs_approval",
+        product_detail_url: digistore24DetailUrlForShadowCast(p),
         hidden_gem_score: p.hiddenGemScore ?? null,
         score_components: parseJson(p.scoreComponents, null),
         commission_rate: p.commissionRate ?? null,
