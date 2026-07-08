@@ -85,5 +85,6 @@
 - [x] `product_affiliate_links` backfill + synthetic promolinks for products missing live Promote
 - [x] Add missing `products.conversionRate` / `cartValue` columns for export
 - [x] ShadowCast local start + smoke path (`pnpm local:smoke-test`)
+- [x] Add missing `product_review_briefs` enrichment columns migration (`0003`)
 - [ ] Interactive Digistore Firefox login + daemon collect with live Promote (`pnpm digistore24:login` / Refresh Data) — requires user in GUI
 - [ ] Replace status=`generated` synthetic links with approved promolinks via daemon `--promote`
