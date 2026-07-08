@@ -96,6 +96,40 @@ function clamp(v, n = 2000) {
   return String(v || "").replace(/\s+/g, " ").trim().slice(0, n);
 }
 
+const REVIEW_BRIEF_COLUMNS = [
+  { name: "recommended_content_style", ddl: "ADD COLUMN recommended_content_style TEXT NULL AFTER cta_guidance" },
+  { name: "suggested_competitors", ddl: "ADD COLUMN suggested_competitors JSON NULL AFTER recommended_content_style" },
+  { name: "price_display", ddl: "ADD COLUMN price_display TEXT NULL AFTER suggested_competitors" },
+];
+
+async function ensureReviewBriefSchema(conn) {
+  const [rows] = await conn.query(`
+    SELECT COLUMN_NAME
+    FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'product_review_briefs'
+  `);
+  const existing = new Set(rows.map(r => r.COLUMN_NAME));
+
+  for (const col of REVIEW_BRIEF_COLUMNS) {
+    if (existing.has(col.name)) continue;
+    await conn.query(`ALTER TABLE product_review_briefs ${col.ddl}`);
+    console.log(`Applied schema patch: product_review_briefs.${col.name}`);
+    existing.add(col.name);
+  }
+
+  if (!REVIEW_BRIEF_COLUMNS.every(col => existing.has(col.name))) return;
+
+  const [result] = await conn.query(`
+    UPDATE review_enrichment_jobs
+    SET status='queued', next_run_at=NOW(), error_message=NULL, updated_at=NOW()
+    WHERE status='failed'
+      AND error_message LIKE '%recommended_content_style%'
+  `);
+  if (result.affectedRows) {
+    console.log(`Requeued ${result.affectedRows} failed review jobs after schema check`);
+  }
+}
+
 async function enqueueMissingProducts(conn) {
   await conn.query(`
     INSERT INTO review_enrichment_jobs (product_id, status, next_run_at)
@@ -637,6 +671,7 @@ async function main() {
   const conn = await mysql.createConnection(DATABASE_URL);
 
   try {
+    await ensureReviewBriefSchema(conn);
     await enqueueMissingProducts(conn);
 
     while (true) {
