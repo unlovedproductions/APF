@@ -65,7 +65,8 @@ function shadowCastAffiliateUrl(product) {
 }
 
 export function shadowcastBaseUrl() {
-  return process.env.SHADOWCAST_BASE_URL || "http://localhost:8000";
+  const base = process.env.SHADOWCAST_BASE_URL || "http://localhost:8000";
+  return base.replace(/localhost/i, "127.0.0.1");
 }
 
 export async function db() {
