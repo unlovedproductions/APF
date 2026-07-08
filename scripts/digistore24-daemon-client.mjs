@@ -22,7 +22,7 @@ function buildPath() {
   if (cmd === "collect") {
     const params = new URLSearchParams();
     params.set("limit", arg("--limit", "10"));
-    params.set("wait", arg("--wait", process.env.DIGISTORE24_LOGIN_WAIT_SECONDS || "600"));
+    params.set("wait", arg("--wait", process.env.DIGISTORE24_LOGIN_WAIT_SECONDS || process.env.DIGISTORE24_REFRESH_WAIT_SECONDS || "600"));
     if (hasFlag("--promote")) params.set("promote", "1");
     if (hasFlag("--confirm-promote")) params.set("confirm", "1");
     return `/collect?${params.toString()}`;

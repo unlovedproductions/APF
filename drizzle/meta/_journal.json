@@ -15,6 +15,13 @@
       "when": 1775124436563,
       "tag": "0001_cheerful_justice",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1783492000000,
+      "tag": "0002_digistore24_shadowcast",
+      "breakpoints": true
     }
   ]
 }

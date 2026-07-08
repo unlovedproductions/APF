@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import mysql from "mysql2/promise";
+import { normalizeKeywordList, safeJsonParse } from "./apf-db-helpers.mjs";
 
 export function loadEnv(file = ".env") {
   if (!fs.existsSync(file)) return;
@@ -24,6 +25,13 @@ export function parseJson(v, fallback) {
   if (!v) return fallback;
   if (Array.isArray(v) || typeof v === "object") return v;
   try { return JSON.parse(v); } catch { return fallback; }
+}
+
+function toArray(value) {
+  if (!value) return [];
+  if (Array.isArray(value)) return value;
+  if (typeof value === "string") return normalizeKeywordList(value);
+  return [];
 }
 
 function clean(v) {
@@ -105,23 +113,44 @@ export async function buildPayload(productId) {
   try {
     const [products] = await conn.query(`
       SELECT
-        id,
-        platform,
-        platformProductId,
-        name,
-        vendor,
-        category,
-        keywords,
-        description,
-        affiliateLink,
-        hiddenGemScore,
-        scoreComponents,
-        commissionRate,
-        commissionType,
-        saleCount,
-        aggregateSales,
-        refundCount
-      FROM products
+        p.id,
+        p.platform,
+        p.platformProductId,
+        p.name,
+        p.vendor,
+        p.category,
+        p.keywords,
+        p.description,
+        p.affiliateLink,
+        p.hiddenGemScore,
+        p.scoreComponents,
+        p.commissionRate,
+        p.conversionRate,
+        p.cartValue,
+        p.commissionType,
+        p.saleCount,
+        p.aggregateSales,
+        p.refundCount,
+        p.platformCreatedAt,
+        l.affiliate_url AS linkedAffiliateUrl,
+        l.status AS linkedAffiliateStatus
+      FROM products p
+      LEFT JOIN product_affiliate_links l
+        ON l.id = (
+          SELECT l2.id
+          FROM product_affiliate_links l2
+          WHERE l2.product_id = p.id
+            AND l2.provider = p.platform
+          ORDER BY
+            CASE
+              WHEN l2.status='approved' THEN 0
+              WHEN l2.status='generated' THEN 1
+              ELSE 2
+            END,
+            l2.updated_at DESC,
+            l2.id DESC
+          LIMIT 1
+        )
       WHERE id=?
       LIMIT 1
     `, [productId]);
@@ -155,6 +184,58 @@ export async function buildPayload(productId) {
     `, [productId]);
 
     const b = briefRows[0] || null;
+    const scoreObj = safeJsonParse(p.scoreComponents, {}) || {};
+    const scoreMeta = scoreObj._meta || scoreObj.meta || {};
+    const safeKeywords = normalizeKeywordList(p.keywords);
+    const reviewBrief = b ? {
+      review_summary: b.review_summary || "",
+      positive_signals: toArray(parseJson(b.positive_signals, [])),
+      negative_signals: toArray(parseJson(b.negative_signals, [])),
+      common_claims: toArray(parseJson(b.common_claims, [])),
+      common_complaints: toArray(parseJson(b.common_complaints, [])),
+      target_audience: b.target_audience || "",
+      who_it_may_help: b.who_it_may_help || "",
+      who_should_skip_it: b.who_should_skip_it || "",
+      best_video_angles: toArray(parseJson(b.best_video_angles, [])),
+      cta_guidance: b.cta_guidance || "",
+      recommended_content_style: b.recommended_content_style || "",
+      suggested_competitors: toArray(parseJson(b.suggested_competitors, [])),
+      price_display: b.price_display || "",
+    } : null;
+    const bestAffiliateUrl = clean(p.linkedAffiliateUrl) || clean(p.affiliateLink);
+    const affiliateStatus = p.linkedAffiliateStatus || (bestAffiliateUrl ? "approved" : "needs_approval");
+    const discountInfo = p.commissionRate ? `${p.commissionRate}% commission` : "";
+    const keyFeatures = reviewBrief?.common_claims?.length
+      ? reviewBrief.common_claims.slice(0, 5)
+      : clean(p.description).split(/[,.;]/).map(x => x.trim()).filter(Boolean).slice(0, 5);
+    const commonPraises = reviewBrief?.positive_signals || [];
+    const commonComplaints = reviewBrief?.common_complaints || [];
+    const suggestedCompetitors = reviewBrief?.suggested_competitors?.length
+      ? reviewBrief.suggested_competitors
+      : [];
+    const recommendedStyle = reviewBrief?.recommended_content_style || "honest_review";
+    const priceDisplay = reviewBrief?.price_display
+      || (p.cartValue ? `$${Number(p.cartValue).toFixed(2)}` : "")
+      || (p.aggregateSales && Number(p.aggregateSales) > 0
+        ? `$${Number(p.aggregateSales).toFixed(2)} avg payout`
+        : "Varies");
+    const shadowcastImport = {
+      product_name: p.name || "",
+      niche: p.category || "",
+      key_features: keyFeatures,
+      affiliate_link: shadowCastAffiliateUrl({ ...p, affiliateLink: bestAffiliateUrl }),
+      keywords: safeKeywords,
+      product_category: p.category || p.platform || "",
+      competitors: suggestedCompetitors,
+      discount_info: discountInfo,
+      unique_selling_point: reviewBrief?.review_summary || `Hidden Gem Score: ${Number(p.hiddenGemScore || 0).toFixed(1)}/100`,
+      content_style: recommendedStyle,
+      price: priceDisplay,
+      target_audience: reviewBrief?.target_audience || "",
+      common_complaints: commonComplaints,
+      common_praises: commonPraises,
+      who_not_for: reviewBrief?.who_should_skip_it || "",
+    };
 
     return {
       schema_version: "apf_shadowcast_enriched_v1",
@@ -166,10 +247,10 @@ export async function buildPayload(productId) {
         name: p.name || "",
         vendor: p.vendor || "",
         category: p.category || "",
-        keywords: p.keywords || "",
+        keywords: safeKeywords,
         description: p.description || "",
-        affiliate_url: shadowCastAffiliateUrl(p),
-        affiliate_url_status: p.affiliateLink ? "approved" : "needs_approval",
+        affiliate_url: shadowCastAffiliateUrl({ ...p, affiliateLink: bestAffiliateUrl }),
+        affiliate_url_status: affiliateStatus,
         product_detail_url: digistore24DetailUrlForShadowCast(p),
         hidden_gem_score: p.hiddenGemScore ?? null,
         score_components: parseJson(p.scoreComponents, null),
@@ -185,19 +266,9 @@ export async function buildPayload(productId) {
         confidence_score: b?.confidence_score ?? null,
         last_enriched_at: b?.generated_at || null
       },
-      review_brief: b ? {
-        review_summary: b.review_summary || "",
-        positive_signals: parseJson(b.positive_signals, []),
-        negative_signals: parseJson(b.negative_signals, []),
-        common_claims: parseJson(b.common_claims, []),
-        common_complaints: parseJson(b.common_complaints, []),
-        target_audience: b.target_audience || "",
-        who_it_may_help: b.who_it_may_help || "",
-        who_should_skip_it: b.who_should_skip_it || "",
-        best_video_angles: parseJson(b.best_video_angles, []),
-        cta_guidance: b.cta_guidance || ""
-      } : null,
-      review_sources: sources
+      review_brief: reviewBrief,
+      review_sources: sources,
+      shadowcast_import: shadowcastImport,
     };
   } finally {
     await conn.end();
@@ -227,5 +298,13 @@ export async function sendToShadowCast(productId) {
     throw new Error(`ShadowCast direct import failed ${res.status}: ${(await res.text()).slice(0, 1000)}`);
   }
 
-  return res.json();
+  const data = await res.json();
+  return {
+    ...data,
+    product: {
+      id: payload.product.source_product_id,
+      name: payload.product.name,
+      enrichmentStatus: payload.review_enrichment.status,
+    },
+  };
 }

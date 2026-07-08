@@ -96,6 +96,7 @@ export default function Home() {
   const [selectedProductId, setSelectedProductId] = useState<number | null>(null);
   const [selectedMarketplace, setSelectedMarketplace] = useState<Marketplace>("digistore24");
   const [selectedProducts, setSelectedProducts] = useState<Set<number>>(new Set());
+  const [shadowCastResults, setShadowCastResults] = useState<Array<{ productId: number; name: string; openUrl: string; enrichmentStatus: string }>>([]);
 
   // tRPC queries and mutations
   const credentialsQuery = trpc.credentials.get.useQuery(
@@ -122,8 +123,14 @@ export default function Home() {
   const shadowCastExportMutation = trpc.products.exportToShadowCast.useMutation({
     onSuccess: (data: any) => {
       const count = data?.count ?? selectedProducts.size;
-      toast.success(`Sent ${count} product${count === 1 ? "" : "s"} to ShadowCast.`);
+      toast.success(`Sent ${count} products to ShadowCast - review drafts before generating videos.`);
       setSelectedProducts(new Set());
+      setShadowCastResults((data?.results || []).map((r: any) => ({
+        productId: Number(r.productId),
+        name: String(r.name || `Product #${r.productId}`),
+        openUrl: String(r.openUrl || ""),
+        enrichmentStatus: String(r.enrichmentStatus || "pending"),
+      })));
 
       if (data?.firstOpenUrl) {
         window.open(data.firstOpenUrl, "_blank", "noopener,noreferrer");
@@ -466,7 +473,7 @@ export default function Home() {
                   ) : (
                     <>
                       <Download className="w-4 h-4 mr-2" />
-                      Export {selectedProducts.size} to ShadowCast
+                      Send {selectedProducts.size} to ShadowCast
                     </>
                   )}
                 </Button>
@@ -474,6 +481,31 @@ export default function Home() {
             </div>
           </CardContent>
         </Card>
+        {shadowCastResults.length > 0 && (
+          <Card className="mb-6">
+            <CardHeader>
+              <CardTitle>ShadowCast Drafts</CardTitle>
+              <CardDescription>Each product was sent as a separate reviewable draft.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {shadowCastResults.map((row) => (
+                <div key={row.productId} className="flex items-center justify-between gap-3 rounded border p-3">
+                  <div className="min-w-0">
+                    <p className="font-medium truncate">{row.name}</p>
+                    <p className="text-xs text-slate-500">Enrichment: {row.enrichmentStatus}</p>
+                  </div>
+                  {row.openUrl ? (
+                    <Button asChild size="sm" variant="outline">
+                      <a href={row.openUrl} target="_blank" rel="noopener noreferrer">Open draft</a>
+                    </Button>
+                  ) : (
+                    <Badge variant="outline">No draft URL</Badge>
+                  )}
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        )}
 
         {/* Results */}
         <Card>
@@ -595,9 +627,9 @@ export default function Home() {
                           </div>
                         </TableCell>
                         <TableCell>
-                          {getHiddenGemScore(product) > 60 ? (
+                          {getHiddenGemScore(product) > 70 ? (
                             <Badge className="bg-green-100 text-green-800">Hot</Badge>
-                          ) : getHiddenGemScore(product) > 40 ? (
+                          ) : getHiddenGemScore(product) > 55 ? (
                             <Badge className="bg-blue-100 text-blue-800">Warm</Badge>
                           ) : (
                             <Badge className="bg-slate-100 text-slate-800">Cold</Badge>

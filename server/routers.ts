@@ -3,6 +3,8 @@ import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
 import { z } from "zod";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
 import * as db from "./db";
 import { fetchAndProcessWarriorPlusOffers } from "./warriorplus";
 import { fetchAndProcessClickBankProducts } from "./clickbank";
@@ -126,13 +128,17 @@ export const appRouter = router({
       .query(async ({ input, ctx }) => {
         try {
           const product = await db.getProductById(input.productId);
-          if (!product || product.userId !== ctx.user.id) {
+          if (!product || (ctx.user.id !== 0 && product.userId !== ctx.user.id)) {
             throw new TRPCError({
               code: "NOT_FOUND",
               message: "Product not found",
             });
           }
-          return product;
+          const enrichmentStatus = await db.getProductEnrichmentStatus(product.id);
+          return {
+            ...product,
+            enrichmentStatus,
+          };
         } catch (error) {
           console.error("[Products] Error getting product detail:", error);
           throw new TRPCError({
@@ -247,6 +253,33 @@ export const appRouter = router({
           });
         }
       }),
+
+    shadowCastPayload: protectedProcedure
+      .input(z.object({
+        productId: z.number(),
+      }))
+      .query(async ({ input, ctx }) => {
+        try {
+          const product = await db.getProductById(input.productId);
+          if (!product || (ctx.user.id !== 0 && product.userId !== ctx.user.id)) {
+            throw new TRPCError({
+              code: "NOT_FOUND",
+              message: "Product not found",
+            });
+          }
+          const directLibUrl = pathToFileURL(path.resolve(process.cwd(), "scripts/shadowcast-direct-lib.mjs")).href;
+          const directLib = await import(directLibUrl) as {
+            buildPayload: (productId: number) => Promise<any>;
+          };
+          return await directLib.buildPayload(input.productId);
+        } catch (error) {
+          console.error("[Products] Error building ShadowCast payload:", error);
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: error instanceof Error ? error.message : "Failed to build ShadowCast payload",
+          });
+        }
+      }),
   }),
 
   // ============ Bookmarks ============
@@ -281,7 +314,7 @@ export const appRouter = router({
         try {
           // Verify product exists and belongs to user
           const product = await db.getProductById(input.productId);
-          if (!product || product.userId !== ctx.user.id) {
+          if (!product || (ctx.user.id !== 0 && product.userId !== ctx.user.id)) {
             throw new TRPCError({
               code: "NOT_FOUND",
               message: "Product not found",

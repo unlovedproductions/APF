@@ -20,7 +20,12 @@ function repoRoot() {
   return process.cwd();
 }
 
-async function runNodeScript(script: string, args: string[] = [], timeoutMs = 15 * 60 * 1000): Promise<ScriptResult> {
+async function runNodeScript(
+  script: string,
+  args: string[] = [],
+  timeoutMs = 15 * 60 * 1000,
+  userId?: number
+): Promise<ScriptResult> {
   const cwd = repoRoot();
 
   return await new Promise((resolve, reject) => {
@@ -28,7 +33,9 @@ async function runNodeScript(script: string, args: string[] = [], timeoutMs = 15
       cwd,
       env: {
         ...process.env,
-        APF_USER_ID: process.env.APF_USER_ID || "1",
+        ...(Number.isFinite(userId) && userId! > 0
+          ? { APF_USER_ID: String(userId) }
+          : (process.env.APF_USER_ID ? { APF_USER_ID: process.env.APF_USER_ID } : {})),
       },
       stdio: ["ignore", "pipe", "pipe"],
     });
@@ -90,11 +97,6 @@ async function productCount(platform: Marketplace, userId: number): Promise<numb
 export async function runPostRefreshWorkflow(platform: Marketplace, userId: number) {
   const steps: string[] = [];
 
-  if (platform === "digistore24") {
-    await runNodeScript("scripts/marketplace-score-backfill.mjs", ["--marketplace", "digistore24"], 5 * 60 * 1000);
-    steps.push("digistore24_score_backfill");
-  }
-
   if (platform === "clickbank") {
     steps.push("clickbank_native_score_from_importer");
   }
@@ -102,8 +104,13 @@ export async function runPostRefreshWorkflow(platform: Marketplace, userId: numb
   const reviewRuns = Math.max(0, Math.min(10, finiteNumber(process.env.APF_REFRESH_REVIEW_RUNS, 1)));
 
   for (let i = 0; i < reviewRuns; i++) {
-    await runNodeScript("scripts/review-enrichment-worker.mjs", ["--once"], 10 * 60 * 1000);
+    await runNodeScript("scripts/review-enrichment-worker.mjs", ["--once"], 10 * 60 * 1000, userId);
     steps.push("review_enrichment_once");
+  }
+
+  if (platform === "digistore24") {
+    await runNodeScript("scripts/marketplace-score-backfill.mjs", ["--marketplace", "digistore24"], 5 * 60 * 1000, userId);
+    steps.push("digistore24_score_backfill");
   }
 
   return {
@@ -130,7 +137,8 @@ export async function runDigistore24RefreshWorkflow(userId: number) {
   await runNodeScript(
     "scripts/digistore24-daemon-client.mjs",
     collectorArgs,
-    15 * 60 * 1000
+    15 * 60 * 1000,
+    userId
   );
 
   const post = await runPostRefreshWorkflow("digistore24", userId);
@@ -147,6 +155,7 @@ export async function runDigistore24RefreshWorkflow(userId: number) {
 
 export async function exportProductsToShadowCast(userId: number, productIds: number[]) {
   const uniqueIds = Array.from(new Set(productIds.map(x => finiteNumber(x)).filter(x => x > 0))).slice(0, 100);
+  const metaById = new Map<number, { name: string; enrichmentStatus: string }>();
 
   if (uniqueIds.length === 0) {
     throw new Error("No products selected.");
@@ -164,11 +173,23 @@ export async function exportProductsToShadowCast(userId: number, productIds: num
   const conn = await mysql.createConnection(process.env.DATABASE_URL);
   try {
     const [rows] = await conn.query(
-      `SELECT id FROM products WHERE userId=? AND id IN (${uniqueIds.map(() => "?").join(",")})`,
+      `SELECT
+         p.id,
+         p.name,
+         COALESCE(b.enrichment_status, 'pending') AS enrichmentStatus
+       FROM products p
+       LEFT JOIN product_review_briefs b ON b.product_id = p.id
+       WHERE p.userId=? AND p.id IN (${uniqueIds.map(() => "?").join(",")})`,
       [userId, ...uniqueIds]
     ) as any[];
 
     const allowed = new Set((rows || []).map((r: any) => Number(r.id)));
+    for (const r of (rows || [])) {
+      metaById.set(Number(r.id), {
+        name: String(r.name || `Product #${r.id}`),
+        enrichmentStatus: String(r.enrichmentStatus || "pending"),
+      });
+    }
     const denied = uniqueIds.filter(id => !allowed.has(id));
 
     if (denied.length) {
@@ -182,9 +203,12 @@ export async function exportProductsToShadowCast(userId: number, productIds: num
 
   for (const productId of uniqueIds) {
     const result = await directLib.sendToShadowCast(productId);
+    const meta = metaById.get(productId);
     results.push({
       productId,
+      name: meta?.name || `Product #${productId}`,
       openUrl: result.open_url,
+      enrichmentStatus: meta?.enrichmentStatus || "pending",
       token: result.token || null,
       raw: result,
     });

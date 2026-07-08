@@ -6,6 +6,8 @@ import { stdin as input, stdout as output } from "node:process";
 import mysql from "mysql2/promise";
 import { chromium, firefox, webkit } from "playwright";
 import { scoreProduct, SCORING_VERSION } from "./marketplace-scoring.mjs";
+import { extractDigistore24Detail } from "./digistore24-detail-extractor.mjs";
+import { queueReview, upsertAffiliateLink } from "./apf-db-helpers.mjs";
 
 function loadEnv(file = ".env") {
   if (!fs.existsSync(file)) return;
@@ -360,13 +362,14 @@ async function upsertProduct(conn, product) {
   const [existingRows] = await conn.query(`
     SELECT id, affiliateLink
     FROM products
-    WHERE platform='digistore24'
+    WHERE userId=?
+      AND platform='digistore24'
       AND platformProductId=?
     ORDER BY
       CASE WHEN affiliateLink IS NOT NULL AND affiliateLink != '' THEN 0 ELSE 1 END,
       id ASC
     LIMIT 1
-  `, [product.platformProductId]);
+  `, [product.userId, product.platformProductId]);
 
   const existingId = existingRows?.[0]?.id || null;
   const existingAffiliateLink = existingRows?.[0]?.affiliateLink || "";
@@ -391,7 +394,8 @@ async function upsertProduct(conn, product) {
       strategy: scored.strategy,
       collector: "digistore24_guided_collector",
       affiliate_ready: Boolean(product.affiliateLink),
-      detail_url: product.detailUrl
+      detail_url: product.detailUrl,
+      ...product.detectedMeta,
     }
   };
 
@@ -407,12 +411,14 @@ async function upsertProduct(conn, product) {
     0,
     0,
     0,
-    null,
+    product.commissionRate ?? null,
+    product.conversionRate ?? null,
+    product.cartValue ?? null,
     "digistore24",
     product.affiliateLink || "",
     scored.score,
     JSON.stringify(components),
-    new Date(),
+    product.platformCreatedAt ? new Date(product.platformCreatedAt) : new Date(),
     new Date()
   ].map(v => (typeof v === "number" && !Number.isFinite(v)) ? null : v);
 
@@ -427,6 +433,10 @@ async function upsertProduct(conn, product) {
         category=?,
         keywords=?,
         description=?,
+        commissionRate=?,
+        conversionRate=?,
+        cartValue=?,
+        platformCreatedAt=?,
         affiliateLink=?,
         hiddenGemScore=?,
         scoreComponents=?,
@@ -439,6 +449,10 @@ async function upsertProduct(conn, product) {
       product.category,
       JSON.stringify(product.keywords),
       product.description,
+      product.commissionRate,
+      product.conversionRate,
+      product.cartValue,
+      product.platformCreatedAt ? new Date(product.platformCreatedAt) : null,
       product.affiliateLink || "",
       scored.score,
       JSON.stringify(components),
@@ -460,6 +474,8 @@ async function upsertProduct(conn, product) {
       aggregateSales,
       refundCount,
       commissionRate,
+      conversionRate,
+      cartValue,
       commissionType,
       affiliateLink,
       hiddenGemScore,
@@ -467,13 +483,16 @@ async function upsertProduct(conn, product) {
       platformCreatedAt,
       dataFetchedAt
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON DUPLICATE KEY UPDATE
       name=VALUES(name),
       vendor=VALUES(vendor),
       category=VALUES(category),
       keywords=VALUES(keywords),
       description=VALUES(description),
+      commissionRate=VALUES(commissionRate),
+      conversionRate=VALUES(conversionRate),
+      cartValue=VALUES(cartValue),
       affiliateLink=VALUES(affiliateLink),
       hiddenGemScore=VALUES(hiddenGemScore),
       scoreComponents=VALUES(scoreComponents),
@@ -485,49 +504,26 @@ async function upsertProduct(conn, product) {
 
   const [rows] = await conn.query(`
     SELECT id FROM products
-    WHERE platform='digistore24' AND platformProductId=?
+    WHERE userId=? AND platform='digistore24' AND platformProductId=?
     LIMIT 1
-  `, [product.platformProductId]);
+  `, [product.userId, product.platformProductId]);
 
   const productId = rows?.[0]?.id || result.insertId;
 
   if (productId && product.affiliateLink) {
-    await conn.query(`
-      INSERT INTO product_affiliate_links (
-        product_id,
-        provider,
-        affiliate_id,
-        affiliate_url,
-        status,
-        created_at,
-        updated_at
-      )
-      VALUES (?, 'digistore24', ?, ?, 'approved', NOW(), NOW())
-      ON DUPLICATE KEY UPDATE
-        affiliate_url=VALUES(affiliate_url),
-        status='approved',
-        updated_at=NOW()
-    `, [
+    await upsertAffiliateLink(conn, {
       productId,
-      process.env.DIGISTORE24_ID || "UnlovedProducts",
-      product.affiliateLink
-    ]).catch(() => {});
+      provider: "digistore24",
+      affiliateNickname: process.env.DIGISTORE24_ID || "UnlovedProducts",
+      vendorNickname: product.vendor || "",
+      platformProductId: product.platformProductId,
+      affiliateUrl: product.affiliateLink,
+      campaignKey: "",
+      status: "approved",
+      notes: "Updated by digistore24 guided collector",
+    }).catch(() => {});
   }
-
-  if (productId) {
-    await conn.query(`
-      INSERT INTO review_enrichment_jobs (
-        product_id,
-        status,
-        priority,
-        created_at,
-        updated_at
-      )
-      VALUES (?, 'queued', 5, NOW(), NOW())
-      ON DUPLICATE KEY UPDATE
-        updated_at=NOW()
-    `, [productId]).catch(() => {});
-  }
+  if (productId) await queueReview(conn, productId).catch(() => {});
 
   return { productId, score: scored.score, components };
 }
@@ -542,7 +538,10 @@ async function main() {
 
   const limit = Number(arg("--limit", "10"));
   const affiliateId = process.env.DIGISTORE24_ID || "UnlovedProducts";
-  const userId = Number(process.env.APF_USER_ID || "1");
+  const userId = Number(process.env.APF_USER_ID || "0");
+  if (!Number.isFinite(userId) || userId <= 0) {
+    throw new Error("APF_USER_ID must be set to a valid logged-in user id.");
+  }
   const startUrl = arg("--url", "https://www.digistore24-app.com/app/en/affiliate/account/marketplace/all");
 
   console.log("Starting guided Digistore24 collector.");
@@ -587,7 +586,12 @@ async function main() {
   await page.goto(startUrl, { waitUntil: "domcontentloaded", timeout: 60000 }).catch(() => {});
 
   const autoMode = hasFlag("--auto");
-  const waitSeconds = Number(arg("--wait-seconds", process.env.DIGISTORE24_REFRESH_WAIT_SECONDS || "600"));
+  const waitSeconds = Number(
+    arg(
+      "--wait-seconds",
+      process.env.DIGISTORE24_LOGIN_WAIT_SECONDS || process.env.DIGISTORE24_REFRESH_WAIT_SECONDS || "600"
+    )
+  );
 
   async function collectDetailLinksFromPage(candidatePage) {
     await candidatePage.waitForTimeout(1000);
@@ -696,7 +700,7 @@ async function main() {
       await detailPage.goto(detailUrl, { waitUntil: "domcontentloaded", timeout: 60000 }).catch(() => {});
       await detailPage.waitForTimeout(2500);
 
-      const detail = await detailPage.evaluate(() => {
+      const rawDetail = await detailPage.evaluate(() => {
         const txt = el => (el?.innerText || el?.textContent || "").replace(/\s+/g, " ").trim();
 
         const title =
@@ -704,15 +708,19 @@ async function main() {
           txt(document.querySelector("h2")) ||
           document.title.replace(/\s+/g, " ").trim();
 
-        const body = txt(document.body).slice(0, 6000);
+        const body = txt(document.body).slice(0, 10000);
+        const descriptionSection =
+          txt(document.querySelector("[class*='description'], [id*='description'], .product-description")) ||
+          body;
 
         const anchors = Array.from(document.querySelectorAll("a")).map(a => ({
           text: txt(a),
           href: a.href
         }));
 
-        return { title, body, anchors };
+        return { title, body, anchors, descriptionSection };
       });
+      const detail = extractDigistore24Detail(rawDetail);
 
       const promoteResult = await maybePromoteAndExtractLink(detailPage, affiliateId);
       const refreshedDetail = await detailPage.evaluate(() => {
@@ -728,21 +736,27 @@ async function main() {
 
       const affiliateLink =
         promoteResult.affiliateLink ||
-        extractAffiliateLinkFromAnchors(refreshedDetail.anchors || detail.anchors, affiliateId);
+        extractAffiliateLinkFromAnchors(refreshedDetail.anchors || rawDetail.anchors, affiliateId);
 
       const product = {
         userId,
         platformProductId,
         name: clean(detail.title || item.text || `Digistore24 Product ${platformProductId}`).slice(0, 255),
-        vendor: "digistore24",
-        category: "Digistore24 Marketplace",
+        vendor: detail.vendor || "digistore24",
+        category: detail.category || "Digistore24 Marketplace",
         keywords: [
           "digistore24",
-          ...clean(detail.title).toLowerCase().split(/[^a-z0-9]+/).filter(Boolean).slice(0, 12)
+          ...clean(detail.title).toLowerCase().split(/[^a-z0-9]+/).filter(Boolean).slice(0, 10),
+          ...clean(detail.category).toLowerCase().split(/[^a-z0-9]+/).filter(Boolean).slice(0, 4),
         ],
-        description: clean(detail.body || `Digistore24 marketplace product ${platformProductId}`).slice(0, 3000),
+        description: clean(detail.description || rawDetail.body || `Digistore24 marketplace product ${platformProductId}`).slice(0, 3500),
+        commissionRate: detail.commissionRate,
+        conversionRate: detail.conversionRate,
+        cartValue: detail.cartValue,
+        platformCreatedAt: detail.platformCreatedAt,
         affiliateLink,
-        detailUrl
+        detailUrl,
+        detectedMeta: detail.detectedMeta,
       };
 
       const saved = await upsertProduct(conn, product);

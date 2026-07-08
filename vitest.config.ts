@@ -14,6 +14,15 @@ export default defineConfig({
   },
   test: {
     environment: "node",
-    include: ["server/**/*.test.ts", "server/**/*.spec.ts"],
+    pool: "threads",
+    minWorkers: 1,
+    maxWorkers: 1,
+    fileParallelism: false,
+    include: [
+      "server/**/*.test.ts",
+      "server/**/*.spec.ts",
+      "server/**/*.test.mjs",
+      "server/**/*.spec.mjs",
+    ],
   },
 });

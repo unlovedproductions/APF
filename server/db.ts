@@ -1,6 +1,6 @@
 import { eq, and, desc, asc, like, inArray, or } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users, apiCredentials, products, bookmarks, dataRefreshLog } from "../drizzle/schema";
+import { InsertUser, users, apiCredentials, products, bookmarks, dataRefreshLog, productReviewBriefs } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -146,6 +146,8 @@ export async function upsertProducts(userId: number, platform: string, productsD
         aggregateSales: product.aggregateSales || "0",
         refundCount: product.refundCount || 0,
         commissionRate: product.commissionRate,
+        conversionRate: product.conversionRate,
+        cartValue: product.cartValue,
         commissionType: product.commissionType,
         affiliateLink: product.affiliateLink,
         hiddenGemScore: product.hiddenGemScore || "0",
@@ -156,9 +158,19 @@ export async function upsertProducts(userId: number, platform: string, productsD
       .onDuplicateKeyUpdate({
         set: {
           name: product.name,
+          vendor: product.vendor,
+          category: product.category,
+          keywords: product.keywords ? JSON.stringify(product.keywords) : null,
+          description: product.description,
           saleCount: product.saleCount || 0,
           aggregateSales: product.aggregateSales || "0",
           refundCount: product.refundCount || 0,
+          commissionRate: product.commissionRate,
+          conversionRate: product.conversionRate,
+          cartValue: product.cartValue,
+          commissionType: product.commissionType,
+          affiliateLink: product.affiliateLink,
+          platformCreatedAt: product.platformCreatedAt,
           hiddenGemScore: product.hiddenGemScore || "0",
           scoreComponents: product.scoreComponents ? JSON.stringify(product.scoreComponents) : null,
           dataFetchedAt: new Date(),
@@ -225,6 +237,16 @@ export async function getProductById(productId: number) {
     .limit(1);
 
   return result.length > 0 ? result[0] : null;
+}
+
+export async function getProductEnrichmentStatus(productId: number) {
+  const db = await getDb();
+  if (!db) return "pending";
+  const rows = await db.select()
+    .from(productReviewBriefs)
+    .where(eq(productReviewBriefs.productId, productId))
+    .limit(1);
+  return rows[0]?.enrichmentStatus || "pending";
 }
 
 // ============ Bookmarks ============

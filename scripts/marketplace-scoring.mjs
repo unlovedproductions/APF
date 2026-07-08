@@ -120,32 +120,42 @@ export function scoreClickBank(product, options = {}) {
 
 export function scoreDigistore24(product) {
   const previous = parseJson(product.scoreComponents, {});
-  const text = [
-    product.name,
-    product.vendor,
-    product.category,
-    product.description,
-    JSON.stringify(previous)
-  ].map(clean).join(" ");
+  const meta = previous?._meta || previous?.meta || {};
+  const fallbackText = clean(product.description);
 
-  const commissionPercent = numberFromText(text, [
-    /commission[^0-9]{0,20}(\d+(?:\.\d+)?)\s*%/i,
-    /(\d+(?:\.\d+)?)\s*%\s*commission/i,
-    /affiliate[^0-9]{0,20}(\d+(?:\.\d+)?)\s*%/i
-  ]);
+  const commissionPercent =
+    Number(product.commissionRate || 0) > 0
+      ? Number(product.commissionRate)
+      : (Number(meta.detected_commission_rate || 0) > 0
+        ? Number(meta.detected_commission_rate)
+        : numberFromText(fallbackText, [
+          /commission[^0-9]{0,20}(\d+(?:\.\d+)?)\s*%/i,
+          /(\d+(?:\.\d+)?)\s*%\s*commission/i,
+          /affiliate[^0-9]{0,20}(\d+(?:\.\d+)?)\s*%/i
+        ]));
 
-  const conversionPercent = numberFromText(text, [
-    /conversion[^0-9]{0,20}(\d+(?:\.\d+)?)\s*%/i,
-    /cart\s*conversion[^0-9]{0,20}(\d+(?:\.\d+)?)\s*%/i,
-    /(\d+(?:\.\d+)?)\s*%\s*conversion/i
-  ]);
+  const conversionPercent =
+    Number(product.conversionRate || 0) > 0
+      ? Number(product.conversionRate)
+      : (Number(meta.detected_conversion_rate || 0) > 0
+        ? Number(meta.detected_conversion_rate)
+        : numberFromText(fallbackText, [
+          /conversion[^0-9]{0,20}(\d+(?:\.\d+)?)\s*%/i,
+          /cart\s*conversion[^0-9]{0,20}(\d+(?:\.\d+)?)\s*%/i,
+          /(\d+(?:\.\d+)?)\s*%\s*conversion/i
+        ]));
 
-  const earningsValue = numberFromText(text, [
+  const earningsValue =
+    Number(product.cartValue || 0) > 0
+      ? Number(product.cartValue)
+      : (Number(meta.detected_cart_value || meta.detected_earnings_value || 0) > 0
+        ? Number(meta.detected_cart_value || meta.detected_earnings_value)
+        : numberFromText(fallbackText, [
     /earnings[^0-9$€]{0,20}[$€]?(\d+(?:\.\d+)?)/i,
     /epc[^0-9$€]{0,20}[$€]?(\d+(?:\.\d+)?)/i,
     /cart\s*value[^0-9$€]{0,20}[$€]?(\d+(?:\.\d+)?)/i,
     /average\s*payout[^0-9$€]{0,20}[$€]?(\d+(?:\.\d+)?)/i
-  ]);
+        ]));
 
   const sourceCount = Number(product.source_count || 0);
   const confidence = Number(product.confidence_score || 0);

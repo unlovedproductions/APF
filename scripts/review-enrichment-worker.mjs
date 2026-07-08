@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import mysql from "mysql2/promise";
+import { SCORING_VERSION, scoreProduct } from "./marketplace-scoring.mjs";
 
 // BEGIN UNLOVED_MYSQL_NAN_GUARD
 function unlovedSanitizeSqlValue(v) {
@@ -161,6 +162,7 @@ async function getProduct(conn, id) {
       commissionType,
       saleCount,
       aggregateSales,
+      cartValue,
       refundCount
     FROM products
     WHERE id=?
@@ -330,12 +332,93 @@ async function saveSources(conn, product, sources) {
   return top;
 }
 
+const CONTENT_STYLES = new Set([
+  "honest_review",
+  "elimination",
+  "worth_it_or_waste",
+  "budget_challenge",
+  "vs_battle",
+  "standard"
+]);
+
+const ANGLE_STYLE_PATTERNS = [
+  {style: "worth_it_or_waste", patterns: [/worth it/i, /hype/i, /waste/i]},
+  {style: "vs_battle", patterns: [/\bvs\b/i, /compare/i, /better than/i]},
+  {style: "budget_challenge", patterns: [/budget/i, /under \$/i, /cheapest/i]},
+  {style: "elimination", patterns: [/eliminate/i, /rejected/i, /skip these/i]},
+  {style: "honest_review", patterns: [/honest/i, /pros and cons/i, /red flags/i]}
+];
+
+function parseScoreComponents(product) {
+  if (!product?.scoreComponents) return {};
+  if (typeof product.scoreComponents === "object") return product.scoreComponents;
+  try {
+    return JSON.parse(product.scoreComponents);
+  } catch {
+    return {};
+  }
+}
+
+function inferContentStyleFromAngles(angles) {
+  const text = (angles || []).join(" ");
+  for (const {style, patterns} of ANGLE_STYLE_PATTERNS) {
+    if (patterns.some(p => p.test(text))) return style;
+  }
+  return "honest_review";
+}
+
+function derivePriceDisplay(product) {
+  const cart = Number(product.cartValue);
+  if (Number.isFinite(cart) && cart > 0) return `$${cart.toFixed(2)}`;
+
+  const components = parseScoreComponents(product);
+  const meta = components._meta || components.meta || {};
+  if (meta.price) return String(meta.price);
+  if (meta.apv) return `$${Number(meta.apv).toFixed(2)} avg payout`;
+
+  return "Varies";
+}
+
+function fallbackSuggestedCompetitors(product) {
+  const category = String(product.category || "niche").trim() || "niche";
+  return [
+    `Top ${category} alternative`,
+    `Popular ${category} competitor`,
+    `Budget ${category} option`
+  ];
+}
+
+function normalizeSuggestedCompetitors(product, competitors) {
+  const vendor = String(product.vendor || "").trim().toLowerCase();
+  const cleaned = (Array.isArray(competitors) ? competitors : [])
+    .map(c => String(c || "").replace(/\s+/g, " ").trim())
+    .filter(Boolean)
+    .filter(c => !vendor || c.toLowerCase() !== vendor);
+
+  return (cleaned.length >= 2 ? cleaned : fallbackSuggestedCompetitors(product)).slice(0, 4);
+}
+
+function finalizeBrief(product, brief) {
+  const angles = brief.best_video_angles || [];
+  const inferredStyle = inferContentStyleFromAngles(angles);
+  const recommended_content_style = CONTENT_STYLES.has(brief.recommended_content_style)
+    ? brief.recommended_content_style
+    : inferredStyle;
+
+  return {
+    ...brief,
+    recommended_content_style,
+    suggested_competitors: normalizeSuggestedCompetitors(product, brief.suggested_competitors),
+    price_display: clamp(brief.price_display || derivePriceDisplay(product), 200)
+  };
+}
+
 function fallbackBrief(product, sources) {
   const category = product.category || "this category";
   const positives = sources.filter(s => s.sentiment === "positive").slice(0, 5).map(s => s.title || s.snippet).filter(Boolean);
   const negatives = sources.filter(s => s.sentiment === "negative" || s.sentiment === "mixed").slice(0, 5).map(s => s.title || s.snippet).filter(Boolean);
 
-  return {
+  const base = {
     review_summary: `${product.name} has ${sources.length} discovered public review/search signals. Present this as a trust-first review and avoid unsupported claims.`,
     positive_signals: positives.length ? positives : ["Public sources mention the product by name.", "APF marketplace data suggests the product is worth reviewing."],
     negative_signals: negatives.length ? negatives : ["Some review sources may be affiliate-driven.", "Claims should be verified on the current offer page."],
@@ -348,6 +431,8 @@ function fallbackBrief(product, sources) {
     cta_guidance: "Invite viewers to check the current product page and verify the details before buying.",
     confidence_score: Math.min(95, Math.max(35, 40 + sources.length * 3))
   };
+
+  return finalizeBrief(product, base);
 }
 
 async function summarizeWithOllama(product, sources) {
@@ -374,7 +459,10 @@ Rules:
 - Use "sources suggest" or "product claims" when evidence is weak.
 - Avoid medical, financial, or guaranteed-result claims.
 - Return only JSON with:
-review_summary, positive_signals, negative_signals, common_claims, common_complaints, target_audience, who_it_may_help, who_should_skip_it, best_video_angles, cta_guidance, confidence_score`;
+review_summary, positive_signals, negative_signals, common_claims, common_complaints, target_audience, who_it_may_help, who_should_skip_it, best_video_angles, cta_guidance, confidence_score, recommended_content_style, suggested_competitors, price_display
+- recommended_content_style must be one of: honest_review, elimination, worth_it_or_waste, budget_challenge, vs_battle, standard
+- suggested_competitors must be a JSON array of 2-4 category-appropriate product or offer names (never the vendor name)
+- price_display must be a short human-readable price string; use APV/aggregateSales when no retail price is known, otherwise "Varies"`;
 
   try {
     const res = await fetch(`${OLLAMA_BASE_URL}/api/chat`, {
@@ -393,7 +481,7 @@ review_summary, positive_signals, negative_signals, common_claims, common_compla
 
     if (!res.ok) throw new Error(`Ollama failed ${res.status}: ${await res.text()}`);
     const json = await res.json();
-    return {...fallback, ...JSON.parse(json.message?.content || "{}")};
+    return finalizeBrief(product, {...fallback, ...JSON.parse(json.message?.content || "{}")});
   } catch (err) {
     console.error("Ollama summary failed; using fallback:", err.message);
     return fallback;
@@ -405,9 +493,10 @@ async function saveBrief(conn, product, brief, sourceCount) {
     INSERT INTO product_review_briefs
     (product_id, enrichment_status, review_summary, positive_signals, negative_signals,
      common_claims, common_complaints, target_audience, who_it_may_help, who_should_skip_it,
-     best_video_angles, cta_guidance, source_count, confidence_score, generated_at)
+     best_video_angles, cta_guidance, recommended_content_style, suggested_competitors, price_display,
+     source_count, confidence_score, generated_at)
     VALUES (?, 'complete', ?, CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON),
-            ?, ?, ?, CAST(? AS JSON), ?, ?, ?, NOW())
+            ?, ?, ?, CAST(? AS JSON), ?, ?, CAST(? AS JSON), ?, ?, ?, NOW())
     ON DUPLICATE KEY UPDATE
       enrichment_status='complete',
       review_summary=VALUES(review_summary),
@@ -420,6 +509,9 @@ async function saveBrief(conn, product, brief, sourceCount) {
       who_should_skip_it=VALUES(who_should_skip_it),
       best_video_angles=VALUES(best_video_angles),
       cta_guidance=VALUES(cta_guidance),
+      recommended_content_style=VALUES(recommended_content_style),
+      suggested_competitors=VALUES(suggested_competitors),
+      price_display=VALUES(price_display),
       source_count=VALUES(source_count),
       confidence_score=VALUES(confidence_score),
       generated_at=NOW(),
@@ -437,9 +529,57 @@ async function saveBrief(conn, product, brief, sourceCount) {
     clamp(brief.who_should_skip_it, 2000),
     JSON.stringify(brief.best_video_angles || []),
     clamp(brief.cta_guidance, 2000),
+    clamp(brief.recommended_content_style, 64),
+    JSON.stringify(brief.suggested_competitors || []),
+    clamp(brief.price_display, 200),
     sourceCount,
     Number(brief.confidence_score || Math.min(95, 40 + sourceCount * 3))
   ]);
+}
+
+async function rescoreProductAfterEnrichment(conn, product, sourceCount, confidenceScore) {
+  const [linkRows] = await conn.query(`
+    SELECT affiliate_url, status
+    FROM product_affiliate_links
+    WHERE product_id=? AND provider=?
+    ORDER BY
+      CASE
+        WHEN status='approved' THEN 0
+        WHEN status='generated' THEN 1
+        ELSE 2
+      END,
+      updated_at DESC,
+      id DESC
+    LIMIT 1
+  `, [product.id, product.platform || "digistore24"]);
+
+  const affiliate_url = linkRows?.[0]?.affiliate_url || "";
+  const link_status = linkRows?.[0]?.status || "";
+
+  const scored = scoreProduct({
+    ...product,
+    affiliateLink: product.affiliateLink || affiliate_url || "",
+    source_count: Number(sourceCount || 0),
+    confidence_score: Number(confidenceScore || 0),
+    link_status,
+    generated_affiliate_url: affiliate_url,
+  });
+
+  const scoreComponents = {
+    ...scored.components,
+    _meta: {
+      scoring_version: SCORING_VERSION,
+      marketplace: scored.marketplace,
+      strategy: scored.strategy,
+      ...scored.meta,
+    },
+  };
+
+  await conn.query(`
+    UPDATE products
+    SET hiddenGemScore=?, scoreComponents=?, lastUpdatedAt=NOW()
+    WHERE id=?
+  `, [scored.score, JSON.stringify(scoreComponents), product.id]);
 }
 
 async function markPendingApiKey(conn, job, product) {
@@ -478,6 +618,7 @@ async function processJob(conn, job) {
   const sources = await saveSources(conn, product, collected);
   const brief = await summarizeWithOllama(product, sources);
   await saveBrief(conn, product, brief, sources.length);
+  await rescoreProductAfterEnrichment(conn, product, sources.length, Number(brief.confidence_score || 0));
 
   await conn.query(`
     UPDATE review_enrichment_jobs
