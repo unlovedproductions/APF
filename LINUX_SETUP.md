@@ -140,9 +140,9 @@ To integrate with WarriorPlus, you need an API key:
 3.  **Generate API Key:** Click "Generate New API Key" and copy the generated key. You will use this in the application.
 4.  **Keep it Safe:** Do not share this key publicly or commit it to your repository.
 
-#### Digistore24 (No API Key Needed)
+#### Digistore24 (Firefox session daemon)
 
-Digistore24 marketplace scraping works without an API key. The application will automatically scrape product data from the Digistore24 marketplace.
+Digistore24 collection does not use a public no-key scrape. It uses a logged-in Firefox profile (`pnpm digistore24:daemon` / `pnpm digistore24:login`) and requires `DIGISTORE24_ID` (affiliate nickname) in `.env`. See `LOCAL_SHADOWCAST.md` and `.env.example`.
 
 ### Running the Application
 
@@ -177,7 +177,7 @@ pnpm start
 1.  **Sign In:** Open `http://localhost:3000` in your browser, click "Sign In", and log in with your Manus account (or create one).
 2.  **Connect Marketplaces (Optional):**
     *   **WarriorPlus:** Select "WarriorPlus" from the marketplace dropdown, paste your API key, and click "Connect."
-    *   **Digistore24:** Select "Digistore24" and click "Connect" (no API key needed).
+    *   **Digistore24:** Select "Digistore24", ensure the Firefox daemon is available, complete Digistore login if prompted, then Refresh Data.
 3.  **Refresh Data:** Click the "Refresh Data" button. The initial refresh may take 1-2 minutes to load products.
 4.  **Explore Products:** Use filters, search, and view product details. Bookmark products of interest.
 5.  **Check Bookmarks:** View your saved products and update their status (Interested → Researching → Promoting → Archived).

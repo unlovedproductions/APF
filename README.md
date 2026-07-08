@@ -8,17 +8,16 @@
 
 ### 1. Multi-Marketplace Discovery
 - **WarriorPlus Integration:** Direct API-level access to the latest WarriorPlus offers.
-- **Digistore24 Scraping:** Real-time marketplace scraping for Digistore24 products without requiring an API key.
+- **Digistore24 (Firefox daemon):** Logged-in Firefox session collects affiliate marketplace products, promotes/extracts account-tied promolinks when possible, and scores them with `digistore24_native_v1` (no Digistore REST API key required for this path).
 - **ClickBank Integration:** Added a new backend module that parses the ClickBank Marketplace XML feed and applies a custom "Hidden Gem" scoring algorithm based on gravity and sales velocity.
 - **ShareASale Integration:** Implemented a secure API-based integration using SHA256 signatures. It allows you to search for merchants and evaluate them based on EPC (Earnings Per Click) and reversal rates.
 - **Historical Caching:** Local database storage for tracking product performance over time.
 
 ### 2. "Hidden Gem" Scoring Algorithm
-APF uses a multi-factor scoring model (0-50 pts) to rank products:
-- **Recency (0-30 pts):** Higher scores for newer products to catch early traction.
-- **Sales Growth (0-30 pts):** Penalizes saturated products with too many sales; rewards early-growth "sweet spots."
-- **Low Competition (0-25 pts):** Measures sales-per-day velocity relative to product age.
-- **Quality (0-15 pts):** Directly rewards products with low refund rates (<5%).
+Marketplace scorers differ by platform:
+- **WarriorPlus:** Recency / growth / competition / quality from sales and refund signals.
+- **Digistore24 (`digistore24_native_v1`):** Heuristic 0–100 score from structured marketplace fields + affiliate readiness + enrichment confidence (not full Digistore sales/refund history).
+- **ClickBank / ShareASale:** Gravity, velocity, EPC, and reversal-oriented signals as implemented in each client.
 
 ### 3. Product Management & Research
 - **Bookmarks System:** Save high-potential products and track their status (Interested → Researching → Promoting → Archived).
@@ -28,9 +27,10 @@ APF uses a multi-factor scoring model (0-50 pts) to rank products:
 
 ### 4. Direct Integration with ShadowCast
 APF is the primary "source engine" for the **ShadowCast** video generator:
-- **Batch Export:** Export your bookmarked "Hidden Gems" as a JSON package compatible with ShadowCast.
-- **Live Handoff:** Launch ShadowCast directly from a product detail modal with pre-filled metadata for instant video creation.
-- **Metadata Mapping:** Automatically translates product specs, pricing, and vendor info into ShadowCast-ready marketing data.
+- **Enriched payload:** `apf_shadowcast_enriched_v1` via `POST /api/import-apf/direct` (shared `INTERNAL_SERVICE_SECRET`).
+- **UI handoff:** Product detail **Send to ShadowCast** and batch export return draft `open_url`s.
+- **Review enrichment:** SearXNG + Ollama fill briefs/sources before a full handoff (see `LOCAL_SHADOWCAST.md`).
+- **JSON export:** CLI/UI export still available when you want a file instead of live import.
 
 ---
 
@@ -63,25 +63,28 @@ APF is the primary "source engine" for the **ShadowCast** video generator:
 3. **Configure Environment:**
    ```bash
    cp .env.example .env
-   # Edit .env with your DATABASE_URL and JWT_SECRET
+   # Edit .env: DATABASE_URL, JWT_SECRET, DIGISTORE24_ID, SHADOWCAST_BASE_URL, INTERNAL_SERVICE_SECRET
    ```
 4. **Setup Database:**
    ```bash
    pnpm db:push
    ```
-5. **Launch:**
+5. **Launch (local Digistore → ShadowCast path):**
    ```bash
-   pnpm dev
+   pnpm local:start          # APF
+   pnpm digistore24:daemon   # Firefox collector (login when prompted)
+   # ShadowCast on :8000; optional SearXNG + Ollama for enrichment — see LOCAL_SHADOWCAST.md
    ```
+   Or `pnpm dev` for APF alone.
 6. **Access:** Open `http://localhost:3000` in your browser.
 
 ---
 
 ## 🤝 Workflow Integration
-1. **Find:** Use APF to discover low-competition, high-quality "Hidden Gems" on WarriorPlus/Digistore24/ClickBank/ShareASale.
-2. **Bookmark:** Save the products you want to promote.
-3. **Export:** Generate a ShadowCast-compatible JSON file.
-4. **Create:** Import the file into **ShadowCast** to generate high-conversion review videos and SEO assets in minutes.
+1. **Find:** Refresh Digistore24 (logged-in Firefox daemon) or other marketplaces; sort by Hidden Gem score.
+2. **Enrich:** Wait for review enrichment `complete` on products you care about.
+3. **Send:** Use **Send to ShadowCast** (or `pnpm local:smoke-test`) so drafts open in ShadowCast with affiliate + enrichment fields.
+4. **Create:** Generate videos in ShadowCast from those drafts.
 
 ---
 

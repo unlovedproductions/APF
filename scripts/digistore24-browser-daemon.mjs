@@ -21,6 +21,13 @@ function loadEnv(file = ".env") {
 
 loadEnv();
 
+if (!process.env.PLAYWRIGHT_BROWSERS_PATH) {
+  const defaultBrowsers = `${process.env.HOME || ""}/.cache/ms-playwright`;
+  if (defaultBrowsers && fs.existsSync(defaultBrowsers)) {
+    process.env.PLAYWRIGHT_BROWSERS_PATH = defaultBrowsers;
+  }
+}
+
 const PORT = Number(process.env.DIGISTORE24_DAEMON_PORT || "3219");
 const PROFILE_DIR =
   process.env.DIGISTORE24_BROWSER_PROFILE ||

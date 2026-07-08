@@ -78,3 +78,12 @@
 - [ ] Push all code to GitHub
 - [ ] Add README with setup instructions
 - [ ] Add GitHub Actions CI/CD (optional)
+
+## Phase 11: Digistore24 → ShadowCast ops (local)
+- [x] Align docs with Firefox daemon path (not no-key scrape)
+- [x] `.env` / `.env.example` Digistore + ShadowCast keys
+- [x] `product_affiliate_links` backfill + synthetic promolinks for products missing live Promote
+- [x] Add missing `products.conversionRate` / `cartValue` columns for export
+- [x] ShadowCast local start + smoke path (`pnpm local:smoke-test`)
+- [ ] Interactive Digistore Firefox login + daemon collect with live Promote (`pnpm digistore24:login` / Refresh Data) — requires user in GUI
+- [ ] Replace status=`generated` synthetic links with approved promolinks via daemon `--promote`

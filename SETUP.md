@@ -49,7 +49,9 @@ Before you start, make sure you have the following installed:
 
 3. **Digistore24 Account** (optional, for Digistore24 marketplace)
    - Create at: https://www.digistore24.com/
-   - No API key required for marketplace scraping
+   - No Digistore REST API key required for the main path
+   - Requires a logged-in Firefox session (persistent browser profile) via `pnpm digistore24:daemon` / `pnpm digistore24:login`
+   - Set `DIGISTORE24_ID` in `.env` to your Digistore affiliate nickname
 
 ---
 
@@ -180,9 +182,20 @@ The WarriorPlus integration requires an API key. Here's how to get it:
    - Don't commit it to GitHub
    - Treat it like a password
 
-### Digistore24 (No API Key Needed)
+### Digistore24 (Firefox session daemon — no REST API key)
 
-Digistore24 marketplace scraping works without an API key. The app will automatically scrape product data from the Digistore24 marketplace.
+APF does **not** scrape Digistore24 anonymously. Collection uses a logged-in Firefox profile:
+
+1. Set in `.env` (see `.env.example`):
+   - `DIGISTORE24_ID` — your Digistore affiliate nickname (used in promolinks)
+   - `DIGISTORE24_DAEMON_PORT` (default `3219`), `DIGISTORE24_BROWSER=firefox`
+   - `DIGISTORE24_AUTO_PROMOTE` / `DIGISTORE24_CONFIRM_PROMOTE` as needed
+2. Start the daemon: `pnpm digistore24:daemon` (or let UI refresh auto-ensure it)
+3. First time / expired session: complete Digistore login in the Firefox window (`pnpm digistore24:login` or Refresh Data when prompted)
+4. In the app: select Digistore24 → **Refresh Data** → products are collected, Hidden-Gem scored (`digistore24_native_v1`), and queued for review enrichment
+5. Optional promolink API tools (`DIGISTORE24_API_KEY`) exist for probes/import scripts only — the production refresh path is the browser daemon
+
+Full Digistore24 → enrichment → ShadowCast local runbook: see [LOCAL_SHADOWCAST.md](LOCAL_SHADOWCAST.md).
 
 ---
 
@@ -292,23 +305,31 @@ pnpm start
 
 ### Step 3: Connect Digistore24 (Optional)
 
-1. Select "Digistore24" from the marketplace dropdown
-2. Click "Connect" (no API key needed)
+1. Ensure `DIGISTORE24_ID` is set and `pnpm digistore24:daemon` can start Firefox
+2. Select "Digistore24" from the marketplace dropdown
+3. Click "Connect" / Refresh when prompted — complete Digistore login in Firefox if asked (session persists in the browser profile)
 
 ### Step 4: Refresh Data
 
 1. Click "Refresh Data" button
-2. Wait for products to load (first refresh takes 1-2 minutes)
-3. You should see a list of products with Hidden Gem Scores
+2. Wait for products to load (Digistore first refresh can take several minutes while Firefox collects)
+3. You should see products with Hidden Gem Scores (Digistore uses a 0–100 native heuristic, not WarriorPlus sales/refund history)
 
-### Step 5: Explore Products
+### Step 5: Enrichment and ShadowCast (optional but recommended)
+
+1. Start SearXNG + Ollama (see `.env.example`) so review briefs complete
+2. Wait until a product’s enrichment status is `complete`
+3. Open the product → **Send to ShadowCast** (requires ShadowCast on `SHADOWCAST_BASE_URL` and matching `INTERNAL_SERVICE_SECRET`)
+4. Or run `pnpm local:smoke-test` after MySQL has at least one scored ClickBank/Digistore product
+
+### Step 6: Explore Products
 
 1. Use the category filter to narrow down by niche
 2. Search for specific keywords
 3. Click "View" on any product to see details
 4. Click the bookmark icon to save products
 
-### Step 6: Check Bookmarks
+### Step 7: Check Bookmarks
 
 1. Click "View Bookmarks" in the top right
 2. See all your saved products
@@ -383,7 +404,8 @@ pnpm install --force
 1. Wait a few seconds and try refreshing again
 2. Check that marketplace is accessible (try visiting it in browser)
 3. Verify API key is valid (for WarriorPlus)
-4. Check browser console for errors (F12 → Console tab)
+4. For Digistore24: run `pnpm digistore24:session:check` and `pnpm digistore24:daemon:health`; re-login with `pnpm digistore24:login` if the session expired; confirm `DIGISTORE24_ID` matches your affiliate nickname
+5. Check browser console for errors (F12 → Console tab)
 
 ### "Database migration failed"
 

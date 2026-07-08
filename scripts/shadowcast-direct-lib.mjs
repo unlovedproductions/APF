@@ -151,7 +151,7 @@ export async function buildPayload(productId) {
             l2.id DESC
           LIMIT 1
         )
-      WHERE id=?
+      WHERE p.id=?
       LIMIT 1
     `, [productId]);
 

@@ -1,11 +1,20 @@
 /**
- * Real-only Digistore24 integration placeholder.
+ * Digistore24 marketplace ingestion.
  *
- * Digistore24 marketplace data is account/login based. This file intentionally
- * does NOT return fake products. The next real implementation should use either:
- * 1. Digistore24 API credentials and a documented endpoint available to the account, or
- * 2. A user-provided real export/import file from the Digistore24 affiliate marketplace.
+ * Production path is NOT this module. Refresh uses the Firefox browser daemon:
+ * - scripts/digistore24-browser-daemon.mjs
+ * - scripts/digistore24-daemon-client.mjs
+ * - server/apfWorkflows.ts → runDigistore24RefreshWorkflow()
+ *
+ * Optional DIGISTORE24_API_KEY scripts (probe/importer) are exploratory only.
+ * This file stays as a hard no-fake-data guard if anything still calls the old
+ * in-process "API fetch" shape.
  */
+
+export const DIGISTORE24_INGESTION_MODE = "firefox_daemon" as const;
+
+export const DIGISTORE24_DAEMON_HINT =
+  "Use Digistore24 Refresh in the UI (runDigistore24RefreshWorkflow) or: pnpm digistore24:daemon + pnpm digistore24:daemon:collect. Set DIGISTORE24_ID to your affiliate nickname and complete Firefox login if asked.";
 
 interface ProcessedProduct {
   platformProductId: string;
@@ -28,16 +37,20 @@ interface ProcessedProduct {
   };
 }
 
+/**
+ * @deprecated In-process Digistore API fetch is not implemented.
+ * Call runDigistore24RefreshWorkflow() instead.
+ */
 export async function fetchAndProcessDigistore24Products(
   apiKey?: string
 ): Promise<ProcessedProduct[]> {
   if (!apiKey || apiKey === "PUBLIC_FEED") {
     throw new Error(
-      "Real Digistore24 marketplace ingestion requires real Digistore24 account/API access or a real marketplace export. Public no-key scraping is disabled so fake products are never inserted."
+      `Digistore24 does not support public no-key scraping. ${DIGISTORE24_DAEMON_HINT}`
     );
   }
 
   throw new Error(
-    "Digistore24 real API ingestion is not implemented yet. No fake products inserted. Next step: wire a documented Digistore24 API endpoint or CSV export importer."
+    `Digistore24 in-process API ingestion is not implemented. Production path is the Firefox daemon (${DIGISTORE24_INGESTION_MODE}). ${DIGISTORE24_DAEMON_HINT}`
   );
 }

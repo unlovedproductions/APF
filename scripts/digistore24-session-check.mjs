@@ -17,6 +17,13 @@ function loadEnv(file = ".env") {
 
 loadEnv();
 
+if (!process.env.PLAYWRIGHT_BROWSERS_PATH) {
+  const defaultBrowsers = `${process.env.HOME || ""}/.cache/ms-playwright`;
+  if (defaultBrowsers && fs.existsSync(defaultBrowsers)) {
+    process.env.PLAYWRIGHT_BROWSERS_PATH = defaultBrowsers;
+  }
+}
+
 const profileDir =
   process.env.DIGISTORE24_BROWSER_PROFILE ||
   "/home/unloved/.config/unloved-digistore24-firefox-profile";
