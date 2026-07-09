@@ -16,7 +16,8 @@ export async function createContext(
   const internalSecret = process.env.INTERNAL_SERVICE_SECRET;
 
   if (serviceKey && internalSecret && serviceKey === internalSecret) {
-    user = { id: 0, openId: "system", role: "admin" } as User;
+    const serviceUserId = Number(process.env.APF_USER_ID || 1);
+    user = { id: serviceUserId, openId: "system", role: "admin" } as User;
   } else {
     try {
       user = await sdk.authenticateRequest(opts.req);
