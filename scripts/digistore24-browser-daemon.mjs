@@ -7,6 +7,16 @@ import { firefox } from "playwright";
 import { scoreProduct, SCORING_VERSION } from "./marketplace-scoring.mjs";
 import { extractDigistore24Detail } from "./digistore24-detail-extractor.mjs";
 import { queueReview, upsertAffiliateLink } from "./apf-db-helpers.mjs";
+import {
+  classifySourceType,
+  discoverLinksFromDom,
+  extractBuyerFacingBlocks,
+  isMarketplaceHost,
+  pageEvaluateExtractScript,
+  upsertVendorMaterial,
+  ensureVendorMaterialsTable,
+  cleanText,
+} from "./digistore24-vendor-materials.mjs";
 
 function loadEnv(file = ".env") {
   if (!fs.existsSync(file)) return;
@@ -373,6 +383,69 @@ async function promoteAndExtract(page, affiliateId, shouldPromote, shouldConfirm
   return result;
 }
 
+async function captureVendorMaterials(conn, productId, detailPage, detailUrl, affiliateLink) {
+  await ensureVendorMaterialsTable(conn);
+
+  const offerRaw = await detailPage.evaluate(pageEvaluateExtractScript());
+  const offerBlocks = extractBuyerFacingBlocks(offerRaw.body);
+  await upsertVendorMaterial(conn, {
+    productId,
+    sourceUrl: detailUrl,
+    sourceType: "offer_page",
+    title: offerRaw.title,
+    contentText: offerRaw.body,
+    structuredBlocks: offerBlocks,
+    isVendorHosted: true,
+    fetchStatus: "ok",
+  });
+
+  const candidates = discoverLinksFromDom(offerRaw.links, detailUrl, affiliateLink);
+  const visited = new Set([detailUrl]);
+  let captured = 1;
+  const maxPages = Number(process.env.DIGISTORE24_VENDOR_MATERIAL_MAX_PAGES || "6");
+
+  for (const candidate of candidates) {
+    if (captured >= maxPages) break;
+    if (visited.has(candidate.url)) continue;
+    visited.add(candidate.url);
+
+    const hostIsMarketplace = isMarketplaceHost(candidate.host);
+    if (hostIsMarketplace && candidate.url !== detailUrl) continue;
+
+    let materialPage = detailPage;
+    let closeAfter = false;
+
+    if (candidate.url !== detailPage.url()) {
+      materialPage = await context.newPage();
+      closeAfter = true;
+      await materialPage.goto(candidate.url, { waitUntil: "domcontentloaded", timeout: 45000 }).catch(() => {});
+      await materialPage.waitForTimeout(1200);
+    }
+
+    const raw = await materialPage.evaluate(pageEvaluateExtractScript()).catch(() => ({ title: "", body: "", links: [] }));
+    if (closeAfter) await materialPage.close().catch(() => {});
+
+    if (!raw.body || raw.body.length < 80) continue;
+
+    const sourceType = classifySourceType(candidate.url, raw.body);
+    const blocks = extractBuyerFacingBlocks(raw.body);
+
+    await upsertVendorMaterial(conn, {
+      productId,
+      sourceUrl: candidate.url,
+      sourceType,
+      title: raw.title,
+      contentText: raw.body,
+      structuredBlocks: blocks,
+      isVendorHosted: !hostIsMarketplace,
+      fetchStatus: raw.body ? "ok" : "empty",
+    });
+    captured += 1;
+  }
+
+  return captured;
+}
+
 async function upsertProduct(conn, product) {
   const [existingRows] = await conn.query(`
     SELECT id, affiliateLink
@@ -610,6 +683,13 @@ async function collectProducts(options) {
       };
 
       const saved = await upsertProduct(conn, product);
+      const vendorMaterialCount = await captureVendorMaterials(
+        conn,
+        saved.productId,
+        detailPage,
+        detailUrl,
+        product.affiliateLink
+      );
 
       imported.push({
         id: saved.productId,
@@ -619,6 +699,7 @@ async function collectProducts(options) {
         affiliate: product.affiliateLink ? "approved" : promote.status,
         affiliateLink: product.affiliateLink,
         clicked: promote.clicked,
+        vendorMaterials: vendorMaterialCount,
       });
 
       await detailPage.close().catch(() => {});

@@ -1,3 +1,5 @@
+import { extractBuyerFacingBlocks } from "./digistore24-vendor-materials.mjs";
+
 function clean(value, limit = 10000) {
   return String(value ?? "").replace(/\s+/g, " ").trim().slice(0, limit);
 }
@@ -63,6 +65,7 @@ export function extractDigistore24Detail(raw) {
   const conversionRate = parsePercent(`${importantSections} ${body}`, ["conversion", "cart conversion"]);
   const cartValue = parseCurrency(`${importantSections} ${body}`, ["cart value", "price", "payout", "earnings", "epc"]);
   const platformCreatedAt = parseDate(`${importantSections} ${body}`, ["created", "listed", "published"]);
+  const buyerBlocks = extractBuyerFacingBlocks(description || body);
 
   return {
     title,
@@ -73,6 +76,7 @@ export function extractDigistore24Detail(raw) {
     conversionRate,
     cartValue,
     platformCreatedAt,
+    buyerBlocks,
     detectedMeta: {
       detected_vendor: vendor || null,
       detected_category: category || null,
@@ -80,6 +84,8 @@ export function extractDigistore24Detail(raw) {
       detected_conversion_rate: conversionRate,
       detected_cart_value: cartValue,
       detected_platform_created_at: platformCreatedAt,
+      buyer_headline: buyerBlocks.headline || null,
+      buyer_core_promise: buyerBlocks.core_promise || null,
     },
   };
 }

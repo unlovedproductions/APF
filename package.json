@@ -13,6 +13,7 @@
     "db:push": "drizzle-kit generate && drizzle-kit migrate",
     "review:worker": "node scripts/review-enrichment-worker.mjs",
     "review:once": "node scripts/review-enrichment-worker.mjs --once",
+    "review:requeue-digistore24": "node scripts/requeue-digistore24-consumer-enrichment.mjs",
     "export:shadowcast": "node scripts/export-shadowcast-enriched.mjs",
     "shadowcast:send": "node scripts/send-shadowcast-direct.mjs",
     "shadowcast:export-ui": "node scripts/shadowcast-export-ui.mjs",

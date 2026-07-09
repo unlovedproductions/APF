@@ -2,6 +2,10 @@ import fs from "node:fs";
 import path from "node:path";
 import mysql from "mysql2/promise";
 import { normalizeKeywordList, safeJsonParse } from "./apf-db-helpers.mjs";
+import {
+  ensureVendorMaterialsTable,
+  loadVendorMaterials,
+} from "./digistore24-vendor-materials.mjs";
 
 export function loadEnv(file = ".env") {
   if (!fs.existsSync(file)) return;
@@ -185,6 +189,9 @@ export async function buildPayload(productId) {
     `, [productId]);
 
     const b = briefRows[0] || null;
+    const isDigistore = String(p.platform || "").toLowerCase() === "digistore24";
+    await ensureVendorMaterialsTable(conn);
+    const vendorMaterials = isDigistore ? await loadVendorMaterials(conn, productId) : [];
     const scoreObj = safeJsonParse(p.scoreComponents, {}) || {};
     const scoreMeta = scoreObj._meta || scoreObj.meta || {};
     const safeKeywords = normalizeKeywordList(p.keywords);
@@ -205,7 +212,9 @@ export async function buildPayload(productId) {
     } : null;
     const bestAffiliateUrl = clean(p.linkedAffiliateUrl) || clean(p.affiliateLink);
     const affiliateStatus = p.linkedAffiliateStatus || (bestAffiliateUrl ? "approved" : "needs_approval");
-    const discountInfo = p.commissionRate ? `${p.commissionRate}% commission` : "";
+    const discountInfo = isDigistore
+      ? clean(reviewBrief?.price_display || "")
+      : (p.commissionRate ? `${p.commissionRate}% commission` : "");
     const keyFeatures = reviewBrief?.common_claims?.length
       ? reviewBrief.common_claims.slice(0, 5)
       : clean(p.description).split(/[,.;]/).map(x => x.trim()).filter(Boolean).slice(0, 5);
@@ -214,12 +223,15 @@ export async function buildPayload(productId) {
     const suggestedCompetitors = reviewBrief?.suggested_competitors?.length
       ? reviewBrief.suggested_competitors
       : [];
-    const recommendedStyle = reviewBrief?.recommended_content_style || "honest_review";
+    const recommendedStyle = reviewBrief?.recommended_content_style || (isDigistore ? "worth_it_or_waste" : "honest_review");
     const priceDisplay = reviewBrief?.price_display
       || (p.cartValue ? `$${Number(p.cartValue).toFixed(2)}` : "")
-      || (p.aggregateSales && Number(p.aggregateSales) > 0
+      || (isDigistore ? "See official offer page" : (p.aggregateSales && Number(p.aggregateSales) > 0
         ? `$${Number(p.aggregateSales).toFixed(2)} avg payout`
-        : "Varies");
+        : "Varies"));
+    const consumerUsp = reviewBrief?.review_summary
+      || keyFeatures[0]
+      || clean(p.description).slice(0, 240);
     const shadowcastImport = {
       product_name: p.name || "",
       niche: p.category || "",
@@ -229,13 +241,17 @@ export async function buildPayload(productId) {
       product_category: p.category || p.platform || "",
       competitors: suggestedCompetitors,
       discount_info: discountInfo,
-      unique_selling_point: reviewBrief?.review_summary || `Hidden Gem Score: ${Number(p.hiddenGemScore || 0).toFixed(1)}/100`,
+      unique_selling_point: isDigistore
+        ? consumerUsp
+        : (reviewBrief?.review_summary || `Hidden Gem Score: ${Number(p.hiddenGemScore || 0).toFixed(1)}/100`),
       content_style: recommendedStyle,
       price: priceDisplay,
-      target_audience: reviewBrief?.target_audience || "",
+      target_audience: reviewBrief?.target_audience || (isDigistore ? "Everyday consumers researching this product before buying" : ""),
       common_complaints: commonComplaints,
       common_praises: commonPraises,
       who_not_for: reviewBrief?.who_should_skip_it || "",
+      buyer_problem: isDigistore ? (reviewBrief?.who_it_may_help || "") : "",
+      buyer_cta: isDigistore ? (reviewBrief?.cta_guidance || "Check the official offer page for current price and refund terms.") : (reviewBrief?.cta_guidance || ""),
     };
 
     return {
@@ -269,6 +285,14 @@ export async function buildPayload(productId) {
       },
       review_brief: reviewBrief,
       review_sources: sources,
+      vendor_materials: vendorMaterials.map(m => ({
+        source_type: m.source_type,
+        url: m.source_url,
+        domain: m.domain,
+        title: m.title,
+        excerpt: clean(m.content_text).slice(0, 1200),
+        structured_blocks: m.structured_blocks || {},
+      })),
       shadowcast_import: shadowcastImport,
     };
   } finally {

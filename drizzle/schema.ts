@@ -216,3 +216,27 @@ export const reviewEnrichmentJobs = mysqlTable("review_enrichment_jobs", {
 
 export type ReviewEnrichmentJob = typeof reviewEnrichmentJobs.$inferSelect;
 export type InsertReviewEnrichmentJob = typeof reviewEnrichmentJobs.$inferInsert;
+
+/**
+ * Vendor-hosted sales/marketing material captured during Digistore24 ingestion.
+ */
+export const productVendorMaterials = mysqlTable("product_vendor_materials", {
+  id: int("id").autoincrement().primaryKey(),
+  productId: int("product_id").notNull(),
+  sourceUrl: text("source_url").notNull(),
+  sourceUrlHash: varchar("source_url_hash", { length: 64 }).notNull(),
+  sourceType: varchar("source_type", { length: 64 }).notNull(),
+  domain: varchar("domain", { length: 255 }),
+  title: text("title"),
+  contentText: text("content_text"),
+  structuredBlocks: json("structured_blocks"),
+  isVendorHosted: boolean("is_vendor_hosted").default(true).notNull(),
+  fetchStatus: varchar("fetch_status", { length: 32 }).default("ok").notNull(),
+  discoveredAt: timestamp("discovered_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  vendorMaterialProductUrlUnique: unique("uq_vendor_material_product_url").on(table.productId, table.sourceUrlHash),
+}));
+
+export type ProductVendorMaterial = typeof productVendorMaterials.$inferSelect;
+export type InsertProductVendorMaterial = typeof productVendorMaterials.$inferInsert;
