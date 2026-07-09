@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Unloved Stack Useful Commands</title>
+  <style>
+    @page { margin: 20mm; }
+    body {
+      font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+      color: #1a1a1a;
+      line-height: 1.5;
+      font-size: 11pt;
+      max-width: 100%;
+    }
+    h1 {
+      font-size: 22pt;
+      margin: 0 0 0.25em;
+      border-bottom: 2px solid #111;
+      padding-bottom: 0.2em;
+    }
+    h2 {
+      font-size: 14pt;
+      margin-top: 1.4em;
+      margin-bottom: 0.4em;
+      color: #222;
+      page-break-after: avoid;
+    }
+    h3 { font-size: 12pt; margin-top: 1em; page-break-after: avoid; }
+    p, li { margin: 0.35em 0; }
+    ul, ol { margin: 0.4em 0 0.8em 1.2em; padding: 0; }
+    code {
+      font-family: "SF Mono", Consolas, monospace;
+      font-size: 9.5pt;
+      background: #f4f4f4;
+      padding: 0.1em 0.35em;
+      border-radius: 3px;
+    }
+    pre {
+      background: #f6f8fa;
+      border: 1px solid #e1e4e8;
+      border-radius: 6px;
+      padding: 0.75em 1em;
+      overflow-x: auto;
+      font-size: 9pt;
+      line-height: 1.45;
+      page-break-inside: avoid;
+    }
+    pre code { background: none; padding: 0; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 0.6em 0 1em;
+      font-size: 10pt;
+      page-break-inside: avoid;
+    }
+    th, td {
+      border: 1px solid #d0d7de;
+      padding: 0.45em 0.6em;
+      text-align: left;
+      vertical-align: top;
+    }
+    th { background: #f0f3f6; font-weight: 600; }
+    hr {
+      border: none;
+      border-top: 1px solid #ddd;
+      margin: 1.2em 0;
+    }
+    .subtitle { color: #555; margin-bottom: 1.2em; font-size: 10.5pt; }
+    .footer { margin-top: 2em; font-size: 9pt; color: #666; font-style: italic; }
+    strong { font-weight: 600; }
+  </style>
+</head>
+<body>
+  <h1>Unloved Stack Useful Commands</h1>
+  <p class="subtitle">APF (Affiliate Product Finder) — local workflow reference for enrichment, Digistore24, scoring, and ShadowCast.</p>
+
+  <h2>Prerequisites</h2>
+  <pre><code>pnpm install
+cp .env.example .env   # edit DATABASE_URL, DIGISTORE24_ID, SHADOWCAST_*, etc.
+pnpm db:push           # apply migrations</code></pre>
+
+  <h3>External services (must be running)</h3>
+  <table>
+    <tr><th>Service</th><th>Default URL</th><th>Purpose</th></tr>
+    <tr><td>MySQL</td><td>per DATABASE_URL</td><td>Database</td></tr>
+    <tr><td>ShadowCast</td><td>http://localhost:8000</td><td>Video draft handoff</td></tr>
+    <tr><td>SearXNG</td><td>http://localhost:8088</td><td>Review search</td></tr>
+    <tr><td>Ollama</td><td>http://localhost:11434</td><td>Review summarization</td></tr>
+  </table>
+
+  <h3>Required .env flags</h3>
+  <pre><code>REVIEW_ENRICHMENT_ENABLED=true
+REVIEW_ENRICHMENT_PROVIDER=searxng
+SEARXNG_BASE_URL=http://localhost:8088
+OLLAMA_BASE_URL=http://localhost:11434
+SHADOWCAST_BASE_URL=http://localhost:8000
+INTERNAL_SERVICE_SECRET=change-me-local-secret
+DIGISTORE24_ID=YourAffiliateNickname</code></pre>
+
+  <h2>Daily startup (recommended order)</h2>
+  <p><strong>Terminal 1 — APF + enrichment daemon</strong></p>
+  <pre><code>pnpm local:start</code></pre>
+  <p>Starts review enrichment daemon (if enabled) and dev server on :3000.</p>
+
+  <p><strong>Terminal 2 — Digistore24 browser collector</strong></p>
+  <pre><code>pnpm digistore24:daemon</code></pre>
+
+  <p><strong>First login or expired session</strong></p>
+  <pre><code>pnpm digistore24:login</code></pre>
+
+  <p><strong>In the UI:</strong> Digistore24 → Refresh Data (collects, scores, queues enrichment).</p>
+
+  <h2>Enrichment commands</h2>
+  <table>
+    <tr><th>Command</th><th>Purpose</th></tr>
+    <tr><td><code>pnpm review:daemon:start</code></td><td>Start enrichment daemon manually</td></tr>
+    <tr><td><code>pnpm review:daemon:logs</code></td><td>Tail enrichment logs</td></tr>
+    <tr><td><code>pnpm review:worker</code></td><td>Run worker loop continuously</td></tr>
+    <tr><td><code>pnpm review:once</code></td><td>Process one job and exit</td></tr>
+    <tr><td><code>pnpm review:status</code></td><td>Queue status + products not yet complete</td></tr>
+    <tr><td><code>pnpm review:requeue-digistore24</code></td><td>Re-queue all Digistore24 + seed vendor materials</td></tr>
+  </table>
+
+  <h3>Typical enrichment flow</h3>
+  <ol>
+    <li>Products queue automatically on collection.</li>
+    <li>Daemon/worker processes jobs (SearXNG + Ollama).</li>
+    <li>Check progress: <code>pnpm review:status</code></li>
+    <li>Force Digistore refresh after schema changes:
+      <pre><code>pnpm review:requeue-digistore24
+pnpm review:once    # repeat until complete</code></pre>
+    </li>
+    <li>Wait for <code>enrichment_status = complete</code> before ShadowCast handoff.</li>
+  </ol>
+
+  <h2>Digistore24 health &amp; diagnostics</h2>
+  <pre><code>pnpm digistore24:session:check
+pnpm digistore24:daemon:health
+pnpm digistore24:daemon:open      # ensure daemon + open browser
+pnpm digistore24:daemon:collect   # trigger collect
+pnpm digistore24:daemon:stop</code></pre>
+
+  <h3>Optional API/import tools (not main refresh path)</h3>
+  <pre><code>pnpm digistore24:test-api
+pnpm digistore24:import-api
+pnpm digistore24:discover
+pnpm digistore24:import-all</code></pre>
+
+  <h2>Scoring</h2>
+  <pre><code>pnpm score:explain              # dry-run, 25 products
+pnpm score:backfill             # all marketplaces
+pnpm score:digistore24          # Digistore only
+pnpm score:digistore24:explain  # dry-run Digistore</code></pre>
+
+  <h2>ShadowCast handoff</h2>
+  <p>After enrichment is <code>complete</code>:</p>
+  <ul>
+    <li><strong>UI:</strong> Product detail → Send to ShadowCast</li>
+    <li><strong>CLI:</strong></li>
+  </ul>
+  <pre><code>pnpm local:smoke-test       # end-to-end check
+pnpm shadowcast:send        # direct send
+pnpm export:shadowcast      # export enriched JSON
+pnpm shadowcast:export-ui   # local picker UI</code></pre>
+
+  <h2>Other useful commands</h2>
+  <pre><code>pnpm dev                 # APF only (no enrichment daemon)
+pnpm build && pnpm start # production
+pnpm check               # TypeScript
+pnpm test                # vitest</code></pre>
+
+  <h2>Minimal checklist</h2>
+  <ol>
+    <li><code>pnpm db:push</code></li>
+    <li>Start MySQL, ShadowCast, SearXNG, Ollama</li>
+    <li><code>pnpm local:start</code></li>
+    <li><code>pnpm digistore24:daemon</code> (+ login if needed)</li>
+    <li>Refresh Digistore24 in UI</li>
+    <li><code>pnpm review:status</code> until <code>complete</code></li>
+    <li><code>pnpm local:smoke-test</code> or Send to ShadowCast in UI</li>
+  </ol>
+
+  <p class="footer">Full runbook: LOCAL_SHADOWCAST.md in the APF repo.</p>
+</body>
+</html>
