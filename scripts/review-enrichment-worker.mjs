@@ -4,6 +4,11 @@ import path from "node:path";
 import process from "node:process";
 import mysql from "mysql2/promise";
 import { SCORING_VERSION, scoreProduct } from "./marketplace-scoring.mjs";
+import {
+  ensureVendorMaterialsTable,
+  loadVendorMaterials,
+  hostnameFromUrl,
+} from "./digistore24-vendor-materials.mjs";
 
 // BEGIN UNLOVED_MYSQL_NAN_GUARD
 function unlovedSanitizeSqlValue(v) {
@@ -94,6 +99,36 @@ if (!DATABASE_URL) {
 
 function clamp(v, n = 2000) {
   return String(v || "").replace(/\s+/g, " ").trim().slice(0, n);
+}
+
+function briefText(value, fallback = "") {
+  if (value == null || value === "") return fallback;
+  if (typeof value === "string") return clamp(value);
+  if (Array.isArray(value)) return clamp(value.map(x => briefText(x, "")).filter(Boolean).join("; "));
+  if (typeof value === "object") {
+    return clamp(Object.values(value).map(x => briefText(x, "")).filter(Boolean).join("; "));
+  }
+  return clamp(String(value));
+}
+
+function consumerProductContext(product) {
+  const scrub = (text) => String(text || "")
+    .replace(/\b\d+%\s*commission\b/gi, "")
+    .replace(/\bearn\s+\d+%\s+commission\b/gi, "")
+    .replace(/\baffiliate\b/gi, "")
+    .replace(/\bpromot(e|ing|ion)\b/gi, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return {
+    ...product,
+    name: scrub(product.name),
+    description: scrub(product.description),
+    category: product.category,
+    vendor: product.vendor,
+    platform: product.platform,
+    cartValue: product.cartValue,
+  };
 }
 
 const REVIEW_BRIEF_COLUMNS = [
@@ -207,6 +242,9 @@ async function getProduct(conn, id) {
 }
 
 function queriesFor(p) {
+  if (String(p.platform || "").toLowerCase() === "digistore24") {
+    return queriesForDigistore24Consumer(p);
+  }
   return [
     `"${p.name}" review`,
     `"${p.name}" complaints`,
@@ -218,6 +256,21 @@ function queriesFor(p) {
     `"${p.name}" ClickBank review`,
     p.vendor ? `"${p.name}" "${p.vendor}" review` : "",
     p.category ? `"${p.name}" "${p.category}" review` : ""
+  ].filter(Boolean);
+}
+
+function queriesForDigistore24Consumer(p) {
+  const category = p.category || "";
+  return [
+    `"${p.name}" official site`,
+    `"${p.name}" what is it`,
+    `"${p.name}" how it works`,
+    `"${p.name}" price`,
+    `"${p.name}" refund policy`,
+    `"${p.name}" complaints`,
+    `"${p.name}" scam`,
+    category ? `"${p.name}" "${category}" benefits` : "",
+    p.vendor ? `"${p.name}" "${p.vendor}" product` : "",
   ].filter(Boolean);
 }
 
@@ -294,20 +347,29 @@ async function searchReviews(query) {
   return braveSearch(query);
 }
 
-function scoreSource(product, source) {
+function scoreSource(product, source, vendorDomains = new Set()) {
   const hay = `${source.title} ${source.snippet} ${source.url}`.toLowerCase();
   const name = String(product.name || "").toLowerCase();
   const vendor = String(product.vendor || "").toLowerCase();
+  const host = hostnameFromUrl(source.url);
+  const isDigistore = String(product.platform || "").toLowerCase() === "digistore24";
 
   let relevance = 40;
   if (name && hay.includes(name)) relevance += 35;
   if (vendor && hay.includes(vendor)) relevance += 10;
-  if (/review|reviews|worth|scam|complaint|reddit|youtube|before|after/i.test(hay)) relevance += 15;
+  if (isDigistore) {
+    if (vendorDomains.has(host)) relevance += 35;
+    if (/official|how it works|what is|benefits|ingredients|faq|guarantee|refund/i.test(hay)) relevance += 15;
+    if (/affiliate|jvzoo|warriorplus|clickbank|promo link|earn commission/i.test(hay)) relevance -= 20;
+  } else if (/review|reviews|worth|scam|complaint|reddit|youtube|before|after/i.test(hay)) {
+    relevance += 15;
+  }
 
   let trust = 45;
   if (/reddit\.com|youtube\.com|youtu\.be|trustpilot\.com|bbb\.org/i.test(source.url)) trust += 20;
-  if (/official|clickbank|refund|ingredients|terms/i.test(hay)) trust += 8;
-  if (/affiliate|promo|bonus/i.test(hay)) trust -= 8;
+  if (vendorDomains.has(host)) trust += 25;
+  if (/official|refund|ingredients|terms|guarantee/i.test(hay)) trust += 8;
+  if (/affiliate|promo|bonus|jvzoo|warriorplus/i.test(hay)) trust -= 12;
 
   let sentiment = "unknown";
   if (/scam|complaint|warning|refund|doesn't work|does not work|side effect/i.test(hay)) sentiment = "negative";
@@ -321,14 +383,45 @@ function scoreSource(product, source) {
   };
 }
 
-async function saveSources(conn, product, sources) {
+function vendorDomainSet(materials) {
+  const domains = new Set();
+  for (const m of materials || []) {
+    if (m.domain) domains.add(String(m.domain).toLowerCase());
+    const host = hostnameFromUrl(m.source_url);
+    if (host) domains.add(host);
+  }
+  return domains;
+}
+
+function vendorMaterialSummary(materials) {
+  const blocks = [];
+  for (const m of materials || []) {
+    const structured = m.structured_blocks || {};
+    blocks.push({
+      source_type: m.source_type,
+      url: m.source_url,
+      title: m.title,
+      headline: structured.headline || "",
+      core_promise: structured.core_promise || "",
+      benefits: structured.benefits || [],
+      problems: structured.problems || [],
+      objections: structured.objections || [],
+      testimonials: structured.testimonials || [],
+      pricing: structured.pricing || [],
+      excerpt: String(m.content_text || "").slice(0, 1500),
+    });
+  }
+  return blocks;
+}
+
+async function saveSources(conn, product, sources, vendorDomains = new Set()) {
   const seen = new Set();
   const final = [];
 
   for (const s of sources) {
     if (!s.url || seen.has(s.url)) continue;
     seen.add(s.url);
-    final.push({...s, ...scoreSource(product, s)});
+    final.push({...s, ...scoreSource(product, s, vendorDomains)});
   }
 
   final.sort((a, b) => (b.relevance_score + b.trust_score) - (a.relevance_score + a.trust_score));
@@ -433,7 +526,7 @@ function normalizeSuggestedCompetitors(product, competitors) {
 }
 
 function finalizeBrief(product, brief) {
-  const angles = brief.best_video_angles || [];
+  const angles = (brief.best_video_angles || []).map(a => briefText(a)).filter(Boolean);
   const inferredStyle = inferContentStyleFromAngles(angles);
   const recommended_content_style = CONTENT_STYLES.has(brief.recommended_content_style)
     ? brief.recommended_content_style
@@ -441,13 +534,27 @@ function finalizeBrief(product, brief) {
 
   return {
     ...brief,
+    review_summary: briefText(brief.review_summary),
+    positive_signals: (brief.positive_signals || []).map(x => briefText(x)).filter(Boolean),
+    negative_signals: (brief.negative_signals || []).map(x => briefText(x)).filter(Boolean),
+    common_claims: (brief.common_claims || []).map(x => briefText(x)).filter(Boolean),
+    common_complaints: (brief.common_complaints || []).map(x => briefText(x)).filter(Boolean),
+    target_audience: briefText(brief.target_audience),
+    who_it_may_help: briefText(brief.who_it_may_help),
+    who_should_skip_it: briefText(brief.who_should_skip_it),
+    best_video_angles: angles.length ? angles : ["What problem does this solve for buyers?", "What to verify before buying"],
+    cta_guidance: briefText(brief.cta_guidance, "Check the official offer page for current price and refund terms."),
     recommended_content_style,
     suggested_competitors: normalizeSuggestedCompetitors(product, brief.suggested_competitors),
-    price_display: clamp(brief.price_display || derivePriceDisplay(product), 200)
+    price_display: clamp(brief.price_display || derivePriceDisplay(product), 200),
+    confidence_score: Number(brief.confidence_score || 0) || Math.min(95, 50),
   };
 }
 
-function fallbackBrief(product, sources) {
+function fallbackBrief(product, sources, vendorMaterials = []) {
+  const isDigistore = String(product.platform || "").toLowerCase() === "digistore24";
+  if (isDigistore) return fallbackConsumerBrief(product, sources, vendorMaterials);
+
   const category = product.category || "this category";
   const positives = sources.filter(s => s.sentiment === "positive").slice(0, 5).map(s => s.title || s.snippet).filter(Boolean);
   const negatives = sources.filter(s => s.sentiment === "negative" || s.sentiment === "mixed").slice(0, 5).map(s => s.title || s.snippet).filter(Boolean);
@@ -469,11 +576,98 @@ function fallbackBrief(product, sources) {
   return finalizeBrief(product, base);
 }
 
-async function summarizeWithOllama(product, sources) {
-  const fallback = fallbackBrief(product, sources);
-  if (!sources.length) return fallback;
+function fallbackConsumerBrief(product, sources, vendorMaterials) {
+  const category = product.category || "this product category";
+  const summary = vendorMaterialSummary(vendorMaterials);
+  const primary = summary[0] || {};
+  const benefits = summary.flatMap(s => s.benefits || []).slice(0, 6);
+  const problems = summary.flatMap(s => s.problems || []).slice(0, 4);
+  const objections = summary.flatMap(s => s.objections || []).slice(0, 4);
+  const testimonials = summary.flatMap(s => s.testimonials || []).slice(0, 4);
+  const pricing = summary.flatMap(s => s.pricing || []).slice(0, 2);
+  const riskSignals = sources
+    .filter(s => s.sentiment === "negative" || s.sentiment === "mixed")
+    .slice(0, 4)
+    .map(s => s.title || s.snippet)
+    .filter(Boolean);
 
-  const prompt = `Create a cautious affiliate product review brief as strict JSON.
+  const base = {
+    review_summary: primary.core_promise
+      || primary.headline
+      || `${product.name} is positioned for everyday buyers in ${category}. Use vendor sales copy as the primary source and treat third-party claims as secondary.`,
+    positive_signals: testimonials.length
+      ? testimonials
+      : benefits.length
+        ? benefits
+        : [`Vendor materials highlight benefits for ${category} buyers.`],
+    negative_signals: riskSignals.length
+      ? riskSignals
+      : ["Verify refund terms and current pricing on the official offer page."],
+    common_claims: benefits.length
+      ? benefits
+      : [`Vendor copy presents ${product.name} as a solution in ${category}.`],
+    common_complaints: objections.length
+      ? objections
+      : riskSignals.length
+        ? riskSignals
+        : ["Results may vary between customers.", "Some marketing claims should be verified before purchase."],
+    target_audience: problems[0]
+      ? `Everyday consumers dealing with: ${problems[0]}`
+      : `Everyday consumers interested in ${category} who want a clear buyer-focused overview before purchasing.`,
+    who_it_may_help: benefits[0]
+      ? `Buyers who want ${benefits[0].toLowerCase()}`
+      : `People comparing ${category} options and trying to understand what this product actually delivers.`,
+    who_should_skip_it: "Anyone expecting guaranteed outcomes, anyone who should consult a professional first, or buyers who cannot verify the current offer details.",
+    best_video_angles: [
+      "What problem does this actually solve for buyers?",
+      "What the vendor promises vs what to verify",
+      "Who should buy and who should skip",
+    ],
+    cta_guidance: "Tell viewers to check the official product page for current price, refund policy, and offer details before buying.",
+    confidence_score: Math.min(95, Math.max(40, 50 + summary.length * 8 + sources.length * 2)),
+    price_display: pricing[0] || derivePriceDisplay(product),
+  };
+
+  return finalizeBrief(product, base);
+}
+
+async function summarizeWithOllama(product, sources, vendorMaterials = []) {
+  const fallback = fallbackBrief(product, sources, vendorMaterials);
+  const isDigistore = String(product.platform || "").toLowerCase() === "digistore24";
+  if (!isDigistore && !sources.length) return fallback;
+  if (isDigistore && !sources.length && !vendorMaterials.length) return fallback;
+
+  const prompt = isDigistore
+    ? `Create a buyer-facing consumer product brief as strict JSON for a video aimed at regular customers, NOT affiliate marketers.
+
+Product (affiliate/commission language in the name or description should be ignored):
+${JSON.stringify(consumerProductContext(product), null, 2)}
+
+Primary vendor sales materials (highest priority):
+${JSON.stringify(vendorMaterialSummary(vendorMaterials), null, 2)}
+
+Secondary public sources (validation / risk only):
+${JSON.stringify(sources.slice(0, 12).map(s => ({
+    title: s.title,
+    url: s.url,
+    snippet: s.snippet,
+    relevance_score: s.relevance_score,
+    trust_score: s.trust_score,
+    sentiment: s.sentiment
+  })), null, 2)}
+
+Rules:
+- Write for end consumers considering a purchase, not for affiliates promoting the product.
+- Prioritize vendor-hosted sales copy for benefits, mechanism, deliverables, pricing language, guarantees, and objections.
+- Use third-party sources only to validate risks, complaints, or contradictions.
+- Do not invent facts.
+- Avoid affiliate-marketer language like "promote", "commission", "JV", or "hidden gem".
+- Return only JSON with:
+review_summary, positive_signals, negative_signals, common_claims, common_complaints, target_audience, who_it_may_help, who_should_skip_it, best_video_angles, cta_guidance, confidence_score, recommended_content_style, suggested_competitors, price_display
+- recommended_content_style must be one of: honest_review, elimination, worth_it_or_waste, budget_challenge, vs_battle, standard
+- suggested_competitors must be a JSON array of 2-4 real consumer alternatives in the same category (never the vendor name)
+- price_display must describe what a buyer would pay, not affiliate payouts`
+    : `Create a cautious affiliate product review brief as strict JSON.
 
 Product:
 ${JSON.stringify(product, null, 2)}
@@ -642,17 +836,26 @@ async function processJob(conn, job) {
     return;
   }
 
-  const collected = [];
+  const isDigistore = String(product.platform || "").toLowerCase() === "digistore24";
+  let vendorMaterials = [];
+  if (isDigistore) {
+    await ensureVendorMaterialsTable(conn);
+    vendorMaterials = await loadVendorMaterials(conn, product.id);
+  }
 
-  for (const q of queriesFor(product)) {
+  const collected = [];
+  const secondaryQueryLimit = isDigistore ? 5 : queriesFor(product).length;
+
+  for (const q of queriesFor(product).slice(0, secondaryQueryLimit)) {
     console.log(`[${product.name}] ${q}`);
     collected.push(...await searchReviews(q));
   }
 
-  const sources = await saveSources(conn, product, collected);
-  const brief = await summarizeWithOllama(product, sources);
-  await saveBrief(conn, product, brief, sources.length);
-  await rescoreProductAfterEnrichment(conn, product, sources.length, Number(brief.confidence_score || 0));
+  const vendorDomains = vendorDomainSet(vendorMaterials);
+  const sources = await saveSources(conn, product, collected, vendorDomains);
+  const brief = await summarizeWithOllama(product, sources, vendorMaterials);
+  await saveBrief(conn, product, brief, sources.length + vendorMaterials.length);
+  await rescoreProductAfterEnrichment(conn, product, sources.length + vendorMaterials.length, Number(brief.confidence_score || 0));
 
   await conn.query(`
     UPDATE review_enrichment_jobs
@@ -661,7 +864,7 @@ async function processJob(conn, job) {
     WHERE id=?
   `, [REFRESH_DAYS, job.id]);
 
-  console.log(`[${product.name}] complete: ${sources.length} sources`);
+  console.log(`[${product.name}] complete: ${sources.length} web sources, ${vendorMaterials.length} vendor materials`);
 }
 
 async function main() {
@@ -672,6 +875,7 @@ async function main() {
 
   try {
     await ensureReviewBriefSchema(conn);
+    await ensureVendorMaterialsTable(conn);
     await enqueueMissingProducts(conn);
 
     while (true) {
