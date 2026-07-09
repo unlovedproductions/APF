@@ -29,6 +29,13 @@
       "when": 1783493000000,
       "tag": "0003_review_brief_enrichment_columns",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "5",
+      "when": 1783597515729,
+      "tag": "0004_tiresome_the_fury",
+      "breakpoints": true
     }
   ]
 }
