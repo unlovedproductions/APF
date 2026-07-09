@@ -156,7 +156,7 @@ async function ensureReviewBriefSchema(conn) {
 
   const [result] = await conn.query(`
     UPDATE review_enrichment_jobs
-    SET status='queued', next_run_at=NOW(), error_message=NULL, updated_at=NOW()
+    SET status='queued', attempts=0, next_run_at=NOW(), error_message=NULL, updated_at=NOW()
     WHERE status='failed'
       AND error_message LIKE '%recommended_content_style%'
   `);
@@ -165,7 +165,25 @@ async function ensureReviewBriefSchema(conn) {
   }
 }
 
+async function reconcileStaleQueuedJobs(conn) {
+  const [result] = await conn.query(`
+    UPDATE review_enrichment_jobs j
+    JOIN product_review_briefs b ON b.product_id = j.product_id
+    SET j.status='complete',
+        j.error_message=NULL,
+        j.next_run_at=DATE_ADD(NOW(), INTERVAL ? DAY)
+    WHERE j.status = 'queued'
+      AND b.enrichment_status = 'complete'
+  `, [REFRESH_DAYS]);
+
+  if (result.affectedRows) {
+    console.log(`Reconciled ${result.affectedRows} stale queued jobs with complete briefs`);
+  }
+}
+
 async function enqueueMissingProducts(conn) {
+  await reconcileStaleQueuedJobs(conn);
+
   await conn.query(`
     INSERT INTO review_enrichment_jobs (product_id, status, next_run_at)
     SELECT id, 'queued', NOW()
@@ -176,7 +194,7 @@ async function enqueueMissingProducts(conn) {
   if (REVIEW_ENRICHMENT_PROVIDER === "searxng" || BRAVE_SEARCH_API_KEY) {
     await conn.query(`
       UPDATE review_enrichment_jobs
-      SET status='queued', next_run_at=NOW(), error_message=NULL, updated_at=NOW()
+      SET status='queued', attempts=0, next_run_at=NOW(), error_message=NULL, updated_at=NOW()
       WHERE status='pending_api_key'
     `);
   }

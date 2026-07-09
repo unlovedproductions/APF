@@ -67,6 +67,7 @@ async function main() {
         VALUES (?, 'queued', NOW())
         ON DUPLICATE KEY UPDATE
           status='queued',
+          attempts=0,
           next_run_at=NOW(),
           error_message=NULL,
           updated_at=NOW()

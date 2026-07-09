@@ -114,7 +114,15 @@ async function queueReview(conn, productId) {
           WHEN status IN ('complete','failed','pending_api_key') THEN 'queued'
           ELSE status
         END,
+        attempts = CASE
+          WHEN status IN ('complete','failed','pending_api_key') THEN 0
+          ELSE attempts
+        END,
         next_run_at = NOW(),
+        error_message = CASE
+          WHEN status IN ('complete','failed','pending_api_key') THEN NULL
+          ELSE error_message
+        END,
         updated_at = NOW()
     `, [productId])
   } catch {}
