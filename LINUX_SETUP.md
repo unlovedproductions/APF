@@ -2,6 +2,12 @@
 
 This document provides comprehensive instructions for setting up the Affiliate Product Finder (APF) application on a Linux environment. APF is a data-driven platform designed to help affiliate marketers discover high-potential products by analyzing various metrics across multiple marketplaces.
 
+## Operations docs
+
+- `docs/RECOVERY.md` for machine-loss, working-tree, and database recovery.
+- `docs/RUNBOOK.md` for startup/shutdown and routine operator commands.
+- `docs/ARCHITECTURE.md` for current system structure and integrations.
+
 ## Table of Contents
 
 1.  [Prerequisites](#prerequisites)

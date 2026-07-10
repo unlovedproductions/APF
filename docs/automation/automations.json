@@ -1,0 +1,74 @@
+[
+  {
+    "name": "docs-weekly-apf",
+    "description": "Weekly APF docs refresh and recovery hardening",
+    "cron": "0 18 * * 1",
+    "repo": "https://github.com/unlovedproductions/APF",
+    "branch": "main",
+    "workerName": "~/APF (+3) @ pop-os",
+    "workerPaths": [
+      "/home/unloved/APF",
+      "/home/unloved/shadowcast-",
+      "/home/unloved/mission-control",
+      "/home/unloved/unlovedproductions.com"
+    ],
+    "promptPath": "docs/automation/prompts/apf.md",
+    "model": "gpt-5.5-high",
+    "memoryEnabled": true,
+    "scope": "private"
+  },
+  {
+    "name": "docs-weekly-shadowcast",
+    "description": "Weekly ShadowCast docs refresh and recovery hardening",
+    "cron": "0 18 * * 2",
+    "repo": "https://github.com/unlovedproductions/shadowcast-",
+    "branch": "main",
+    "workerName": "~/APF (+3) @ pop-os",
+    "workerPaths": [
+      "/home/unloved/APF",
+      "/home/unloved/shadowcast-",
+      "/home/unloved/mission-control",
+      "/home/unloved/unlovedproductions.com"
+    ],
+    "promptPath": "docs/automation/prompts/shadowcast.md",
+    "model": "gpt-5.5-high",
+    "memoryEnabled": true,
+    "scope": "private"
+  },
+  {
+    "name": "docs-weekly-mission-control",
+    "description": "Weekly Mission Control docs refresh and recovery hardening",
+    "cron": "0 18 * * 3",
+    "repo": "https://github.com/unlovedproductions/mission-control",
+    "branch": "main",
+    "workerName": "~/APF (+3) @ pop-os",
+    "workerPaths": [
+      "/home/unloved/APF",
+      "/home/unloved/shadowcast-",
+      "/home/unloved/mission-control",
+      "/home/unloved/unlovedproductions.com"
+    ],
+    "promptPath": "docs/automation/prompts/mission-control.md",
+    "model": "gpt-5.5-high",
+    "memoryEnabled": true,
+    "scope": "private"
+  },
+  {
+    "name": "docs-weekly-website",
+    "description": "Weekly unlovedproductions.com docs refresh and recovery hardening",
+    "cron": "0 18 * * 4",
+    "repo": "https://github.com/unlovedproductions/unlovedproductions.com",
+    "branch": "main",
+    "workerName": "~/APF (+3) @ pop-os",
+    "workerPaths": [
+      "/home/unloved/APF",
+      "/home/unloved/shadowcast-",
+      "/home/unloved/mission-control",
+      "/home/unloved/unlovedproductions.com"
+    ],
+    "promptPath": "docs/automation/prompts/website.md",
+    "model": "gpt-5.5-high",
+    "memoryEnabled": true,
+    "scope": "private"
+  }
+]

@@ -34,6 +34,15 @@ APF is the primary "source engine" for the **ShadowCast** video generator:
 
 ---
 
+## 📚 Operational Documentation
+
+- `docs/RECOVERY.md` — disaster-recovery playbook (new machine, tree corruption, DB loss)
+- `docs/RUNBOOK.md` — startup/shutdown and day-to-day operations
+- `docs/ARCHITECTURE.md` — system map and data flow
+- `docs/unloved-stack-useful-commands/unloved-stack-useful-commands.md` — stack command reference
+
+---
+
 ## 🛠 Tech Stack
 - **Frontend:** React + TypeScript + TailwindCSS (Vite)
 - **Backend:** Node.js (tRPC)
