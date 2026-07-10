@@ -6,6 +6,10 @@ import {
   ensureVendorMaterialsTable,
   loadVendorMaterials,
 } from "./digistore24-vendor-materials.mjs";
+import {
+  ensureVendorProfilesTable,
+  loadVendorProfile,
+} from "./vendor-profiles.mjs";
 
 export function loadEnv(file = ".env") {
   if (!fs.existsSync(file)) return;
@@ -192,6 +196,8 @@ export async function buildPayload(productId) {
     const isDigistore = String(p.platform || "").toLowerCase() === "digistore24";
     await ensureVendorMaterialsTable(conn);
     const vendorMaterials = isDigistore ? await loadVendorMaterials(conn, productId) : [];
+    await ensureVendorProfilesTable(conn);
+    const vendorProfile = isDigistore ? await loadVendorProfile(conn, p.platform, p.vendor) : null;
     const scoreObj = safeJsonParse(p.scoreComponents, {}) || {};
     const scoreMeta = scoreObj._meta || scoreObj.meta || {};
     const safeKeywords = normalizeKeywordList(p.keywords);
@@ -209,6 +215,10 @@ export async function buildPayload(productId) {
       recommended_content_style: b.recommended_content_style || "",
       suggested_competitors: toArray(parseJson(b.suggested_competitors, [])),
       price_display: b.price_display || "",
+      price_comparison: b.price_comparison || "",
+      series_name: b.series_name || "",
+      coupon_code: b.coupon_code || "",
+      evidence_coverage: parseJson(b.evidence_coverage, {}),
     } : null;
     const bestAffiliateUrl = clean(p.linkedAffiliateUrl) || clean(p.affiliateLink);
     const affiliateStatus = p.linkedAffiliateStatus || (bestAffiliateUrl ? "approved" : "needs_approval");
@@ -246,6 +256,9 @@ export async function buildPayload(productId) {
         : (reviewBrief?.review_summary || `Hidden Gem Score: ${Number(p.hiddenGemScore || 0).toFixed(1)}/100`),
       content_style: recommendedStyle,
       price: priceDisplay,
+      price_comparison: reviewBrief?.price_comparison || "Compare current pricing with category alternatives before buying.",
+      series_name: reviewBrief?.series_name || "",
+      coupon_code: reviewBrief?.coupon_code || "",
       target_audience: reviewBrief?.target_audience || (isDigistore ? "Everyday consumers researching this product before buying" : ""),
       common_complaints: commonComplaints,
       common_praises: commonPraises,
@@ -281,7 +294,10 @@ export async function buildPayload(productId) {
         status: b?.enrichment_status || "pending",
         source_count: b?.source_count || sources.length || 0,
         confidence_score: b?.confidence_score ?? null,
-        last_enriched_at: b?.generated_at || null
+        last_enriched_at: b?.generated_at || null,
+        vendor_trust_score: vendorProfile?.vendor_trust_score ?? null,
+        vendor_rank_band: parseJson(vendorProfile?.ranking_components, {})?.band ?? null,
+        evidence_coverage: reviewBrief?.evidence_coverage || {}
       },
       review_brief: reviewBrief,
       review_sources: sources,

@@ -185,6 +185,10 @@ export const productReviewBriefs = mysqlTable("product_review_briefs", {
   recommendedContentStyle: text("recommended_content_style"),
   suggestedCompetitors: json("suggested_competitors"),
   priceDisplay: text("price_display"),
+  priceComparison: text("price_comparison"),
+  seriesName: text("series_name"),
+  couponCode: text("coupon_code"),
+  evidenceCoverage: json("evidence_coverage"),
   sourceCount: int("source_count").default(0).notNull(),
   confidenceScore: decimal("confidence_score", { precision: 5, scale: 2 }),
   errorMessage: text("error_message"),
@@ -240,3 +244,29 @@ export const productVendorMaterials = mysqlTable("product_vendor_materials", {
 
 export type ProductVendorMaterial = typeof productVendorMaterials.$inferSelect;
 export type InsertProductVendorMaterial = typeof productVendorMaterials.$inferInsert;
+
+/**
+ * Platform-scoped vendor evidence and trust ranking.
+ */
+export const vendorProfiles = mysqlTable("vendor_profiles", {
+  id: int("id").autoincrement().primaryKey(),
+  platform: varchar("platform", { length: 32 }).notNull(),
+  vendorName: varchar("vendor_name", { length: 255 }).notNull(),
+  vendorNameNormalized: varchar("vendor_name_normalized", { length: 255 }).notNull(),
+  bbbSignals: json("bbb_signals"),
+  trustpilotSignals: json("trustpilot_signals"),
+  scamAdvisorSignals: json("scam_advisor_signals"),
+  reviewSignals: json("review_signals"),
+  complaintSignals: json("complaint_signals"),
+  sourceCount: int("source_count").default(0).notNull(),
+  vendorTrustScore: decimal("vendor_trust_score", { precision: 5, scale: 2 }).default("40").notNull(),
+  vendorRiskFlags: json("vendor_risk_flags"),
+  rankingComponents: json("ranking_components"),
+  lastEnrichedAt: timestamp("last_enriched_at"),
+  updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  vendorProfilePlatformNameUnique: unique("uq_vendor_profile_platform_name").on(table.platform, table.vendorNameNormalized),
+}));
+
+export type VendorProfile = typeof vendorProfiles.$inferSelect;
+export type InsertVendorProfile = typeof vendorProfiles.$inferInsert;

@@ -47,22 +47,22 @@ try {
     SELECT COUNT(*) AS count
     FROM review_enrichment_jobs j
     WHERE j.status = 'queued'
-      AND (
-        j.next_run_at > NOW()
-        OR j.attempts >= 10
-        OR EXISTS (
-          SELECT 1
-          FROM product_review_briefs b
-          WHERE b.product_id = j.product_id
-            AND b.enrichment_status = 'complete'
-        )
-      )
+      AND (j.next_run_at > NOW() OR j.attempts >= 10)
+  `);
+
+  const [queuedCompleteBriefRows] = await conn.query(`
+    SELECT COUNT(*) AS count
+    FROM review_enrichment_jobs j
+    JOIN product_review_briefs b ON b.product_id = j.product_id
+    WHERE j.status = 'queued'
+      AND b.enrichment_status = 'complete'
   `);
 
   console.log("\nQueue claimability:");
   console.table([
     { label: "claimable_now", count: claimableRows[0].count },
     { label: "stale_queued", count: staleQueuedRows[0].count },
+    { label: "queued_with_complete_brief", count: queuedCompleteBriefRows[0].count },
   ]);
 
   const [staleDetailRows] = await conn.query(`
@@ -78,17 +78,13 @@ try {
     JOIN products p ON p.id = j.product_id
     LEFT JOIN product_review_briefs b ON b.product_id = j.product_id
     WHERE j.status = 'queued'
-      AND (
-        j.next_run_at > NOW()
-        OR j.attempts >= 10
-        OR b.enrichment_status = 'complete'
-      )
+      AND (j.next_run_at > NOW() OR j.attempts >= 10)
     ORDER BY j.next_run_at ASC, j.id ASC
     LIMIT 25
   `);
 
   if (staleDetailRows.length) {
-    console.log("\nStale queued jobs (not claimable or already enriched):");
+    console.log("\nStale queued jobs (future next_run_at or attempts >= 10):");
     console.table(staleDetailRows);
   }
 
@@ -108,6 +104,55 @@ try {
 
   console.log("\nProducts still needing enrichment:");
   console.table(todoRows);
+
+  const [digistoreEvidenceRows] = await conn.query(`
+    SELECT
+      COUNT(*) AS complete_briefs,
+      COALESCE(AVG(b.source_count), 0) AS avg_source_count,
+      COUNT(DISTINCT CASE WHEN s.source_type='retailer' THEN p.id END) AS products_with_retailer_sources,
+      COUNT(DISTINCT CASE WHEN s.source_type='scam_advisor' THEN p.id END) AS products_with_scam_advisor_sources
+    FROM products p
+    JOIN product_review_briefs b
+      ON b.product_id=p.id AND b.enrichment_status='complete'
+    LEFT JOIN product_review_sources s ON s.product_id=p.id
+    WHERE p.platform='digistore24'
+  `);
+
+  let vendorBandRows = [];
+  let vendorProfileCount = 0;
+  try {
+    const [bandRows] = await conn.query(`
+      SELECT
+        CASE
+          WHEN vendor_trust_score >= 70 THEN 'trusted'
+          WHEN vendor_trust_score >= 40 THEN 'mixed'
+          ELSE 'high_risk'
+        END AS vendor_score_band,
+        COUNT(*) AS count
+      FROM vendor_profiles
+      WHERE platform='digistore24'
+      GROUP BY vendor_score_band
+      ORDER BY FIELD(vendor_score_band, 'trusted', 'mixed', 'high_risk')
+    `);
+    vendorBandRows = bandRows;
+    const [vendorCountRows] = await conn.query(`
+      SELECT COUNT(*) AS vendor_profiles
+      FROM vendor_profiles
+      WHERE platform='digistore24'
+    `);
+    vendorProfileCount = vendorCountRows[0].vendor_profiles;
+  } catch (err) {
+    if (err?.code !== "ER_NO_SUCH_TABLE") throw err;
+    console.log("\nvendor_profiles table not created yet (run enrichment worker once).");
+  }
+
+  console.log("\nDigistore evidence summary:");
+  console.table([{
+    ...digistoreEvidenceRows[0],
+    vendor_profiles: vendorProfileCount,
+  }]);
+  console.log("\nDigistore vendor score bands:");
+  console.table(vendorBandRows);
 } finally {
   await conn.end();
 }

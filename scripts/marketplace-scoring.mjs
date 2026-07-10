@@ -199,7 +199,7 @@ export function scoreDigistore24(product) {
 
   // APF-native component 4: quality, max 40.
   // Affiliate readiness + usable product details + review confidence.
-  const quality = clamp(
+  let quality = clamp(
     (hasAffiliateLink(product) ? 14 : 4) +
     (clean(product.platformProductId).match(/^\d+$/) ? 5 : 2) +
     (clean(product.name) ? 4 : 0) +
@@ -209,6 +209,13 @@ export function scoreDigistore24(product) {
     0,
     40
   );
+  const vendorTrustScore = Number(product.vendor_trust_score);
+  const vendorRankBand = Number.isFinite(vendorTrustScore)
+    ? (vendorTrustScore >= 70 ? "trusted" : vendorTrustScore >= 40 ? "mixed" : "high_risk")
+    : null;
+  if (Number.isFinite(vendorTrustScore)) {
+    quality = clamp(quality + (vendorTrustScore >= 70 ? 5 : vendorTrustScore >= 40 ? 2 : -5), 0, 40);
+  }
 
   const components = { recency, growth, competition, quality };
 
@@ -223,6 +230,8 @@ export function scoreDigistore24(product) {
       detected_earnings_value: earningsValue,
       review_source_count: sourceCount,
       review_confidence: confidence,
+      vendor_trust_score: Number.isFinite(vendorTrustScore) ? vendorTrustScore : null,
+      vendor_rank_band: vendorRankBand,
       affiliate_ready: hasAffiliateLink(product),
       note: "Digistore24 scorer emits APF-native recency/growth/competition/quality components."
     }

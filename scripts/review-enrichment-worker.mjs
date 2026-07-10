@@ -9,6 +9,17 @@ import {
   loadVendorMaterials,
   hostnameFromUrl,
 } from "./digistore24-vendor-materials.mjs";
+import {
+  classifySourceHost,
+  digistoreEvidenceQueries,
+  digistoreVendorQueries,
+  evidenceCoverageFromSources,
+  seriesNameForStyle,
+} from "./enrichment-source-trust.mjs";
+import {
+  ensureVendorProfilesTable,
+  upsertVendorProfile,
+} from "./vendor-profiles.mjs";
 
 // BEGIN UNLOVED_MYSQL_NAN_GUARD
 function unlovedSanitizeSqlValue(v) {
@@ -135,6 +146,10 @@ const REVIEW_BRIEF_COLUMNS = [
   { name: "recommended_content_style", ddl: "ADD COLUMN recommended_content_style TEXT NULL AFTER cta_guidance" },
   { name: "suggested_competitors", ddl: "ADD COLUMN suggested_competitors JSON NULL AFTER recommended_content_style" },
   { name: "price_display", ddl: "ADD COLUMN price_display TEXT NULL AFTER suggested_competitors" },
+  { name: "price_comparison", ddl: "ADD COLUMN price_comparison TEXT NULL AFTER price_display" },
+  { name: "series_name", ddl: "ADD COLUMN series_name TEXT NULL AFTER price_comparison" },
+  { name: "coupon_code", ddl: "ADD COLUMN coupon_code TEXT NULL AFTER series_name" },
+  { name: "evidence_coverage", ddl: "ADD COLUMN evidence_coverage JSON NULL AFTER coupon_code" },
 ];
 
 async function ensureReviewBriefSchema(conn) {
@@ -174,6 +189,7 @@ async function reconcileStaleQueuedJobs(conn) {
         j.next_run_at=DATE_ADD(NOW(), INTERVAL ? DAY)
     WHERE j.status = 'queued'
       AND b.enrichment_status = 'complete'
+      AND (j.next_run_at > NOW() OR j.attempts >= 10)
   `, [REFRESH_DAYS]);
 
   if (result.affectedRows) {
@@ -278,18 +294,7 @@ function queriesFor(p) {
 }
 
 function queriesForDigistore24Consumer(p) {
-  const category = p.category || "";
-  return [
-    `"${p.name}" official site`,
-    `"${p.name}" what is it`,
-    `"${p.name}" how it works`,
-    `"${p.name}" price`,
-    `"${p.name}" refund policy`,
-    `"${p.name}" complaints`,
-    `"${p.name}" scam`,
-    category ? `"${p.name}" "${category}" benefits` : "",
-    p.vendor ? `"${p.name}" "${p.vendor}" product` : "",
-  ].filter(Boolean);
+  return digistoreEvidenceQueries(p);
 }
 
 async function searxngSearch(query) {
@@ -370,6 +375,7 @@ function scoreSource(product, source, vendorDomains = new Set()) {
   const name = String(product.name || "").toLowerCase();
   const vendor = String(product.vendor || "").toLowerCase();
   const host = hostnameFromUrl(source.url);
+  const classified = classifySourceHost(host);
   const isDigistore = String(product.platform || "").toLowerCase() === "digistore24";
 
   let relevance = 40;
@@ -383,8 +389,7 @@ function scoreSource(product, source, vendorDomains = new Set()) {
     relevance += 15;
   }
 
-  let trust = 45;
-  if (/reddit\.com|youtube\.com|youtu\.be|trustpilot\.com|bbb\.org/i.test(source.url)) trust += 20;
+  let trust = 45 + classified.trust_boost;
   if (vendorDomains.has(host)) trust += 25;
   if (/official|refund|ingredients|terms|guarantee/i.test(hay)) trust += 8;
   if (/affiliate|promo|bonus|jvzoo|warriorplus/i.test(hay)) trust -= 12;
@@ -397,7 +402,8 @@ function scoreSource(product, source, vendorDomains = new Set()) {
   return {
     relevance_score: Math.max(0, Math.min(100, relevance)),
     trust_score: Math.max(0, Math.min(100, trust)),
-    sentiment
+    sentiment,
+    source_type: vendorDomains.has(host) ? "vendor" : classified.source_type,
   };
 }
 
@@ -543,7 +549,7 @@ function normalizeSuggestedCompetitors(product, competitors) {
   return (cleaned.length >= 2 ? cleaned : fallbackSuggestedCompetitors(product)).slice(0, 4);
 }
 
-function finalizeBrief(product, brief) {
+function finalizeBrief(product, brief, sources = []) {
   const angles = (brief.best_video_angles || []).map(a => briefText(a)).filter(Boolean);
   const inferredStyle = inferContentStyleFromAngles(angles);
   const recommended_content_style = CONTENT_STYLES.has(brief.recommended_content_style)
@@ -565,6 +571,12 @@ function finalizeBrief(product, brief) {
     recommended_content_style,
     suggested_competitors: normalizeSuggestedCompetitors(product, brief.suggested_competitors),
     price_display: clamp(brief.price_display || derivePriceDisplay(product), 200),
+    price_comparison: briefText(brief.price_comparison, `Compare the current ${derivePriceDisplay(product)} offer against 2-3 category alternatives before buying.`),
+    series_name: seriesNameForStyle(recommended_content_style),
+    coupon_code: briefText(brief.coupon_code, ""),
+    evidence_coverage: brief.evidence_coverage && typeof brief.evidence_coverage === "object"
+      ? brief.evidence_coverage
+      : evidenceCoverageFromSources(sources),
     confidence_score: Number(brief.confidence_score || 0) || Math.min(95, 50),
   };
 }
@@ -591,7 +603,7 @@ function fallbackBrief(product, sources, vendorMaterials = []) {
     confidence_score: Math.min(95, Math.max(35, 40 + sources.length * 3))
   };
 
-  return finalizeBrief(product, base);
+  return finalizeBrief(product, base, sources);
 }
 
 function fallbackConsumerBrief(product, sources, vendorMaterials) {
@@ -646,7 +658,7 @@ function fallbackConsumerBrief(product, sources, vendorMaterials) {
     price_display: pricing[0] || derivePriceDisplay(product),
   };
 
-  return finalizeBrief(product, base);
+  return finalizeBrief(product, base, sources);
 }
 
 async function summarizeWithOllama(product, sources, vendorMaterials = []) {
@@ -681,10 +693,12 @@ Rules:
 - Do not invent facts.
 - Avoid affiliate-marketer language like "promote", "commission", "JV", or "hidden gem".
 - Return only JSON with:
-review_summary, positive_signals, negative_signals, common_claims, common_complaints, target_audience, who_it_may_help, who_should_skip_it, best_video_angles, cta_guidance, confidence_score, recommended_content_style, suggested_competitors, price_display
+review_summary, positive_signals, negative_signals, common_claims, common_complaints, target_audience, who_it_may_help, who_should_skip_it, best_video_angles, cta_guidance, confidence_score, recommended_content_style, suggested_competitors, price_display, price_comparison, series_name, coupon_code, evidence_coverage
 - recommended_content_style must be one of: honest_review, elimination, worth_it_or_waste, budget_challenge, vs_battle, standard
 - suggested_competitors must be a JSON array of 2-4 real consumer alternatives in the same category (never the vendor name)
-- price_display must describe what a buyer would pay, not affiliate payouts`
+- price_display must describe what a buyer would pay, not affiliate payouts
+- price_comparison must compare the buyer offer against category alternatives without inventing prices
+- series_name must match the selected content style, coupon_code must be an empty string when no verified coupon exists, and evidence_coverage must be a JSON object summarizing the supplied sources`
     : `Create a cautious affiliate product review brief as strict JSON.
 
 Product:
@@ -727,7 +741,7 @@ review_summary, positive_signals, negative_signals, common_claims, common_compla
 
     if (!res.ok) throw new Error(`Ollama failed ${res.status}: ${await res.text()}`);
     const json = await res.json();
-    return finalizeBrief(product, {...fallback, ...JSON.parse(json.message?.content || "{}")});
+    return finalizeBrief(product, {...fallback, ...JSON.parse(json.message?.content || "{}")}, sources);
   } catch (err) {
     console.error("Ollama summary failed; using fallback:", err.message);
     return fallback;
@@ -739,10 +753,11 @@ async function saveBrief(conn, product, brief, sourceCount) {
     INSERT INTO product_review_briefs
     (product_id, enrichment_status, review_summary, positive_signals, negative_signals,
      common_claims, common_complaints, target_audience, who_it_may_help, who_should_skip_it,
-     best_video_angles, cta_guidance, recommended_content_style, suggested_competitors, price_display,
+     best_video_angles, cta_guidance, recommended_content_style, suggested_competitors, price_display, price_comparison,
+     series_name, coupon_code, evidence_coverage,
      source_count, confidence_score, generated_at)
     VALUES (?, 'complete', ?, CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON),
-            ?, ?, ?, CAST(? AS JSON), ?, ?, CAST(? AS JSON), ?, ?, ?, NOW())
+            ?, ?, ?, CAST(? AS JSON), ?, ?, CAST(? AS JSON), ?, ?, ?, CAST(? AS JSON), ?, ?, NOW())
     ON DUPLICATE KEY UPDATE
       enrichment_status='complete',
       review_summary=VALUES(review_summary),
@@ -758,6 +773,10 @@ async function saveBrief(conn, product, brief, sourceCount) {
       recommended_content_style=VALUES(recommended_content_style),
       suggested_competitors=VALUES(suggested_competitors),
       price_display=VALUES(price_display),
+      price_comparison=VALUES(price_comparison),
+      series_name=VALUES(series_name),
+      coupon_code=VALUES(coupon_code),
+      evidence_coverage=VALUES(evidence_coverage),
       source_count=VALUES(source_count),
       confidence_score=VALUES(confidence_score),
       generated_at=NOW(),
@@ -778,12 +797,16 @@ async function saveBrief(conn, product, brief, sourceCount) {
     clamp(brief.recommended_content_style, 64),
     JSON.stringify(brief.suggested_competitors || []),
     clamp(brief.price_display, 200),
+    clamp(brief.price_comparison, 2000),
+    clamp(brief.series_name, 255),
+    clamp(brief.coupon_code, 255),
+    JSON.stringify(brief.evidence_coverage || {}),
     sourceCount,
     Number(brief.confidence_score || Math.min(95, 40 + sourceCount * 3))
   ]);
 }
 
-async function rescoreProductAfterEnrichment(conn, product, sourceCount, confidenceScore) {
+async function rescoreProductAfterEnrichment(conn, product, sourceCount, confidenceScore, vendorTrustScore = null) {
   const [linkRows] = await conn.query(`
     SELECT affiliate_url, status
     FROM product_affiliate_links
@@ -807,6 +830,7 @@ async function rescoreProductAfterEnrichment(conn, product, sourceCount, confide
     affiliateLink: product.affiliateLink || affiliate_url || "",
     source_count: Number(sourceCount || 0),
     confidence_score: Number(confidenceScore || 0),
+    vendor_trust_score: vendorTrustScore,
     link_status,
     generated_affiliate_url: affiliate_url,
   });
@@ -862,7 +886,7 @@ async function processJob(conn, job) {
   }
 
   const collected = [];
-  const secondaryQueryLimit = isDigistore ? 5 : queriesFor(product).length;
+  const secondaryQueryLimit = isDigistore ? digistoreEvidenceQueries(product).length : queriesFor(product).length;
 
   for (const q of queriesFor(product).slice(0, secondaryQueryLimit)) {
     console.log(`[${product.name}] ${q}`);
@@ -871,9 +895,25 @@ async function processJob(conn, job) {
 
   const vendorDomains = vendorDomainSet(vendorMaterials);
   const sources = await saveSources(conn, product, collected, vendorDomains);
+  let vendorProfile = null;
+  if (isDigistore && product.vendor) {
+    const vendorHits = [];
+    for (const q of digistoreVendorQueries(product.vendor)) {
+      console.log(`[${product.name}] vendor: ${q}`);
+      vendorHits.push(...await searchReviews(q));
+    }
+    vendorProfile = await upsertVendorProfile(conn, {
+      platform: product.platform,
+      vendorName: product.vendor,
+      hits: vendorHits,
+    });
+  }
   const brief = await summarizeWithOllama(product, sources, vendorMaterials);
   await saveBrief(conn, product, brief, sources.length + vendorMaterials.length);
-  await rescoreProductAfterEnrichment(conn, product, sources.length + vendorMaterials.length, Number(brief.confidence_score || 0));
+  await rescoreProductAfterEnrichment(
+    conn, product, sources.length + vendorMaterials.length, Number(brief.confidence_score || 0),
+    vendorProfile?.vendor_trust_score ?? null
+  );
 
   await conn.query(`
     UPDATE review_enrichment_jobs
@@ -894,6 +934,7 @@ async function main() {
   try {
     await ensureReviewBriefSchema(conn);
     await ensureVendorMaterialsTable(conn);
+    await ensureVendorProfilesTable(conn);
     await enqueueMissingProducts(conn);
 
     while (true) {
