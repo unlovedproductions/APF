@@ -112,42 +112,114 @@ async function ensureBrowser() {
   return context;
 }
 
-async function collectDetailLinks(page) {
+async function clickNextMarketplacePage(page) {
+  return await page.evaluate(() => {
+    const visible = el => {
+      const rect = el?.getBoundingClientRect?.();
+      return Boolean(rect && rect.width > 0 && rect.height > 0);
+    };
+
+    const relNext = document.querySelector("a[rel='next'], button[rel='next']");
+    if (relNext && visible(relNext)) {
+      relNext.click();
+      return true;
+    }
+
+    const nextPatterns = [
+      /^next$/i,
+      /next page/i,
+      /next products/i,
+      /weiter/i,
+      /suivant/i,
+      /siguiente/i,
+      /proximo|próximo/i,
+      /^>\s*$/i,
+      /^>>\s*$/i,
+    ];
+
+    const candidates = Array.from(
+      document.querySelectorAll("button, a, [role='button'], input[type='button'], input[type='submit']")
+    );
+
+    for (const el of candidates) {
+      if (!visible(el)) continue;
+      const text = `${el.innerText || ""} ${el.textContent || ""} ${el.value || ""} ${el.getAttribute?.("aria-label") || ""}`
+        .replace(/\s+/g, " ")
+        .trim();
+      if (!text) continue;
+      if (!nextPatterns.some(re => re.test(text))) continue;
+      el.click();
+      return true;
+    }
+
+    return false;
+  }).catch(() => false);
+}
+
+async function collectDetailLinks(page, options = {}) {
+  const targetCount = Math.max(1, Number(options.targetCount || 10));
+  const maxScrollRounds = Math.max(1, Number(options.maxScrollRounds || 60));
+  const noGrowthLimit = Math.max(1, Number(options.noGrowthLimit || 4));
+  const shouldInclude = typeof options.shouldInclude === "function"
+    ? options.shouldInclude
+    : () => true;
+
   await page.waitForTimeout(1000);
 
-  for (let i = 0; i < 8; i++) {
+  const seenLinks = new Set();
+  const candidates = [];
+  let skippedExistingCount = 0;
+  let noGrowthRounds = 0;
+
+  for (let round = 0; round < maxScrollRounds; round++) {
     await page.mouse.wheel(0, 1400).catch(() => {});
     await page.waitForTimeout(450);
+
+    const links = await visibleDetailLinks(page);
+    let sawNewLink = false;
+
+    for (const item of links) {
+      const detailUrl = clean(item.href).split("#")[0];
+      if (!detailUrl) continue;
+      if (seenLinks.has(detailUrl)) continue;
+      seenLinks.add(detailUrl);
+      sawNewLink = true;
+
+      const platformProductId = productIdFromUrl(detailUrl) || `url-${hashId(detailUrl)}`;
+      if (shouldInclude(platformProductId, detailUrl, item.text)) {
+        candidates.push({ href: detailUrl, text: clean(item.text), platformProductId });
+        if (candidates.length >= targetCount) {
+          return {
+            candidates,
+            skippedExistingCount,
+            discoveredLinksCount: seenLinks.size,
+          };
+        }
+      } else {
+        skippedExistingCount += 1;
+      }
+    }
+
+    if (sawNewLink) {
+      noGrowthRounds = 0;
+      continue;
+    }
+
+    noGrowthRounds += 1;
+    if (noGrowthRounds < noGrowthLimit) continue;
+
+    const movedToNextPage = await clickNextMarketplacePage(page);
+    if (!movedToNextPage) break;
+
+    noGrowthRounds = 0;
+    await page.waitForTimeout(1200);
   }
 
-  const anchors = await page.evaluate(() =>
-    Array.from(document.querySelectorAll("a")).map(a => ({
-      text: (a.innerText || a.textContent || "").replace(/\s+/g, " ").trim(),
-      href: a.href,
-    }))
-  );
-
-  const out = [];
-  const seen = new Set();
-
-  for (const a of anchors) {
-    const href = clean(a.href);
-    if (!href) continue;
-
-    const isDetail =
-      /digistore24-app\.com\/app\/[^/]+\/affiliate\/account\/marketplace\/.*\/detail\/\d+/i.test(href) ||
-      /\/affiliate\/account\/marketplace\/.*\/detail\/\d+/i.test(href);
-
-    if (!isDetail) continue;
-
-    const normalized = href.split("#")[0];
-    if (seen.has(normalized)) continue;
-    seen.add(normalized);
-
-    out.push({ href: normalized, text: clean(a.text) });
-  }
-
-  return out;
+  return {
+    candidates,
+    skippedExistingCount,
+    discoveredLinksCount: seenLinks.size,
+  };
 }
 
 
@@ -182,7 +254,7 @@ async function visibleDetailLinks(page) {
   return out;
 }
 
-async function waitForDetailLinks(page, timeoutMs) {
+async function waitForDetailLinks(page, timeoutMs, options = {}) {
   const deadline = Date.now() + timeoutMs;
   let lastLog = 0;
 
@@ -195,7 +267,15 @@ async function waitForDetailLinks(page, timeoutMs) {
 
     if (links.length) {
       console.log(`Marketplace links detected: ${links.length}`);
-      return await collectDetailLinks(page);
+      const collected = await collectDetailLinks(page, options);
+      console.log(
+        `Marketplace detail links discovered: ${collected.discoveredLinksCount}. ` +
+        `Candidates to open: ${collected.candidates.length}.`
+      );
+      return {
+        ready: true,
+        ...collected,
+      };
     }
 
     const now = Date.now();
@@ -207,7 +287,12 @@ async function waitForDetailLinks(page, timeoutMs) {
     await page.waitForTimeout(2000);
   }
 
-  return [];
+  return {
+    ready: false,
+    candidates: [],
+    skippedExistingCount: 0,
+    discoveredLinksCount: 0,
+  };
 }
 
 async function clickVisibleText(page, patterns, timeoutMs = 1500) {
@@ -599,6 +684,36 @@ async function upsertProduct(conn, product) {
   return { productId, score: scored.score };
 }
 
+async function loadKnownProductState(conn, userId, allowPromoteRecovery) {
+  const [rows] = await conn.query(`
+    SELECT platformProductId, affiliateLink
+    FROM products
+    WHERE userId=?
+      AND platform='digistore24'
+  `, [userId]);
+
+  const knownIds = new Set();
+  const needsPromote = new Set();
+
+  for (const row of rows || []) {
+    const platformProductId = clean(row?.platformProductId);
+    if (!platformProductId) continue;
+
+    knownIds.add(platformProductId);
+    const hasAffiliateLink = Boolean(clean(row?.affiliateLink));
+    if (hasAffiliateLink) {
+      needsPromote.delete(platformProductId);
+      continue;
+    }
+
+    if (allowPromoteRecovery) {
+      needsPromote.add(platformProductId);
+    }
+  }
+
+  return { knownIds, needsPromote };
+}
+
 async function collectProducts(options) {
   if (!Number.isFinite(options.userId) || options.userId <= 0) {
     throw new Error("APF_USER_ID must be set to a valid logged-in user id.");
@@ -611,28 +726,46 @@ async function collectProducts(options) {
 
   if (!mainPage) throw new Error("No Digistore24 browser page found.");
 
-  const detailLinks = await waitForDetailLinks(
-    mainPage,
-    options.loginWaitMs || 10 * 60 * 1000
-  );
-
-  if (!detailLinks.length) {
-    return {
-      success: false,
-      needsLoginOrMarketplace: true,
-      message: "Timed out waiting for Digistore24 marketplace product links. Complete login/2FA in the opened Firefox window and make sure the marketplace page is visible, then retry Refresh Data.",
-      pageUrl: mainPage.url(),
-      imported: [],
-    };
-  }
-
   const conn = await mysql.createConnection(process.env.DATABASE_URL);
   const imported = [];
+  let skippedExistingCount = 0;
+  let openedCount = 0;
 
   try {
-    for (const item of detailLinks.slice(0, options.limit)) {
+    const knownState = await loadKnownProductState(conn, options.userId, options.promote);
+
+    const detailLookup = await waitForDetailLinks(
+      mainPage,
+      options.loginWaitMs || 10 * 60 * 1000,
+      {
+        targetCount: options.limit,
+        shouldInclude: (platformProductId) =>
+          !knownState.knownIds.has(platformProductId) || knownState.needsPromote.has(platformProductId),
+      }
+    );
+
+    if (!detailLookup.ready) {
+      return {
+        success: false,
+        needsLoginOrMarketplace: true,
+        message: "Timed out waiting for Digistore24 marketplace product links. Complete login/2FA in the opened Firefox window and make sure the marketplace page is visible, then retry Refresh Data.",
+        pageUrl: mainPage.url(),
+        imported: [],
+      };
+    }
+
+    skippedExistingCount = detailLookup.skippedExistingCount;
+
+    for (const item of detailLookup.candidates.slice(0, options.limit)) {
       const detailUrl = item.href;
-      const platformProductId = productIdFromUrl(detailUrl) || `url-${hashId(detailUrl)}`;
+      const platformProductId = item.platformProductId || productIdFromUrl(detailUrl) || `url-${hashId(detailUrl)}`;
+
+      if (knownState.knownIds.has(platformProductId) && !knownState.needsPromote.has(platformProductId)) {
+        skippedExistingCount += 1;
+        continue;
+      }
+
+      openedCount += 1;
 
       const detailPage = await context.newPage();
       await detailPage.goto(detailUrl, { waitUntil: "domcontentloaded", timeout: 60000 }).catch(() => {});
@@ -702,6 +835,11 @@ async function collectProducts(options) {
         vendorMaterials: vendorMaterialCount,
       });
 
+      knownState.knownIds.add(platformProductId);
+      if (product.affiliateLink) {
+        knownState.needsPromote.delete(platformProductId);
+      }
+
       await detailPage.close().catch(() => {});
     }
   } finally {
@@ -711,6 +849,8 @@ async function collectProducts(options) {
   return {
     success: true,
     importedCount: imported.length,
+    skippedExistingCount,
+    openedCount,
     imported,
   };
 }
