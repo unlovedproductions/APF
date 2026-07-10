@@ -123,7 +123,11 @@ export default function Home() {
   const shadowCastExportMutation = trpc.products.exportToShadowCast.useMutation({
     onSuccess: (data: any) => {
       const count = data?.count ?? selectedProducts.size;
-      toast.success(`Sent ${count} products to ShadowCast - review drafts before generating videos.`);
+      toast.success(
+        data?.batch
+          ? `Sent ${count} products as one ShadowCast batch — select each product to set its options.`
+          : `Sent ${count} products to ShadowCast - review drafts before generating videos.`
+      );
       setSelectedProducts(new Set());
       setShadowCastResults((data?.results || []).map((r: any) => ({
         productId: Number(r.productId),
@@ -485,7 +489,11 @@ export default function Home() {
           <Card className="mb-6">
             <CardHeader>
               <CardTitle>ShadowCast Drafts</CardTitle>
-              <CardDescription>Each product was sent as a separate reviewable draft.</CardDescription>
+              <CardDescription>
+                {shadowCastResults.length > 1
+                  ? "Multi-product batch draft — open once, then select each product in ShadowCast to set its content style."
+                  : "Each product was sent as a separate reviewable draft."}
+              </CardDescription>
             </CardHeader>
             <CardContent className="space-y-2">
               {shadowCastResults.map((row) => (

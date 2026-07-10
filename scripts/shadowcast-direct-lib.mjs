@@ -316,10 +316,7 @@ export async function buildPayload(productId) {
   }
 }
 
-export async function sendToShadowCast(productId) {
-  const payload = await buildPayload(productId);
-  const url = new URL("/api/import-apf/direct", shadowcastBaseUrl());
-
+function shadowCastAuthHeaders() {
   const headers = {
     "Content-Type": "application/json"
   };
@@ -329,9 +326,16 @@ export async function sendToShadowCast(productId) {
     headers["Authorization"] = `Bearer ${process.env.INTERNAL_SERVICE_SECRET}`;
   }
 
+  return headers;
+}
+
+export async function sendToShadowCast(productId) {
+  const payload = await buildPayload(productId);
+  const url = new URL("/api/import-apf/direct", shadowcastBaseUrl());
+
   const res = await fetch(url, {
     method: "POST",
-    headers,
+    headers: shadowCastAuthHeaders(),
     body: JSON.stringify(payload)
   });
 
@@ -347,5 +351,43 @@ export async function sendToShadowCast(productId) {
       name: payload.product.name,
       enrichmentStatus: payload.review_enrichment.status,
     },
+  };
+}
+
+export async function sendBatchToShadowCast(productIds) {
+  const ids = Array.from(new Set((productIds || []).map(Number).filter((id) => id > 0)));
+  if (!ids.length) {
+    throw new Error("No product IDs provided for ShadowCast batch send.");
+  }
+
+  if (ids.length === 1) {
+    return sendToShadowCast(ids[0]);
+  }
+
+  const payloads = [];
+  for (const productId of ids) {
+    payloads.push(await buildPayload(productId));
+  }
+
+  const url = new URL("/api/import-apf/direct", shadowcastBaseUrl());
+  const res = await fetch(url, {
+    method: "POST",
+    headers: shadowCastAuthHeaders(),
+    body: JSON.stringify({ batch: true, products: payloads }),
+  });
+
+  if (!res.ok) {
+    throw new Error(`ShadowCast batch import failed ${res.status}: ${(await res.text()).slice(0, 1000)}`);
+  }
+
+  const data = await res.json();
+  return {
+    ...data,
+    batch: true,
+    products: payloads.map((payload) => ({
+      id: payload.product.source_product_id,
+      name: payload.product.name,
+      enrichmentStatus: payload.review_enrichment.status,
+    })),
   };
 }

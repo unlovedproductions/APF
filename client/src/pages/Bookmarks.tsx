@@ -13,7 +13,11 @@ export default function Bookmarks() {
   const exportMutation = trpc.products.exportToShadowCast.useMutation({
     onSuccess: (data: any) => {
       const count = data?.count ?? selected.size;
-      toast.success(`Sent ${count} bookmarked products to ShadowCast.`);
+      toast.success(
+        data?.batch
+          ? `Sent ${count} bookmarked products as one ShadowCast batch — select each product to set options.`
+          : `Sent ${count} bookmarked products to ShadowCast.`
+      );
       if (data?.firstOpenUrl) window.open(data.firstOpenUrl, "_blank", "noopener,noreferrer");
       setSelected(new Set());
     },

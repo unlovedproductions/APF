@@ -168,6 +168,7 @@ export async function exportProductsToShadowCast(userId: number, productIds: num
   const directLibUrl = pathToFileURL(path.resolve(repoRoot(), "scripts/shadowcast-direct-lib.mjs")).href;
   const directLib = await import(directLibUrl) as {
     sendToShadowCast: (productId: number) => Promise<any>;
+    sendBatchToShadowCast: (productIds: number[]) => Promise<any>;
   };
 
   const conn = await mysql.createConnection(process.env.DATABASE_URL);
@@ -199,20 +200,41 @@ export async function exportProductsToShadowCast(userId: number, productIds: num
     await conn.end();
   }
 
-  const results = [];
-
-  for (const productId of uniqueIds) {
-    const result = await directLib.sendToShadowCast(productId);
-    const meta = metaById.get(productId);
-    results.push({
-      productId,
-      name: meta?.name || `Product #${productId}`,
-      openUrl: result.open_url,
-      enrichmentStatus: meta?.enrichmentStatus || "pending",
-      token: result.token || null,
-      raw: result,
+  if (uniqueIds.length > 1) {
+    const batchResult = await directLib.sendBatchToShadowCast(uniqueIds);
+    const openUrl = String(batchResult.open_url || "");
+    const results = uniqueIds.map((productId) => {
+      const meta = metaById.get(productId);
+      return {
+        productId,
+        name: meta?.name || `Product #${productId}`,
+        openUrl,
+        enrichmentStatus: meta?.enrichmentStatus || "pending",
+        token: batchResult.token || null,
+        raw: batchResult,
+      };
     });
+
+    return {
+      success: true,
+      count: results.length,
+      batch: true,
+      firstOpenUrl: openUrl,
+      openUrls: openUrl ? [openUrl] : [],
+      results,
+    };
   }
+
+  const result = await directLib.sendToShadowCast(uniqueIds[0]);
+  const meta = metaById.get(uniqueIds[0]);
+  const results = [{
+    productId: uniqueIds[0],
+    name: meta?.name || `Product #${uniqueIds[0]}`,
+    openUrl: result.open_url,
+    enrichmentStatus: meta?.enrichmentStatus || "pending",
+    token: result.token || null,
+    raw: result,
+  }];
 
   return {
     success: true,
