@@ -85,6 +85,7 @@ export function bucketVendorHits(hits = []) {
 export async function upsertVendorProfile(conn, { platform, vendorName, hits = [] }) {
   const vendor_name_normalized = normalizeVendorName(vendorName);
   if (!vendor_name_normalized) return null;
+  if (/^digistore24?$/.test(vendor_name_normalized)) return null;
   const buckets = bucketVendorHits(hits);
   const score = scoreVendorFromSignals({
     trustpilot_positive: buckets.trustpilot_signals.filter(signal => signal.sentiment === "positive"),

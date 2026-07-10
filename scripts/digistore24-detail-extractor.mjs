@@ -59,7 +59,8 @@ export function extractDigistore24Detail(raw) {
     .filter(line => /vendor|seller|creator|category|niche|topic|commission|price|cart value|conversion|created|listed/i.test(line))
     .join(" | ");
   const description = clean((raw.descriptionSection || body).slice(0, 3500), 3500);
-  const vendor = parseFieldByLabel(lines, ["vendor", "seller", "creator"]) || "digistore24";
+  const parsedVendor = parseFieldByLabel(lines, ["vendor", "seller", "creator", "vendor name", "seller name"]);
+  const vendor = /^(digistore24?|marketplace)$/i.test(parsedVendor) ? "" : parsedVendor;
   const category = parseFieldByLabel(lines, ["category", "niche", "topic"]) || "Digistore24 Marketplace";
   const commissionRate = parsePercent(`${importantSections} ${body}`, ["commission", "affiliate"]);
   const conversionRate = parsePercent(`${importantSections} ${body}`, ["conversion", "cart conversion"]);

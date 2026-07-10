@@ -31,8 +31,30 @@ export function hostnameFromUrl(url) {
 }
 
 export function isMarketplaceHost(host) {
-  const h = String(host || "").toLowerCase();
-  return MARKETPLACE_HOSTS.has(h) || h.endsWith(".digistore24.com") || h.endsWith(".digistore24-app.com");
+  const h = String(host || "").toLowerCase().replace(/^www\./, "");
+  return MARKETPLACE_HOSTS.has(h)
+    || MARKETPLACE_HOSTS.has(`www.${h}`)
+    || h.endsWith(".digistore24.com")
+    || h.endsWith(".digistore24-app.com")
+    || h.endsWith(".checkout-ds24.com");
+}
+
+export function isMarketplaceVendorName(name) {
+  const n = String(name || "").trim().toLowerCase();
+  return !n || n === "digistore" || n === "digistore24" || n.includes("digistore24");
+}
+
+/** Prefer real product creator; never Digistore marketplace. Fallback: first non-marketplace materials domain. */
+export function resolveCreatorVendor(productVendor, materials = []) {
+  const fromProduct = String(productVendor || "").trim();
+  if (!isMarketplaceVendorName(fromProduct)) return fromProduct;
+  for (const m of materials || []) {
+    const host = String(m.domain || hostnameFromUrl(m.source_url) || "")
+      .toLowerCase()
+      .replace(/^www\./, "");
+    if (host && !isMarketplaceHost(host)) return host;
+  }
+  return "";
 }
 
 export function isAffiliateInfrastructureHost(host) {

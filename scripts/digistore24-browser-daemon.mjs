@@ -480,7 +480,7 @@ async function captureVendorMaterials(conn, productId, detailPage, detailUrl, af
     title: offerRaw.title,
     contentText: offerRaw.body,
     structuredBlocks: offerBlocks,
-    isVendorHosted: true,
+    isVendorHosted: false,
     fetchStatus: "ok",
   });
 
@@ -798,7 +798,7 @@ async function collectProducts(options) {
         userId: options.userId,
         platformProductId,
         name: clean(detail.title || item.text || `Digistore24 Product ${platformProductId}`).slice(0, 255),
-        vendor: detail.vendor || "digistore24",
+        vendor: detail.vendor || "",
         category: detail.category || "Digistore24 Marketplace",
         keywords: [
           "digistore24",

@@ -155,7 +155,7 @@ async function upsertProduct(conn, item) {
       platform: "digistore24",
       platformProductId,
       name: item.name,
-      vendor: item.vendor || "digistore24",
+      vendor: item.vendor || "",
       category: item.category || "Digistore24",
       keywords: `${item.name}, ${item.category || "Digistore24"}, Digistore24, review, pros and cons`,
       description: item.description || "",
@@ -314,7 +314,7 @@ async function enrichDetail(page, item) {
     platformProductId: extractDetailId(item.detailUrl),
     detailUrl: item.detailUrl,
     name,
-    vendor: "digistore24",
+    vendor: "",
     category: "Digistore24",
     description: clean(lines.slice(1, 8).join(" "), 2000),
     affiliateLink: clean(data.affiliateLink, 2000)

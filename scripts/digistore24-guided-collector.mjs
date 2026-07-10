@@ -742,7 +742,7 @@ async function main() {
         userId,
         platformProductId,
         name: clean(detail.title || item.text || `Digistore24 Product ${platformProductId}`).slice(0, 255),
-        vendor: detail.vendor || "digistore24",
+        vendor: detail.vendor || "",
         category: detail.category || "Digistore24 Marketplace",
         keywords: [
           "digistore24",

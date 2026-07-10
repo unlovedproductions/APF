@@ -88,7 +88,9 @@ export function digistoreEvidenceQueries(product = {}) {
 }
 
 export function digistoreVendorQueries(vendor) {
-  const name = quoted(vendor);
+  const raw = String(vendor || "").trim();
+  if (!raw || /digistore24?/i.test(raw)) return [];
+  const name = quoted(raw);
   if (name === '""') return [];
   return [
     `site:bbb.org ${name}`,

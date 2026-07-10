@@ -163,7 +163,7 @@ function normalizeApiProduct(raw) {
   return {
     platformProductId: productId,
     name,
-    vendor: clean(raw.vendor || raw.vendor_name || raw.seller || raw.merchant || raw.owner || "digistore24", 255),
+    vendor: clean(raw.vendor || raw.vendor_name || raw.seller || raw.merchant || raw.owner || "", 255),
     category: clean(raw.category || raw.product_type || raw.productType || raw.language || "Digistore24", 255),
     description: clean(raw.description || raw.short_description || raw.subtitle || raw.summary || "", 2000),
     sourceUrl: "",
@@ -181,7 +181,7 @@ function normalizeDiscovered(result) {
   return {
     platformProductId: id,
     name: title || `Digistore24 Product ${id}`,
-    vendor: "digistore24",
+    vendor: "",
     category: "Digistore24",
     description: clean(result.content || result.description || "", 2000),
     sourceUrl: result.url,
@@ -254,7 +254,7 @@ async function upsertProduct(conn, item, source) {
     platform: "digistore24",
     platformProductId: item.platformProductId,
     name: item.name,
-    vendor: item.vendor || "digistore24",
+    vendor: item.vendor || "",
     category: item.category || "Digistore24",
     keywords: `${item.name}, ${item.category || "Digistore24"}, Digistore24, review, pros and cons`,
     description: item.description || "",

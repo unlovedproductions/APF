@@ -8,6 +8,8 @@ import {
   ensureVendorMaterialsTable,
   loadVendorMaterials,
   hostnameFromUrl,
+  isMarketplaceHost,
+  resolveCreatorVendor,
 } from "./digistore24-vendor-materials.mjs";
 import {
   classifySourceHost,
@@ -410,9 +412,10 @@ function scoreSource(product, source, vendorDomains = new Set()) {
 function vendorDomainSet(materials) {
   const domains = new Set();
   for (const m of materials || []) {
-    if (m.domain) domains.add(String(m.domain).toLowerCase());
+    const domain = String(m.domain || "").toLowerCase().replace(/^www\./, "");
     const host = hostnameFromUrl(m.source_url);
-    if (host) domains.add(host);
+    if (domain && !isMarketplaceHost(domain)) domains.add(domain);
+    if (host && !isMarketplaceHost(host)) domains.add(host);
   }
   return domains;
 }
@@ -757,7 +760,7 @@ async function saveBrief(conn, product, brief, sourceCount) {
      series_name, coupon_code, evidence_coverage,
      source_count, confidence_score, generated_at)
     VALUES (?, 'complete', ?, CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON),
-            ?, ?, ?, CAST(? AS JSON), ?, ?, CAST(? AS JSON), ?, ?, ?, CAST(? AS JSON), ?, ?, NOW())
+            ?, ?, ?, CAST(? AS JSON), ?, ?, CAST(? AS JSON), ?, ?, ?, ?, CAST(? AS JSON), ?, ?, NOW())
     ON DUPLICATE KEY UPDATE
       enrichment_status='complete',
       review_summary=VALUES(review_summary),
@@ -896,15 +899,18 @@ async function processJob(conn, job) {
   const vendorDomains = vendorDomainSet(vendorMaterials);
   const sources = await saveSources(conn, product, collected, vendorDomains);
   let vendorProfile = null;
-  if (isDigistore && product.vendor) {
+  const creatorVendor = isDigistore
+    ? resolveCreatorVendor(product.vendor, vendorMaterials)
+    : String(product.vendor || "").trim();
+  if (isDigistore && creatorVendor) {
     const vendorHits = [];
-    for (const q of digistoreVendorQueries(product.vendor)) {
+    for (const q of digistoreVendorQueries(creatorVendor)) {
       console.log(`[${product.name}] vendor: ${q}`);
       vendorHits.push(...await searchReviews(q));
     }
     vendorProfile = await upsertVendorProfile(conn, {
       platform: product.platform,
-      vendorName: product.vendor,
+      vendorName: creatorVendor,
       hits: vendorHits,
     });
   }
