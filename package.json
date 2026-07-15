@@ -42,6 +42,8 @@
     "digistore24:daemon:collect": "node scripts/digistore24-daemon-client.mjs collect --ensure",
     "digistore24:daemon:stop": "node scripts/digistore24-daemon-client.mjs stop",
     "local:start": "bash scripts/apf-local-start.sh",
+    "video-audit:matrix": "node scripts/video-audit-matrix.mjs",
+    "video-audit:start": "bash scripts/video-audit-start.sh",
     "local:smoke-test": "node scripts/local-smoke-test.mjs",
     "review:daemon:start": "bash scripts/start-review-enrichment-daemon.sh",
     "review:daemon:logs": "tail -f exports/review-enrichment-daemon.log",
