@@ -64,14 +64,39 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function checkHealth(url, timeoutMs = 10000) {
+function apfBaseUrl() {
+  const fromEnv = String(process.env.APF_BASE_URL || "").trim();
+  if (fromEnv) return fromEnv.replace(/\/$/, "");
+  return "http://127.0.0.1:3001";
+}
+
+async function appHealthOk(url, appName) {
+  const res = await fetch(url);
+  if (!res.ok) return false;
+  const body = await res.json();
+  return body?.app === appName && body?.status === "ok";
+}
+
+async function discoverApfBaseUrl() {
+  const ports = Array.from({ length: 11 }, (_, index) => 3000 + index);
+  for (const port of ports) {
+    const base = `http://127.0.0.1:${port}`;
+    try {
+      if (await appHealthOk(`${base}/api/health`, "APF")) return base;
+    } catch {
+      // try next port
+    }
+  }
+  return null;
+}
+
+async function checkHealth(url, appName, timeoutMs = 10000) {
   const deadline = Date.now() + timeoutMs;
   let lastError = "unknown";
   while (Date.now() < deadline) {
     try {
-      const res = await fetch(url);
-      if (res.ok) return true;
-      lastError = `${res.status} ${res.statusText}`;
+      if (await appHealthOk(url, appName)) return true;
+      lastError = `missing or invalid ${appName} health payload`;
     } catch (error) {
       lastError = error?.message || String(error);
     }
@@ -273,8 +298,9 @@ async function run() {
   const options = parseArgs(process.argv.slice(2));
 
   if (!options.skipStart) {
-    await checkHealth("http://127.0.0.1:3000/api/health");
-    await checkHealth("http://127.0.0.1:8000/api/health");
+    const apfBase = (await discoverApfBaseUrl()) || apfBaseUrl();
+    await checkHealth(`${apfBase}/api/health`, "APF");
+    await checkHealth("http://127.0.0.1:8000/api/health", "ShadowCast");
   }
 
   const summary = {
