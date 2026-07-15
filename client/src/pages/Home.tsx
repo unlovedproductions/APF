@@ -59,7 +59,27 @@ const MARKETPLACES = {
   shareasale: {
     label: "ShareASale",
     requiresApiKey: true,
-    helper: "Requires affiliateId:token:secretKey",
+    helper: "Legacy mode only (prefer Awin). Requires affiliateId:token:secretKey",
+  },
+  cj: {
+    label: "CJ Affiliate",
+    requiresApiKey: true,
+    helper: "Requires companyId:personalAccessToken",
+  },
+  awin: {
+    label: "Awin",
+    requiresApiKey: true,
+    helper: "Requires publisherId:productFeedApiKey",
+  },
+  impact: {
+    label: "Impact.com",
+    requiresApiKey: true,
+    helper: "Requires accountSid:authToken",
+  },
+  amazon: {
+    label: "Amazon Creators",
+    requiresApiKey: true,
+    helper: "Requires partnerTag:clientId:clientSecret[:credentialVersion[:marketplace]]",
   },
 } as const;
 
@@ -288,6 +308,10 @@ export default function Home() {
                   <SelectItem value="digistore24">Digistore24</SelectItem>
                   <SelectItem value="clickbank">ClickBank</SelectItem>
                   <SelectItem value="shareasale">ShareASale</SelectItem>
+                  <SelectItem value="cj">CJ Affiliate</SelectItem>
+                  <SelectItem value="awin">Awin</SelectItem>
+                  <SelectItem value="impact">Impact.com</SelectItem>
+                  <SelectItem value="amazon">Amazon Creators</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -326,6 +350,66 @@ export default function Home() {
                 />
                 <p className="text-xs text-slate-500 mt-2">
                   Format: <strong>affiliateId:token:secretKey</strong>. Get these from your ShareASale API settings.
+                </p>
+              </div>
+            )}
+
+            {selectedMarketplace === "cj" && (
+              <div>
+                <label className="text-sm font-medium mb-2 block">CJ Credentials</label>
+                <Input
+                  type="password"
+                  placeholder="companyId:personalAccessToken"
+                  value={apiKey}
+                  onChange={(e) => setApiKey(e.target.value)}
+                />
+                <p className="text-xs text-slate-500 mt-2">
+                  Format: <strong>companyId:personalAccessToken</strong>. Generate token in CJ Developer Portal.
+                </p>
+              </div>
+            )}
+
+            {selectedMarketplace === "awin" && (
+              <div>
+                <label className="text-sm font-medium mb-2 block">Awin Credentials</label>
+                <Input
+                  type="password"
+                  placeholder="publisherId:productFeedApiKey"
+                  value={apiKey}
+                  onChange={(e) => setApiKey(e.target.value)}
+                />
+                <p className="text-xs text-slate-500 mt-2">
+                  Format: <strong>publisherId:productFeedApiKey</strong>. Use the Product Feed API key (not reporting API key).
+                </p>
+              </div>
+            )}
+
+            {selectedMarketplace === "impact" && (
+              <div>
+                <label className="text-sm font-medium mb-2 block">Impact Credentials</label>
+                <Input
+                  type="password"
+                  placeholder="accountSid:authToken"
+                  value={apiKey}
+                  onChange={(e) => setApiKey(e.target.value)}
+                />
+                <p className="text-xs text-slate-500 mt-2">
+                  Format: <strong>accountSid:authToken</strong>. Both values come from Impact API Access settings.
+                </p>
+              </div>
+            )}
+
+            {selectedMarketplace === "amazon" && (
+              <div>
+                <label className="text-sm font-medium mb-2 block">Amazon Creators Credentials</label>
+                <Input
+                  type="password"
+                  placeholder="partnerTag:clientId:clientSecret:3.1:www.amazon.com"
+                  value={apiKey}
+                  onChange={(e) => setApiKey(e.target.value)}
+                />
+                <p className="text-xs text-slate-500 mt-2">
+                  Format: <strong>partnerTag:clientId:clientSecret[:credentialVersion[:marketplace]]</strong>. Defaults are version <strong>3.1</strong> and marketplace <strong>www.amazon.com</strong>.
                 </p>
               </div>
             )}
@@ -387,6 +471,10 @@ export default function Home() {
                     <SelectItem value="digistore24">Digistore24</SelectItem>
                     <SelectItem value="clickbank">ClickBank</SelectItem>
                     <SelectItem value="shareasale">ShareASale</SelectItem>
+                    <SelectItem value="cj">CJ Affiliate</SelectItem>
+                    <SelectItem value="awin">Awin</SelectItem>
+                    <SelectItem value="impact">Impact.com</SelectItem>
+                    <SelectItem value="amazon">Amazon Creators</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

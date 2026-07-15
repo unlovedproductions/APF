@@ -9,8 +9,24 @@ import * as db from "./db";
 import { fetchAndProcessWarriorPlusOffers } from "./warriorplus";
 import { fetchAndProcessClickBankProducts } from "./clickbank";
 import { fetchAndProcessShareASale } from "./shareasale";
+import { fetchAndProcessCjProducts } from "./cj";
+import { fetchAndProcessAwinProducts } from "./awin";
+import { fetchAndProcessImpactCatalogItems } from "./impact";
+import { fetchAndProcessAmazonCreatorsProducts } from "./amazon";
 import { TRPCError } from "@trpc/server";
 import { exportProductsToShadowCast, runDigistore24RefreshWorkflow, runPostRefreshWorkflow } from "./apfWorkflows";
+
+const PLATFORM_VALUES = [
+  "warriorplus",
+  "digistore24",
+  "clickbank",
+  "shareasale",
+  "cj",
+  "awin",
+  "impact",
+  "amazon",
+] as const;
+const PLATFORM_SCHEMA = z.enum(PLATFORM_VALUES);
 
 export const appRouter = router({
   system: systemRouter,
@@ -29,7 +45,7 @@ export const appRouter = router({
   credentials: router({
     save: protectedProcedure
       .input(z.object({
-        platform: z.enum(["warriorplus", "digistore24", "clickbank", "shareasale"]),
+        platform: PLATFORM_SCHEMA,
         apiKey: z.string().min(1, "API key is required"),
       }))
       .mutation(async ({ input, ctx }) => {
@@ -47,7 +63,7 @@ export const appRouter = router({
 
     get: protectedProcedure
       .input(z.object({
-        platform: z.enum(["warriorplus", "digistore24", "clickbank", "shareasale"]),
+        platform: PLATFORM_SCHEMA,
       }))
       .query(async ({ input, ctx }) => {
         try {
@@ -68,7 +84,7 @@ export const appRouter = router({
   products: router({
     list: protectedProcedure
       .input(z.object({
-        platform: z.enum(["warriorplus", "digistore24", "clickbank", "shareasale"]),
+        platform: PLATFORM_SCHEMA,
         limit: z.number().min(1).max(100).default(50),
         offset: z.number().min(0).default(0),
       }))
@@ -87,7 +103,7 @@ export const appRouter = router({
 
     search: protectedProcedure
       .input(z.object({
-        platform: z.enum(["warriorplus", "digistore24", "clickbank", "shareasale"]),
+        platform: PLATFORM_SCHEMA,
         query: z.string().min(1),
       }))
       .query(async ({ input, ctx }) => {
@@ -105,7 +121,7 @@ export const appRouter = router({
 
     getByCategory: protectedProcedure
       .input(z.object({
-        platform: z.enum(["warriorplus", "digistore24", "clickbank", "shareasale"]),
+        platform: PLATFORM_SCHEMA,
         category: z.string().min(1),
       }))
       .query(async ({ input, ctx }) => {
@@ -150,7 +166,7 @@ export const appRouter = router({
 
     refresh: protectedProcedure
       .input(z.object({
-        platform: z.enum(["warriorplus", "digistore24", "clickbank", "shareasale"]),
+        platform: PLATFORM_SCHEMA,
       }))
       .mutation(async ({ input, ctx }) => {
         try {
@@ -167,9 +183,7 @@ export const appRouter = router({
 
           // Public marketplaces do not need stored API credentials.
           const publicPlatforms = ["clickbank"];
-          const credential = publicPlatforms.includes(input.platform)
-            ? await db.getActiveApiCredential(ctx.user.id, input.platform)
-            : await db.getActiveApiCredential(ctx.user.id, input.platform);
+          const credential = await db.getActiveApiCredential(ctx.user.id, input.platform);
 
           if (!credential && !publicPlatforms.includes(input.platform)) {
             throw new TRPCError({
@@ -194,7 +208,60 @@ export const appRouter = router({
                 message: "ShareASale credentials must be in format affiliateId:token:secretKey",
               });
             }
+            const awinCredential = await db.getActiveApiCredential(ctx.user.id, "awin");
+            if (awinCredential) {
+              console.warn("[Products] ShareASale refresh requested while Awin credentials exist. Awin should be preferred for physical feeds.");
+            }
             processedProducts = await fetchAndProcessShareASale(affiliateId, token, secretKey);
+          } else if (input.platform === "cj") {
+            const [companyId, personalAccessToken] = credential!.apiKey.split(":");
+            if (!companyId || !personalAccessToken) {
+              throw new TRPCError({
+                code: "BAD_REQUEST",
+                message: "CJ credentials must be in format companyId:personalAccessToken",
+              });
+            }
+            processedProducts = await fetchAndProcessCjProducts(companyId, personalAccessToken);
+          } else if (input.platform === "awin") {
+            const [publisherId, productFeedApiKey] = credential!.apiKey.split(":");
+            if (!publisherId || !productFeedApiKey) {
+              throw new TRPCError({
+                code: "BAD_REQUEST",
+                message: "Awin credentials must be in format publisherId:productFeedApiKey",
+              });
+            }
+            processedProducts = await fetchAndProcessAwinProducts(publisherId, productFeedApiKey);
+          } else if (input.platform === "impact") {
+            const [accountSid, authToken] = credential!.apiKey.split(":");
+            if (!accountSid || !authToken) {
+              throw new TRPCError({
+                code: "BAD_REQUEST",
+                message: "Impact credentials must be in format accountSid:authToken",
+              });
+            }
+            processedProducts = await fetchAndProcessImpactCatalogItems(accountSid, authToken);
+          } else if (input.platform === "amazon") {
+            const parts = credential!.apiKey.split(":");
+            const partnerTag = parts[0];
+            const clientId = parts[1];
+            const clientSecret = parts[2];
+            const credentialVersion = parts[3] || "3.1";
+            const marketplace = parts[4] || "www.amazon.com";
+
+            if (!partnerTag || !clientId || !clientSecret) {
+              throw new TRPCError({
+                code: "BAD_REQUEST",
+                message: "Amazon credentials must be in format partnerTag:clientId:clientSecret[:credentialVersion[:marketplace]]",
+              });
+            }
+
+            processedProducts = await fetchAndProcessAmazonCreatorsProducts({
+              partnerTag,
+              clientId,
+              clientSecret,
+              credentialVersion,
+              marketplace,
+            });
           } else {
             throw new TRPCError({
               code: "BAD_REQUEST",

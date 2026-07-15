@@ -3,7 +3,15 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import mysql from "mysql2/promise";
 
-type Marketplace = "warriorplus" | "digistore24" | "clickbank" | "shareasale";
+type Marketplace =
+  | "warriorplus"
+  | "digistore24"
+  | "clickbank"
+  | "shareasale"
+  | "cj"
+  | "awin"
+  | "impact"
+  | "amazon";
 
 type ScriptResult = {
   code: number;
