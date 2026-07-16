@@ -23,6 +23,8 @@ function buildPath() {
     const params = new URLSearchParams();
     params.set("limit", arg("--limit", "10"));
     params.set("wait", arg("--wait", process.env.DIGISTORE24_LOGIN_WAIT_SECONDS || process.env.DIGISTORE24_REFRESH_WAIT_SECONDS || "600"));
+    const userId = Number(process.env.APF_USER_ID || "0");
+    if (userId > 0) params.set("userId", String(userId));
     if (hasFlag("--promote")) params.set("promote", "1");
     if (hasFlag("--confirm-promote")) params.set("confirm", "1");
     return `/collect?${params.toString()}`;

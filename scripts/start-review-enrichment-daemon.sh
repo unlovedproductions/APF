@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-cd /home/unloved/APF
+cd "$(dirname "$0")/.."
 mkdir -p exports .runtime
 
 PID_FILE=".runtime/review-enrichment-daemon.pid"

@@ -37,6 +37,14 @@ function arg(name, fallback = '') {
   return i === -1 ? fallback : process.argv[i + 1] || fallback
 }
 
+function resolvedUserId() {
+  const fromArg = Number(arg('--user-id', '0'))
+  if (fromArg > 0) return fromArg
+  const fromEnv = Number(process.env.APF_USER_ID || '0')
+  if (fromEnv > 0) return fromEnv
+  return 0
+}
+
 function clean(value, max = 2000) {
   return String(value || '').replace(/\s+/g, ' ').trim().slice(0, max)
 }
@@ -172,9 +180,20 @@ async function main() {
     process.exit(1)
   }
 
-  const affiliateLink = url.includes('checkout-ds24.com/redir/')
+  const isRealPromolink = url.includes('checkout-ds24.com/redir/')
+  const affiliateLink = isRealPromolink
     ? url
     : generatedPromolink(platformProductId)
+  const affiliateStatus = isRealPromolink ? 'approved' : 'generated'
+  const affiliateNotes = isRealPromolink
+    ? 'Imported from Digistore24 promolink'
+    : 'Generated promolink template; browser promote required for approval'
+
+  const userId = resolvedUserId()
+  if (!userId) {
+    console.error('APF_USER_ID or --user-id is required.')
+    process.exit(1)
+  }
 
   const conn = await mysql.createConnection(DATABASE_URL)
 
@@ -182,13 +201,16 @@ async function main() {
     await ensureAffiliateTable(conn)
 
     const productColumns = await columns(conn, 'products')
+    const hasUserId = productColumns.includes('userId')
 
-    const [existing] = await conn.query(`
-      SELECT id
-      FROM products
-      WHERE platform='digistore24' AND platformProductId=?
-      LIMIT 1
-    `, [platformProductId])
+    const existingSql = hasUserId
+      ? `SELECT id FROM products WHERE platform='digistore24' AND platformProductId=? AND userId=? LIMIT 1`
+      : `SELECT id FROM products WHERE platform='digistore24' AND platformProductId=? LIMIT 1`
+    const existingParams = hasUserId
+      ? [platformProductId, userId]
+      : [platformProductId]
+
+    const [existing] = await conn.query(existingSql, existingParams)
 
     let productId
 
@@ -234,9 +256,7 @@ async function main() {
         lastUpdatedAt: new Date()
       }
 
-      if (productColumns.includes('userId')) {
-        const userId = await firstUserId(conn)
-        if (!userId) throw new Error('products.userId exists but no users row was found. Open/login to APF once, then rerun.')
+      if (hasUserId) {
         data.userId = userId
       }
 
@@ -251,13 +271,13 @@ async function main() {
     await conn.query(`
       INSERT INTO product_affiliate_links
       (product_id, provider, affiliate_nickname, vendor_nickname, platform_product_id, affiliate_url, campaign_key, status, notes)
-      VALUES (?, 'digistore24', ?, ?, ?, ?, ?, 'approved', 'Imported from Digistore24 promolink')
+      VALUES (?, 'digistore24', ?, ?, ?, ?, ?, ?, ?)
       ON DUPLICATE KEY UPDATE
         vendor_nickname=VALUES(vendor_nickname),
         platform_product_id=VALUES(platform_product_id),
         affiliate_url=VALUES(affiliate_url),
         campaign_key=VALUES(campaign_key),
-        status='approved',
+        status=VALUES(status),
         notes=VALUES(notes),
         updated_at=NOW()
     `, [
@@ -266,7 +286,9 @@ async function main() {
       vendor,
       platformProductId,
       affiliateLink,
-      campaignKey(platformProductId)
+      campaignKey(platformProductId),
+      affiliateStatus,
+      affiliateNotes
     ])
 
     await queueReview(conn, productId)

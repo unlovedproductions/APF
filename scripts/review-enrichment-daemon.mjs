@@ -43,6 +43,11 @@ const runsPerCycle = Math.max(
   Math.min(20, Number(process.env.REVIEW_ENRICHMENT_DAEMON_RUNS_PER_CYCLE || "3"))
 );
 
+const maxConsecutiveFailures = Math.max(
+  3,
+  Number(process.env.REVIEW_ENRICHMENT_DAEMON_MAX_FAILURES || "5")
+);
+
 fs.mkdirSync("exports", { recursive: true });
 
 function log(message) {
@@ -59,7 +64,7 @@ function runWorkerOnce() {
       {
         cwd: process.cwd(),
         env: process.env,
-        stdio: ["ignore", "pipe", "pipe"]
+        stdio: ["ignore", "pipe", "pipe"],
       }
     );
 
@@ -81,6 +86,7 @@ function runWorkerOnce() {
 }
 
 let stopping = false;
+let consecutiveFailures = 0;
 
 process.on("SIGINT", () => {
   stopping = true;
@@ -97,7 +103,17 @@ log(`review enrichment daemon started; interval=${intervalSeconds}s runsPerCycle
 while (!stopping) {
   for (let i = 0; i < runsPerCycle && !stopping; i++) {
     log(`cycle run ${i + 1}/${runsPerCycle}`);
-    await runWorkerOnce();
+    const code = await runWorkerOnce();
+    if (code === 0) {
+      consecutiveFailures = 0;
+    } else {
+      consecutiveFailures += 1;
+      log(`worker failure streak: ${consecutiveFailures}/${maxConsecutiveFailures}`);
+      if (consecutiveFailures >= maxConsecutiveFailures) {
+        log("too many consecutive worker failures; stopping daemon");
+        process.exit(1);
+      }
+    }
   }
 
   if (stopping) break;

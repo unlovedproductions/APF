@@ -176,7 +176,13 @@ export const appRouter = router({
             console.log("[Products] Refreshing Digistore24 through local Firefox workflow");
             const workflow = await runDigistore24RefreshWorkflow(ctx.user.id);
 
-            await db.logDataRefresh(ctx.user.id, input.platform, "success", workflow.productsCount);
+            await db.logDataRefresh(
+              ctx.user.id,
+              input.platform,
+              workflow.partial ? "partial" : "success",
+              workflow.productsCount,
+              workflow.postError || undefined,
+            );
 
             return workflow;
           }
@@ -308,10 +314,13 @@ export const appRouter = router({
     exportToShadowCast: protectedProcedure
       .input(z.object({
         productIds: z.array(z.number()).min(1).max(100),
+        force: z.boolean().optional(),
       }))
       .mutation(async ({ input, ctx }) => {
         try {
-          return await exportProductsToShadowCast(ctx.user.id, input.productIds);
+          return await exportProductsToShadowCast(ctx.user.id, input.productIds, {
+            force: input.force === true,
+          });
         } catch (error) {
           console.error("[Products] Error exporting to ShadowCast:", error);
           throw new TRPCError({

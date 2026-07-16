@@ -2,6 +2,7 @@
 import fs from "node:fs";
 import http from "node:http";
 import crypto from "node:crypto";
+import path from "node:path";
 import mysql from "mysql2/promise";
 import { firefox } from "playwright";
 import { scoreProduct, SCORING_VERSION } from "./marketplace-scoring.mjs";
@@ -41,7 +42,7 @@ if (!process.env.PLAYWRIGHT_BROWSERS_PATH) {
 const PORT = Number(process.env.DIGISTORE24_DAEMON_PORT || "3219");
 const PROFILE_DIR =
   process.env.DIGISTORE24_BROWSER_PROFILE ||
-  "/home/unloved/.config/unloved-digistore24-daemon-firefox-profile";
+  path.join(process.env.HOME || "", ".config", "unloved-digistore24-daemon-firefox-profile");
 const START_URL =
   "https://www.digistore24-app.com/app/en/affiliate/account/marketplace/all";
 
@@ -896,6 +897,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (url.pathname === "/collect") {
+      const requestUserId = Number(url.searchParams.get("userId") || process.env.APF_USER_ID || "0");
       const result = await collectProducts({
         limit: Math.max(1, Math.min(200, Number(url.searchParams.get("limit") || "10"))),
         loginWaitMs: Math.max(
@@ -913,7 +915,7 @@ const server = http.createServer(async (req, res) => {
         promote: url.searchParams.get("promote") === "1",
         confirm: url.searchParams.get("confirm") === "1",
         affiliateId: process.env.DIGISTORE24_ID || "UnlovedProducts",
-        userId: Number(process.env.APF_USER_ID || "0"),
+        userId: requestUserId,
       });
 
       return sendJson(res, result.success ? 200 : 409, result);

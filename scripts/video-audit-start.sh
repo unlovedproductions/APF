@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-APF_ROOT="/home/unloved/APF"
-SHADOWCAST_ROOT="/home/unloved/shadowcast-"
-LAUNCHER_DIR="/home/unloved/.local/bin/unloved-launchers"
-SHADOWCAST_HEALTH_URL="http://127.0.0.1:8000/api/health"
-SHADOWCAST_UI_URL="http://127.0.0.1:8000"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+APF_ROOT="${APF_ROOT:-$(cd "$SCRIPT_DIR/.." && pwd)}"
+SHADOWCAST_ROOT="${SHADOWCAST_ROOT:-$(cd "$APF_ROOT/.." && pwd)/shadowcast-}"
+LAUNCHER_DIR="${LAUNCHER_DIR:-$HOME/.local/bin/unloved-launchers}"
+SHADOWCAST_BASE="${SHADOWCAST_BASE_URL:-http://127.0.0.1:8000}"
+SHADOWCAST_HEALTH_URL="${SHADOWCAST_BASE%/}/api/health"
+SHADOWCAST_UI_URL="${SHADOWCAST_BASE%/}"
+APF_HEALTH_TIMEOUT="${SHADOWCAST_AUDIT_HEALTH_TIMEOUT_SEC:-180}"
 
 discover_apf_base_url() {
   local port
@@ -74,14 +77,14 @@ start_shadowcast_if_needed() {
   local script_path="$LAUNCHER_DIR/run-shadowcast-terminal.sh"
   if [ ! -f "$script_path" ]; then
     script_path="$APF_ROOT/scripts/.video-audit-run-shadowcast.sh"
-    cat >"$script_path" <<'EOF'
+    cat >"$script_path" <<EOF
 #!/usr/bin/env bash
 set -Eeuo pipefail
-cd /home/unloved/shadowcast-/backend
-if [ -f /home/unloved/shadowcast-/venv/bin/activate ]; then
-  source /home/unloved/shadowcast-/venv/bin/activate
-elif [ -f /home/unloved/shadowcast-/.venv/bin/activate ]; then
-  source /home/unloved/shadowcast-/.venv/bin/activate
+cd "$SHADOWCAST_ROOT/backend"
+if [ -f "$SHADOWCAST_ROOT/venv/bin/activate" ]; then
+  source "$SHADOWCAST_ROOT/venv/bin/activate"
+elif [ -f "$SHADOWCAST_ROOT/.venv/bin/activate" ]; then
+  source "$SHADOWCAST_ROOT/.venv/bin/activate"
 fi
 if [ -f .env ]; then
   set -a
@@ -110,20 +113,20 @@ start_apf_if_needed() {
   fi
 
   local script_path="$APF_ROOT/scripts/.video-audit-run-apf.sh"
-  cat >"$script_path" <<'EOF'
+  cat >"$script_path" <<EOF
 #!/usr/bin/env bash
 set -Eeuo pipefail
-cd /home/unloved/APF
-if [ -s "$HOME/.nvm/nvm.sh" ]; then
-  export NVM_DIR="$HOME/.nvm"
-  source "$NVM_DIR/nvm.sh"
+cd "$APF_ROOT"
+if [ -s "\$HOME/.nvm/nvm.sh" ]; then
+  export NVM_DIR="\$HOME/.nvm"
+  source "\$NVM_DIR/nvm.sh"
   nvm use 22 || nvm use 24 || true
 fi
 set -a
 source .env
 set +a
 export PORT=3001
-echo "Opening APF on http://localhost:${PORT}"
+echo "Opening APF on http://localhost:\${PORT}"
 pnpm dev
 EOF
   chmod +x "$script_path"
@@ -198,8 +201,8 @@ main() {
   fi
   export APF_BASE_URL
 
-  wait_for_health "APF" "${APF_BASE_URL}/api/health" "APF" 90
-  wait_for_health "ShadowCast" "$SHADOWCAST_HEALTH_URL" "ShadowCast" 90
+  wait_for_health "APF" "${APF_BASE_URL}/api/health" "APF" "$APF_HEALTH_TIMEOUT"
+  wait_for_health "ShadowCast" "$SHADOWCAST_HEALTH_URL" "ShadowCast" "$APF_HEALTH_TIMEOUT"
 
   cd "$APF_ROOT"
   APF_BASE_URL="$APF_BASE_URL" node scripts/video-audit-matrix.mjs --skip-start "$@"

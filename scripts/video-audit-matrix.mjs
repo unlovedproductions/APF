@@ -2,14 +2,18 @@
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
+import { pathToFileURL } from "node:url";
 import { spawnSync } from "node:child_process";
 import mysql from "mysql2/promise";
-import { queueReview } from "./apf-db-helpers.mjs";
+import { queueReview, reapStaleRunningJobs } from "./apf-db-helpers.mjs";
 import { buildPayload, sendToShadowCast, shadowcastBaseUrl } from "./shadowcast-direct-lib.mjs";
 
-const APF_ROOT = "/home/unloved/APF";
+const APF_ROOT = process.env.APF_ROOT || process.cwd();
 const REVIEW_WORKER_PATH = path.join(APF_ROOT, "scripts/review-enrichment-worker.mjs");
 const EXPORT_DIR = path.join(APF_ROOT, "exports");
+const FETCH_TIMEOUT_MS = Number(process.env.SHADOWCAST_AUDIT_FETCH_TIMEOUT_MS || "30000");
+const ENRICHMENT_RETRY_MAX = Number(process.env.SHADOWCAST_AUDIT_ENRICHMENT_RETRIES || "3");
+const RUN_LOG_PATH = process.env.SHADOWCAST_AUDIT_RUN_LOG || path.join(EXPORT_DIR, "video-audit-matrix-run.log");
 const CONTENT_STYLES = [
   "honest_review",
   "elimination",
@@ -25,6 +29,10 @@ function parseArgs(argv) {
     platform: "",
     dryRun: false,
     skipStart: false,
+    videoPreset: process.env.SHADOWCAST_AUDIT_PRESET || "fast",
+    jobTimeoutMinutes: Number(process.env.SHADOWCAST_AUDIT_JOB_TIMEOUT_MIN || 180),
+    formats: ["short_form"],
+    fromStyle: "",
   };
 
   for (let i = 0; i < argv.length; i += 1) {
@@ -37,12 +45,40 @@ function parseArgs(argv) {
       options.skipStart = true;
       continue;
     }
+    if (token === "--preset") {
+      options.videoPreset = String(argv[i + 1] || "").trim() || "fast";
+      i += 1;
+      continue;
+    }
+    if (token === "--job-timeout-min") {
+      const next = Number(argv[i + 1]);
+      if (!Number.isFinite(next) || next < 15) {
+        throw new Error("--job-timeout-min must be >= 15.");
+      }
+      options.jobTimeoutMinutes = Math.floor(next);
+      i += 1;
+      continue;
+    }
+    if (token === "--formats") {
+      const value = String(argv[i + 1] || "").trim().toLowerCase();
+      if (value === "short" || value === "short_form") {
+        options.formats = ["short_form"];
+      } else if (value === "long" || value === "long_form") {
+        options.formats = ["long_form"];
+      } else if (value === "both" || value === "all") {
+        options.formats = ["short_form", "long_form"];
+      } else {
+        throw new Error("--formats must be short, long, or both.");
+      }
+      i += 1;
+      continue;
+    }
     if (token === "--limit") {
       const next = Number(argv[i + 1]);
       if (!Number.isFinite(next) || next < 1) {
         throw new Error("--limit must be a positive integer.");
       }
-      options.limit = Math.min(2, Math.floor(next));
+      options.limit = Math.floor(next);
       i += 1;
       continue;
     }
@@ -54,14 +90,72 @@ function parseArgs(argv) {
       i += 1;
       continue;
     }
+    if (token === "--from-style") {
+      options.fromStyle = String(argv[i + 1] || "").trim();
+      if (!options.fromStyle) {
+        throw new Error("--from-style requires a content style name.");
+      }
+      i += 1;
+      continue;
+    }
     throw new Error(`Unknown argument: ${token}`);
+  }
+
+  if (options.fromStyle && !CONTENT_STYLES.includes(options.fromStyle)) {
+    throw new Error(`--from-style must be one of: ${CONTENT_STYLES.join(", ")}`);
   }
 
   return options;
 }
 
+function logLine(message) {
+  const line = `[${new Date().toISOString()}] ${message}`;
+  fs.mkdirSync(EXPORT_DIR, { recursive: true });
+  fs.appendFileSync(RUN_LOG_PATH, `${line}\n`);
+  console.log(message);
+}
+
+function stylesForRun(fromStyle) {
+  if (!fromStyle) return CONTENT_STYLES;
+  const index = CONTENT_STYLES.indexOf(fromStyle);
+  if (index < 0) {
+    throw new Error(`Unknown content style: ${fromStyle}`);
+  }
+  return CONTENT_STYLES.slice(index);
+}
+
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function shadowcastRoot() {
+  if (process.env.SHADOWCAST_ROOT) {
+    return path.resolve(process.env.SHADOWCAST_ROOT);
+  }
+  return path.resolve(APF_ROOT, "..", "shadowcast-");
+}
+
+function shadowcastOutputDir() {
+  return path.join(shadowcastRoot(), "backend", "output");
+}
+
+function shadowcastPythonBin() {
+  const root = shadowcastRoot();
+  for (const candidate of [
+    path.join(root, ".venv", "bin", "python"),
+    path.join(root, "venv", "bin", "python"),
+  ]) {
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  return "python3";
+}
+
+async function fetchJson(url, init = {}) {
+  const res = await fetch(url, {
+    ...init,
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+  });
+  return res;
 }
 
 function apfBaseUrl() {
@@ -71,7 +165,7 @@ function apfBaseUrl() {
 }
 
 async function appHealthOk(url, appName) {
-  const res = await fetch(url);
+  const res = await fetchJson(url);
   if (!res.ok) return false;
   const body = await res.json();
   return body?.app === appName && body?.status === "ok";
@@ -168,8 +262,9 @@ async function getEnrichmentState(conn, productId) {
   };
 }
 
-function runReviewWorkerOnce() {
-  const result = spawnSync(process.execPath, [REVIEW_WORKER_PATH, "--once"], {
+function runReviewWorkerOnce(productId) {
+  const args = [REVIEW_WORKER_PATH, "--once", "--product-id", String(productId)];
+  const result = spawnSync(process.execPath, args, {
     cwd: APF_ROOT,
     stdio: "inherit",
     env: process.env,
@@ -180,21 +275,40 @@ function runReviewWorkerOnce() {
 }
 
 async function ensureEnrichmentComplete(conn, productId, timeoutMs = 15 * 60 * 1000) {
+  await reapStaleRunningJobs(conn);
   await queueReview(conn, productId);
 
   const deadline = Date.now() + timeoutMs;
+  let retries = 0;
+
   while (Date.now() < deadline) {
     const state = await getEnrichmentState(conn, productId);
     if (state.briefStatus === "complete") {
       return state;
     }
 
-    if (state.jobStatus === "failed" || state.jobStatus === "pending_api_key" || state.briefStatus === "failed") {
+    if (state.jobStatus === "pending_api_key" || state.briefStatus === "failed") {
       const reason = state.errorMessage ? ` (${state.errorMessage})` : "";
       throw new Error(`Enrichment failed for product ${productId}: ${state.jobStatus || state.briefStatus}${reason}`);
     }
 
-    runReviewWorkerOnce();
+    if (state.jobStatus === "failed") {
+      if (retries >= ENRICHMENT_RETRY_MAX) {
+        const reason = state.errorMessage ? ` (${state.errorMessage})` : "";
+        throw new Error(`Enrichment failed for product ${productId} after ${retries} retries${reason}`);
+      }
+      retries += 1;
+      logLine(`Enrichment retry ${retries}/${ENRICHMENT_RETRY_MAX} for product ${productId}`);
+      await queueReview(conn, productId);
+      await sleep(1500);
+      continue;
+    }
+
+    if (state.jobStatus === "running") {
+      await reapStaleRunningJobs(conn);
+    }
+
+    runReviewWorkerOnce(productId);
     await sleep(1200);
   }
 
@@ -238,16 +352,16 @@ function toProductInfo(payload, style) {
   };
 }
 
-async function startGenerateJob(productInfo, style) {
+async function startGenerateJob(productInfo, style, videoPreset, formats) {
   const requestBody = {
     product_info: productInfo,
     hook_types: ["curiosity"],
-    formats: ["short_form", "long_form"],
+    formats,
     content_style: style,
-    video_preset: "medium",
+    video_preset: videoPreset,
   };
 
-  const res = await fetch(new URL("/api/generate", shadowcastBaseUrl()), {
+  const res = await fetchJson(new URL("/api/generate", shadowcastBaseUrl()), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(requestBody),
@@ -262,28 +376,106 @@ async function startGenerateJob(productInfo, style) {
   return body;
 }
 
-async function waitForJob(jobId, timeoutMs = 45 * 60 * 1000) {
+async function validateJobResult(jobId, formats) {
+  const resultsUrl = new URL(`/api/results/${encodeURIComponent(jobId)}`, shadowcastBaseUrl());
+  const res = await fetchJson(resultsUrl);
+  if (!res.ok) {
+    throw new Error(`Results check failed for ${jobId}: ${res.status}`);
+  }
+
+  const body = await res.json();
+  const errors = [
+    ...(Array.isArray(body?.errors) ? body.errors : []),
+    ...(Array.isArray(body?.script_errors) ? body.script_errors : []),
+    ...(Array.isArray(body?.other_errors) ? body.other_errors : []),
+  ];
+  if (errors.length) {
+    throw new Error(`ShadowCast job ${jobId} completed with errors: ${JSON.stringify(errors.slice(0, 5))}`);
+  }
+
+  const outputDir = path.join(shadowcastOutputDir(), jobId);
+  const missing = [];
+  for (const fmt of formats) {
+    const suffix = fmt === "long_form" ? "_long.mp4" : "_short.mp4";
+    const matches = fs.existsSync(outputDir)
+      ? fs.readdirSync(outputDir).filter((name) => name.endsWith(suffix))
+      : [];
+    if (!matches.length) {
+      missing.push(fmt);
+    }
+  }
+
+  if (missing.length) {
+    throw new Error(`ShadowCast job ${jobId} missing video artifacts for: ${missing.join(", ")}`);
+  }
+
+  return body;
+}
+
+async function waitForJob(jobId, timeoutMs = 180 * 60 * 1000, formats = ["short_form"]) {
   const statusUrl = new URL(`/api/status/${encodeURIComponent(jobId)}`, shadowcastBaseUrl());
   const deadline = Date.now() + timeoutMs;
+  let lastStep = "";
 
   while (Date.now() < deadline) {
-    const res = await fetch(statusUrl);
+    const res = await fetchJson(statusUrl);
     if (!res.ok) {
       throw new Error(`Status check failed for ${jobId}: ${res.status}`);
     }
 
     const body = await res.json();
     const status = String(body?.status || "").toLowerCase();
+    const step = String(body?.current_step || "");
+    const progress = body?.progress ?? "?";
+    if (step && step !== lastStep) {
+      logLine(`[${jobId}] ${progress}% — ${step}`);
+      lastStep = step;
+    }
 
-    if (status === "completed" || status === "complete") return body;
+    if (status === "completed" || status === "complete") {
+      logLine(`[${jobId}] complete (${progress}%)`);
+      return validateJobResult(jobId, formats);
+    }
     if (status === "failed" || status === "error") {
       throw new Error(`ShadowCast job ${jobId} failed: ${JSON.stringify(body?.errors || body?.error || [])}`);
     }
 
-    await sleep(8000);
+    await sleep(15000);
   }
 
-  throw new Error(`ShadowCast job ${jobId} timed out.`);
+  throw new Error(`ShadowCast job ${jobId} timed out after ${Math.round(timeoutMs / 60000)} minutes.`);
+}
+
+function runClaimAuditForJobs(jobIds) {
+  const auditScript = path.join(shadowcastRoot(), "backend", "video_claim_audit.py");
+  if (!fs.existsSync(auditScript)) {
+    logLine(`Claim audit skipped: ${auditScript} not found`);
+    return { skipped: true, failures: 0 };
+  }
+
+  let failures = 0;
+  for (const jobId of jobIds) {
+    const outputDir = path.join(shadowcastOutputDir(), jobId);
+    if (!fs.existsSync(outputDir)) {
+      logLine(`Claim audit skipped for ${jobId}: output dir missing`);
+      failures += 1;
+      continue;
+    }
+
+    const result = spawnSync(
+      shadowcastPythonBin(),
+      [auditScript, "--output-dir", outputDir, "--require-videos"],
+      { cwd: shadowcastRoot(), stdio: "inherit" },
+    );
+    if (result.status !== 0) {
+      failures += 1;
+      logLine(`Claim audit failed for job ${jobId}`);
+    } else {
+      logLine(`Claim audit passed for job ${jobId}`);
+    }
+  }
+
+  return { skipped: false, failures };
 }
 
 function writeSummary(summary) {
@@ -296,19 +488,27 @@ function writeSummary(summary) {
 
 async function run() {
   const options = parseArgs(process.argv.slice(2));
+  const stylesToRun = stylesForRun(options.fromStyle);
+
+  logLine(
+    `Audit matrix starting (preset=${options.videoPreset}, timeout=${options.jobTimeoutMinutes}m, formats=${options.formats.join(", ")}, styles=${stylesToRun.join(", ")})`,
+  );
 
   if (!options.skipStart) {
     const apfBase = (await discoverApfBaseUrl()) || apfBaseUrl();
-    await checkHealth(`${apfBase}/api/health`, "APF");
-    await checkHealth("http://127.0.0.1:8000/api/health", "ShadowCast");
+    const healthTimeoutMs = Number(process.env.SHADOWCAST_AUDIT_HEALTH_TIMEOUT_MS || "180000");
+    await checkHealth(`${apfBase}/api/health`, "APF", healthTimeoutMs);
+    await checkHealth(`${shadowcastBaseUrl()}/api/health`, "ShadowCast", healthTimeoutMs);
   }
 
   const summary = {
     startedAt: new Date().toISOString(),
     options,
-    styles: CONTENT_STYLES,
+    styles: stylesToRun,
     products: [],
     errors: [],
+    claimAudit: null,
+    jobIds: [],
   };
 
   const conn = await db();
@@ -332,11 +532,11 @@ async function run() {
       try {
         if (options.dryRun) {
           productSummary.enrichment = await getEnrichmentState(conn, product.id);
-          productSummary.jobs = CONTENT_STYLES.map((style) => ({
+          productSummary.jobs = stylesToRun.map((style) => ({
             style,
             dryRun: true,
             hook_types: ["curiosity"],
-            formats: ["short_form", "long_form"],
+            formats: options.formats,
           }));
           summary.products.push(productSummary);
           continue;
@@ -352,19 +552,35 @@ async function run() {
           );
         }
 
-        const sendResult = await sendToShadowCast(product.id);
+        const sendResult = await sendToShadowCast(product.id).catch((error) => {
+          const message = error?.message || String(error);
+          logLine(`ShadowCast import warning for product ${product.id}: ${message}`);
+          return null;
+        });
         productSummary.openUrl = String(sendResult?.open_url || "");
 
-        for (const style of CONTENT_STYLES) {
-          const productInfo = toProductInfo(payload, style);
-          const generateStart = await startGenerateJob(productInfo, style);
-          const jobId = String(generateStart.job_id);
-          const status = await waitForJob(jobId);
-          productSummary.jobs.push({
-            style,
-            jobId,
-            status: String(status?.status || "unknown"),
-          });
+        for (let styleIndex = 0; styleIndex < stylesToRun.length; styleIndex += 1) {
+          const style = stylesToRun[styleIndex];
+          try {
+            logLine(`Style ${styleIndex + 1}/${stylesToRun.length}: ${style}`);
+            const productInfo = toProductInfo(payload, style);
+            const generateStart = await startGenerateJob(productInfo, style, options.videoPreset, options.formats);
+            const jobId = String(generateStart.job_id);
+            logLine(`Style ${style} job started: ${jobId}`);
+            summary.jobIds.push(jobId);
+            const status = await waitForJob(jobId, options.jobTimeoutMinutes * 60 * 1000, options.formats);
+            productSummary.jobs.push({
+              style,
+              jobId,
+              status: String(status?.status || "unknown"),
+            });
+            logLine(`Style ${style} finished: ${jobId} (${status?.status || "unknown"})`);
+          } catch (styleError) {
+            const message = styleError?.message || String(styleError);
+            logLine(`Style ${style} failed: ${message}`);
+            productSummary.jobs.push({ style, status: "failed", error: message });
+            summary.errors.push({ productId: product.id, style, message });
+          }
         }
 
         summary.products.push(productSummary);
@@ -386,17 +602,39 @@ async function run() {
   summary.totalJobs = summary.products.reduce((acc, item) => acc + (item.jobs?.length || 0), 0);
   const outPath = writeSummary(summary);
 
-  console.log(`Summary: ${outPath}`);
-  console.log(`Products processed: ${summary.totalProducts}`);
-  console.log(`Jobs finished: ${summary.totalJobs}`);
-  if (summary.errors.length) {
-    console.log(`Errors: ${summary.errors.length}`);
+  if (summary.jobIds.length && !options.dryRun) {
+    summary.claimAudit = runClaimAuditForJobs([...new Set(summary.jobIds)]);
+    if (summary.claimAudit.failures) {
+      summary.errors.push({
+        message: `Claim audit failed for ${summary.claimAudit.failures} job(s)`,
+      });
+    }
+    fs.writeFileSync(outPath, JSON.stringify(summary, null, 2));
   }
-  console.log("Run video audit:");
-  console.log("cd /home/unloved/shadowcast- && .venv/bin/python backend/video_claim_audit.py --require-videos");
+
+  logLine(`Summary: ${outPath}`);
+  logLine(`Products processed: ${summary.totalProducts}`);
+  logLine(`Jobs finished: ${summary.totalJobs}`);
+  logLine(`Video preset: ${options.videoPreset}, job timeout: ${options.jobTimeoutMinutes} min, formats: ${options.formats.join(", ")}`);
+  if (summary.errors.length) {
+    logLine(`Errors: ${summary.errors.length}`);
+    process.exitCode = 1;
+  }
 }
 
-run().catch((error) => {
-  console.error(error?.message || error);
-  process.exit(1);
-});
+function isMainModule() {
+  const entry = process.argv[1];
+  if (!entry) return false;
+  return import.meta.url === pathToFileURL(path.resolve(entry)).href;
+}
+
+if (isMainModule()) {
+  process.on("SIGHUP", () => {
+    logLine("Received SIGHUP — ignoring (use SIGTERM to stop).");
+  });
+
+  run().catch((error) => {
+    logLine(`Fatal: ${error?.message || error}`);
+    process.exit(1);
+  });
+}

@@ -22,6 +22,7 @@ import {
   ensureVendorProfilesTable,
   upsertVendorProfile,
 } from "./vendor-profiles.mjs";
+import { reapExhaustedJobs, reapStaleRunningJobs } from "./apf-db-helpers.mjs";
 
 // BEGIN UNLOVED_MYSQL_NAN_GUARD
 function unlovedSanitizeSqlValue(v) {
@@ -96,6 +97,16 @@ function loadEnv(file = ".env") {
 loadEnv(path.resolve(process.cwd(), ".env"));
 
 const ONCE = process.argv.includes("--once");
+
+function cliArg(name) {
+  const index = process.argv.indexOf(name);
+  if (index === -1) return 0;
+  return Number(process.argv[index + 1]) || 0;
+}
+
+const CLAIM_PRODUCT_ID = cliArg("--product-id");
+const CLAIM_USER_ID = cliArg("--user-id");
+
 const DATABASE_URL = process.env.DATABASE_URL;
 const REVIEW_ENRICHMENT_PROVIDER = process.env.REVIEW_ENRICHMENT_PROVIDER || "searxng";
 const SEARXNG_BASE_URL = process.env.SEARXNG_BASE_URL || "http://localhost:8088";
@@ -221,16 +232,27 @@ async function enqueueMissingProducts(conn) {
 async function claimJob(conn) {
   await conn.query("START TRANSACTION");
 
+  let scopeSql = "";
+  const scopeParams = [];
+  if (CLAIM_PRODUCT_ID > 0) {
+    scopeSql = " AND product_id = ?";
+    scopeParams.push(CLAIM_PRODUCT_ID);
+  } else if (CLAIM_USER_ID > 0) {
+    scopeSql = " AND product_id IN (SELECT id FROM products WHERE userId = ?)";
+    scopeParams.push(CLAIM_USER_ID);
+  }
+
   const [rows] = await conn.query(`
     SELECT id, product_id
     FROM review_enrichment_jobs
     WHERE status IN ('queued','failed','pending_api_key')
       AND next_run_at <= NOW()
       AND attempts < 10
+      ${scopeSql}
     ORDER BY next_run_at ASC, id ASC
     LIMIT 1
     FOR UPDATE
-  `);
+  `, scopeParams);
 
   if (!rows.length) {
     await conn.query("COMMIT");
@@ -941,7 +963,19 @@ async function main() {
     await ensureReviewBriefSchema(conn);
     await ensureVendorMaterialsTable(conn);
     await ensureVendorProfilesTable(conn);
-    await enqueueMissingProducts(conn);
+
+    const reapedRunning = await reapStaleRunningJobs(conn);
+    if (reapedRunning) {
+      console.log(`Requeued ${reapedRunning} stale running review jobs`);
+    }
+    const reapedExhausted = await reapExhaustedJobs(conn);
+    if (reapedExhausted) {
+      console.log(`Requeued ${reapedExhausted} exhausted review jobs`);
+    }
+
+    if (!CLAIM_PRODUCT_ID) {
+      await enqueueMissingProducts(conn);
+    }
 
     while (true) {
       const job = await claimJob(conn);

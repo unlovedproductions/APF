@@ -35,13 +35,27 @@ const DRY_RUN = hasFlag("--dry-run");
 const FORCE_CLICKBANK = hasFlag("--force-clickbank");
 const MARKETPLACE = arg("--marketplace", "");
 const LIMIT = Number(arg("--limit", "500"));
+const USER_ID = (() => {
+  const fromArg = Number(arg("--user-id", "0"));
+  if (fromArg > 0) return fromArg;
+  const fromEnv = Number(process.env.APF_USER_ID || "0");
+  if (fromEnv > 0) return fromEnv;
+  return 0;
+})();
 
 function whereClause() {
-  if (!MARKETPLACE) return ["", []];
-  return [
-    "WHERE LOWER(COALESCE(p.platform, '')) LIKE ?",
-    [`%${MARKETPLACE.toLowerCase()}%`]
-  ];
+  const clauses = [];
+  const params = [];
+  if (MARKETPLACE) {
+    clauses.push("LOWER(COALESCE(p.platform, '')) LIKE ?");
+    params.push(`%${MARKETPLACE.toLowerCase()}%`);
+  }
+  if (USER_ID > 0) {
+    clauses.push("p.userId = ?");
+    params.push(USER_ID);
+  }
+  if (!clauses.length) return ["", []];
+  return [`WHERE ${clauses.join(" AND ")}`, params];
 }
 
 async function main() {

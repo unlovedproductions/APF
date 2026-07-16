@@ -61,25 +61,66 @@ export async function upsertAffiliateLink(conn, {
   ]);
 }
 
+export const STALE_RUNNING_MINUTES = Number(process.env.REVIEW_ENRICHMENT_STALE_RUNNING_MIN || "30");
+
+export async function reapStaleRunningJobs(conn, staleMinutes = STALE_RUNNING_MINUTES) {
+  const minutes = Math.max(5, Math.floor(Number(staleMinutes) || STALE_RUNNING_MINUTES));
+  const [result] = await conn.query(`
+    UPDATE review_enrichment_jobs
+    SET status='queued', error_message=NULL, locked_at=NULL, updated_at=NOW()
+    WHERE status='running'
+      AND (
+        locked_at IS NULL
+        OR locked_at < DATE_SUB(NOW(), INTERVAL ? MINUTE)
+      )
+  `, [minutes]);
+  return result.affectedRows || 0;
+}
+
+export async function reapExhaustedJobs(conn, staleDays = 7) {
+  const days = Math.max(1, Math.floor(Number(staleDays) || 7));
+  const [result] = await conn.query(`
+    UPDATE review_enrichment_jobs
+    SET status='queued', attempts=0, next_run_at=NOW(), error_message=NULL, updated_at=NOW()
+    WHERE status IN ('failed', 'queued')
+      AND attempts >= 10
+      AND updated_at < DATE_SUB(NOW(), INTERVAL ? DAY)
+  `, [days]);
+  return result.affectedRows || 0;
+}
+
 export async function queueReview(conn, productId) {
   if (!productId) return;
+  const staleMin = Math.max(5, Math.floor(STALE_RUNNING_MINUTES));
   await conn.query(`
     INSERT INTO review_enrichment_jobs (product_id, status, next_run_at)
     VALUES (?, 'queued', NOW())
     ON DUPLICATE KEY UPDATE
       status = CASE
         WHEN status IN ('complete','failed','pending_api_key') THEN 'queued'
+        WHEN status = 'running'
+          AND (locked_at IS NULL OR locked_at < DATE_SUB(NOW(), INTERVAL ? MINUTE)) THEN 'queued'
         ELSE status
       END,
       attempts = CASE
         WHEN status IN ('complete','failed','pending_api_key') THEN 0
+        WHEN status = 'running'
+          AND (locked_at IS NULL OR locked_at < DATE_SUB(NOW(), INTERVAL ? MINUTE)) THEN 0
         ELSE attempts
       END,
       next_run_at = NOW(),
       error_message = CASE
         WHEN status IN ('complete','failed','pending_api_key') THEN NULL
+        WHEN status = 'running'
+          AND (locked_at IS NULL OR locked_at < DATE_SUB(NOW(), INTERVAL ? MINUTE)) THEN NULL
         ELSE error_message
       END,
+      locked_at = CASE
+        WHEN status IN ('complete','failed','pending_api_key') THEN NULL
+        WHEN status = 'running'
+          AND (locked_at IS NULL OR locked_at < DATE_SUB(NOW(), INTERVAL ? MINUTE)) THEN NULL
+        ELSE locked_at
+      END,
       updated_at = NOW()
-  `, [productId]);
+  `, [productId, staleMin, staleMin, staleMin, staleMin]);
 }

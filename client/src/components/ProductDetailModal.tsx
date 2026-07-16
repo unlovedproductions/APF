@@ -110,6 +110,7 @@ export function ProductDetailModal({ productId, open, onOpenChange }: ProductDet
     scoreComponents = null;
   }
   const enrichmentStatus = String(product.enrichmentStatus || payloadQuery.data?.review_enrichment?.status || "pending");
+  const enrichmentComplete = enrichmentStatus === "complete";
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -172,11 +173,19 @@ export function ProductDetailModal({ productId, open, onOpenChange }: ProductDet
                   <Download className="w-4 h-4 mr-2" />
                   Download Enriched JSON
                 </Button>
-                <Button className="flex-1" onClick={() => exportMutation.mutate({ productIds: [productId] })} disabled={exportMutation.isPending}>
+                <Button
+                  className="flex-1"
+                  onClick={() => exportMutation.mutate({ productIds: [productId] })}
+                  disabled={exportMutation.isPending || !enrichmentComplete}
+                  title={enrichmentComplete ? undefined : "Wait for review enrichment to complete before sending to ShadowCast."}
+                >
                   {exportMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Send className="w-4 h-4 mr-2" />}
                   Send to ShadowCast
                 </Button>
               </div>
+              {!enrichmentComplete && (
+                <p className="text-xs text-amber-700">Review enrichment must be complete before ShadowCast export.</p>
+              )}
             </CardContent>
           </Card>
           <Card>

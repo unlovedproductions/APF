@@ -112,7 +112,12 @@ export async function runPostRefreshWorkflow(platform: Marketplace, userId: numb
   const reviewRuns = Math.max(0, Math.min(10, finiteNumber(process.env.APF_REFRESH_REVIEW_RUNS, 1)));
 
   for (let i = 0; i < reviewRuns; i++) {
-    await runNodeScript("scripts/review-enrichment-worker.mjs", ["--once"], 10 * 60 * 1000, userId);
+    await runNodeScript(
+      "scripts/review-enrichment-worker.mjs",
+      ["--once", "--user-id", String(userId)],
+      10 * 60 * 1000,
+      userId,
+    );
     steps.push("review_enrichment_once");
   }
 
@@ -149,19 +154,39 @@ export async function runDigistore24RefreshWorkflow(userId: number) {
     userId
   );
 
-  const post = await runPostRefreshWorkflow("digistore24", userId);
+  let post: Awaited<ReturnType<typeof runPostRefreshWorkflow>>;
+  let postError: string | null = null;
+  try {
+    post = await runPostRefreshWorkflow("digistore24", userId);
+  } catch (error) {
+    postError = error instanceof Error ? error.message : String(error);
+    post = {
+      steps: [],
+      productsCount: await productCount("digistore24", userId),
+    };
+  }
+
   const after = await productCount("digistore24", userId);
 
   return {
-    success: true,
+    success: !postError,
+    partial: Boolean(postError),
+    postError,
     productsCount: after,
     importedOrUpdatedCount: Math.max(0, after - before),
     steps: ["digistore24_firefox_collector", ...post.steps],
-    message: "Digistore24 refresh complete. Products were collected, scored, and review enrichment was run.",
+    message: postError
+      ? `Digistore24 products collected, but post-import enrichment/scoring failed: ${postError}`
+      : "Digistore24 refresh complete. Products were collected, scored, and review enrichment was run.",
   };
 }
 
-export async function exportProductsToShadowCast(userId: number, productIds: number[]) {
+export async function exportProductsToShadowCast(
+  userId: number,
+  productIds: number[],
+  options: { force?: boolean } = {},
+) {
+  const force = options.force === true;
   const uniqueIds = Array.from(new Set(productIds.map(x => finiteNumber(x)).filter(x => x > 0))).slice(0, 100);
   const metaById = new Map<number, { name: string; enrichmentStatus: string }>();
 
@@ -206,6 +231,19 @@ export async function exportProductsToShadowCast(userId: number, productIds: num
     }
   } finally {
     await conn.end();
+  }
+
+  if (!force) {
+    const incomplete = uniqueIds.filter((id) => metaById.get(id)?.enrichmentStatus !== "complete");
+    if (incomplete.length) {
+      const names = incomplete.map((id) => {
+        const meta = metaById.get(id);
+        return meta?.name ? `${meta.name} (#${id})` : `#${id}`;
+      });
+      throw new Error(
+        `Review enrichment is not complete for: ${names.join(", ")}. Wait for enrichment or use force export in CLI.`,
+      );
+    }
   }
 
   if (uniqueIds.length > 1) {

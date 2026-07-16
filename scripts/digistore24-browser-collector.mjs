@@ -20,10 +20,17 @@ loadEnv();
 
 const DATABASE_URL = process.env.DATABASE_URL;
 const DIGISTORE24_ID = process.env.DIGISTORE24_ID || "UnlovedProducts";
-const PROFILE_DIR = process.env.DIGISTORE24_BROWSER_PROFILE || "/home/unloved/.config/unloved-digistore24-browser";
+const PROFILE_DIR = process.env.DIGISTORE24_BROWSER_PROFILE || path.join(process.env.HOME || "", ".config", "unloved-digistore24-browser");
 const LIMIT = Number(arg("--limit", "50"));
 const QUERY = arg("--query", "");
 const HEADLESS = process.argv.includes("--headless");
+const TARGET_USER_ID = (() => {
+  const fromArg = Number(arg("--user-id", "0"));
+  if (fromArg > 0) return fromArg;
+  const fromEnv = Number(process.env.APF_USER_ID || "0");
+  if (fromEnv > 0) return fromEnv;
+  return 0;
+})();
 
 if (!DATABASE_URL) {
   console.error("DATABASE_URL missing from APF .env");
@@ -117,19 +124,22 @@ async function queueReview(conn, productId) {
   } catch {}
 }
 
-async function upsertProduct(conn, item) {
+async function upsertProduct(conn, item, userId) {
   const productColumns = await columns(conn, "products");
+  const hasUserId = productColumns.includes("userId");
 
   const platformProductId = item.platformProductId || hashId(item.detailUrl || item.affiliateLink || item.name);
   const affiliateLink = item.affiliateLink || "";
   const status = affiliateLink ? "approved" : "needs_approval";
 
-  const [existing] = await conn.query(`
-    SELECT id
-    FROM products
-    WHERE platform='digistore24' AND platformProductId=?
-    LIMIT 1
-  `, [platformProductId]);
+  const existingSql = hasUserId
+    ? `SELECT id FROM products WHERE platform='digistore24' AND platformProductId=? AND userId=? LIMIT 1`
+    : `SELECT id FROM products WHERE platform='digistore24' AND platformProductId=? LIMIT 1`;
+  const existingParams = hasUserId
+    ? [platformProductId, userId]
+    : [platformProductId];
+
+  const [existing] = await conn.query(existingSql, existingParams);
 
   let productId;
 
@@ -178,9 +188,7 @@ async function upsertProduct(conn, item) {
       lastUpdatedAt: new Date()
     };
 
-    if (productColumns.includes("userId")) {
-      const userId = await firstUserId(conn);
-      if (!userId) throw new Error("products.userId exists but no users row was found. Open/login to APF once, then rerun.");
+    if (hasUserId) {
       data.userId = userId;
     }
 
@@ -322,6 +330,11 @@ async function enrichDetail(page, item) {
 }
 
 async function main() {
+  if (!TARGET_USER_ID) {
+    console.error("APF_USER_ID or --user-id is required.");
+    process.exit(1);
+  }
+
   console.log("Starting Digistore24 browser collector.");
   console.log("Browser profile:", PROFILE_DIR);
   console.log("Limit:", LIMIT);
@@ -346,7 +359,7 @@ async function main() {
 
       for (const item of links) {
         const detail = await enrichDetail(page, item);
-        output.push(await upsertProduct(conn, detail));
+        output.push(await upsertProduct(conn, detail, TARGET_USER_ID));
       }
 
       console.table(output);
