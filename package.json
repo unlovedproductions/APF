@@ -146,7 +146,7 @@
     "vite-plugin-manus-runtime": "^0.0.57",
     "vitest": "^2.1.9"
   },
-  "packageManager": "pnpm@11.9.0",
+  "packageManager": "pnpm@11.15.0",
   "digistore24:links": "node scripts/digistore24.mjs",
   "digistore24:add": "node scripts/digistore24.mjs --add",
   "digistore24:status": "node scripts/digistore24.mjs --status",
