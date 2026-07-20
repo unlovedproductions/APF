@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { ensureTableExists } from "./apf-db-helpers.mjs";
 
 const MARKETPLACE_HOSTS = new Set([
   "digistore24.com",
@@ -205,26 +206,7 @@ export async function upsertVendorMaterial(conn, {
 }
 
 export async function ensureVendorMaterialsTable(conn) {
-  await conn.query(`
-    CREATE TABLE IF NOT EXISTS product_vendor_materials (
-      id BIGINT AUTO_INCREMENT PRIMARY KEY,
-      product_id BIGINT NOT NULL,
-      source_url TEXT NOT NULL,
-      source_url_hash VARCHAR(64) NOT NULL,
-      source_type VARCHAR(64) NOT NULL,
-      domain VARCHAR(255) NULL,
-      title TEXT NULL,
-      content_text TEXT NULL,
-      structured_blocks JSON NULL,
-      is_vendor_hosted TINYINT(1) NOT NULL DEFAULT 1,
-      fetch_status VARCHAR(32) NOT NULL DEFAULT 'ok',
-      discovered_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-      UNIQUE KEY uq_vendor_material_product_url (product_id, source_url_hash),
-      INDEX idx_vendor_materials_product (product_id),
-      INDEX idx_vendor_materials_type (source_type)
-    )
-  `);
+  await ensureTableExists(conn, "product_vendor_materials");
 }
 
 export async function loadVendorMaterials(conn, productId) {

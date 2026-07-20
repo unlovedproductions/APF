@@ -1,0 +1,32 @@
+{
+  "analysis_summary": {
+    "source": "database-designer index_optimizer + APF query patterns",
+    "query_patterns_analyzed": 8,
+    "priority_recommendations": [
+      {
+        "table": "products",
+        "index": "idx_products_user_platform_score",
+        "columns": ["userId", "platform", "hiddenGemScore"],
+        "reason": "getProductsByUser, searchProducts, getProductsByCategory ORDER BY hiddenGemScore",
+        "sql": "CREATE INDEX idx_products_user_platform_score ON products (userId, platform, hiddenGemScore);"
+      },
+      {
+        "table": "products",
+        "index": "idx_products_user_platform_category",
+        "columns": ["userId", "platform", "category"],
+        "reason": "getProductsByCategory filter path",
+        "sql": "CREATE INDEX idx_products_user_platform_category ON products (userId, platform, category);"
+      },
+      {
+        "table": "review_enrichment_jobs",
+        "index": "idx_review_jobs_queue",
+        "columns": ["status", "next_run_at"],
+        "reason": "review-enrichment-worker job claim queue",
+        "sql": "CREATE INDEX idx_review_jobs_queue ON review_enrichment_jobs (status, next_run_at);"
+      }
+    ],
+    "deferred": [
+      "FULLTEXT on products(name, vendor, description) — defer until LIKE search latency is measured in prod"
+    ]
+  }
+}

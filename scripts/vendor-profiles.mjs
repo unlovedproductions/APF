@@ -1,26 +1,8 @@
 import { classifySourceHost } from "./enrichment-source-trust.mjs";
+import { ensureTableExists } from "./apf-db-helpers.mjs";
 
 export async function ensureVendorProfilesTable(conn) {
-  await conn.query(`
-    CREATE TABLE IF NOT EXISTS vendor_profiles (
-      id INT AUTO_INCREMENT PRIMARY KEY,
-      platform VARCHAR(32) NOT NULL,
-      vendor_name VARCHAR(255) NOT NULL,
-      vendor_name_normalized VARCHAR(255) NOT NULL,
-      bbb_signals JSON NULL,
-      trustpilot_signals JSON NULL,
-      scam_advisor_signals JSON NULL,
-      review_signals JSON NULL,
-      complaint_signals JSON NULL,
-      source_count INT NOT NULL DEFAULT 0,
-      vendor_trust_score DECIMAL(5,2) NOT NULL DEFAULT 40,
-      vendor_risk_flags JSON NULL,
-      ranking_components JSON NULL,
-      last_enriched_at TIMESTAMP NULL,
-      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-      UNIQUE KEY uq_vendor_profile_platform_name (platform, vendor_name_normalized)
-    )
-  `);
+  await ensureTableExists(conn, "vendor_profiles");
 }
 
 export function normalizeVendorName(name) {

@@ -1,0 +1,122 @@
+{
+  "queries": [
+    {
+      "id": "products_by_user_score",
+      "type": "SELECT",
+      "table": "products",
+      "description": "List products for user/platform sorted by hidden gem score",
+      "where_conditions": [
+        { "column": "userId", "operator": "=", "selectivity": 0.01 },
+        { "column": "platform", "operator": "=", "selectivity": 0.2 }
+      ],
+      "join_conditions": [],
+      "order_by": [{ "column": "hiddenGemScore", "direction": "DESC" }],
+      "group_by": [],
+      "frequency": 5000,
+      "avg_execution_time_ms": 25
+    },
+    {
+      "id": "products_search",
+      "type": "SELECT",
+      "table": "products",
+      "description": "Search products by name, vendor, keywords, description",
+      "where_conditions": [
+        { "column": "userId", "operator": "=", "selectivity": 0.01 },
+        { "column": "platform", "operator": "=", "selectivity": 0.2 },
+        { "column": "name", "operator": "LIKE", "selectivity": 0.05 }
+      ],
+      "join_conditions": [],
+      "order_by": [{ "column": "hiddenGemScore", "direction": "DESC" }],
+      "group_by": [],
+      "frequency": 1200,
+      "avg_execution_time_ms": 45
+    },
+    {
+      "id": "products_by_category",
+      "type": "SELECT",
+      "table": "products",
+      "description": "Filter products by category for user/platform",
+      "where_conditions": [
+        { "column": "userId", "operator": "=", "selectivity": 0.01 },
+        { "column": "platform", "operator": "=", "selectivity": 0.2 },
+        { "column": "category", "operator": "LIKE", "selectivity": 0.15 }
+      ],
+      "join_conditions": [],
+      "order_by": [{ "column": "hiddenGemScore", "direction": "DESC" }],
+      "group_by": [],
+      "frequency": 800,
+      "avg_execution_time_ms": 30
+    },
+    {
+      "id": "review_job_claim",
+      "type": "SELECT",
+      "table": "review_enrichment_jobs",
+      "description": "Claim next queued enrichment job",
+      "where_conditions": [
+        { "column": "status", "operator": "=", "selectivity": 0.3 }
+      ],
+      "join_conditions": [],
+      "order_by": [{ "column": "next_run_at", "direction": "ASC" }],
+      "group_by": [],
+      "frequency": 3000,
+      "avg_execution_time_ms": 5
+    },
+    {
+      "id": "brief_by_product",
+      "type": "SELECT",
+      "table": "product_review_briefs",
+      "description": "Load enrichment brief for a product",
+      "where_conditions": [
+        { "column": "product_id", "operator": "=", "selectivity": 0.99 }
+      ],
+      "join_conditions": [],
+      "order_by": [],
+      "group_by": [],
+      "frequency": 4000,
+      "avg_execution_time_ms": 2
+    },
+    {
+      "id": "digistore24_known_products",
+      "type": "SELECT",
+      "table": "products",
+      "description": "Load known Digistore24 product ids for browser collector dedup",
+      "where_conditions": [
+        { "column": "userId", "operator": "=", "selectivity": 0.01 },
+        { "column": "platform", "operator": "=", "selectivity": 0.05 }
+      ],
+      "join_conditions": [],
+      "order_by": [],
+      "group_by": [],
+      "frequency": 200,
+      "avg_execution_time_ms": 15
+    },
+    {
+      "id": "bookmarks_by_user",
+      "type": "SELECT",
+      "table": "bookmarks",
+      "description": "List bookmarks for user ordered by created date",
+      "where_conditions": [
+        { "column": "userId", "operator": "=", "selectivity": 0.01 }
+      ],
+      "join_conditions": [],
+      "order_by": [{ "column": "createdAt", "direction": "DESC" }],
+      "group_by": [],
+      "frequency": 1500,
+      "avg_execution_time_ms": 8
+    },
+    {
+      "id": "affiliate_links_by_product",
+      "type": "SELECT",
+      "table": "product_affiliate_links",
+      "description": "Load affiliate links for product",
+      "where_conditions": [
+        { "column": "product_id", "operator": "=", "selectivity": 0.95 }
+      ],
+      "join_conditions": [],
+      "order_by": [],
+      "group_by": [],
+      "frequency": 2500,
+      "avg_execution_time_ms": 3
+    }
+  ]
+}

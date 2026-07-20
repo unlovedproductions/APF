@@ -1,4 +1,4 @@
-import { eq, and, desc, asc, like, inArray, or } from "drizzle-orm";
+import { eq, and, desc, asc, like, inArray, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import { InsertUser, users, apiCredentials, products, bookmarks, dataRefreshLog, productReviewBriefs } from "../drizzle/schema";
 import { ENV } from './_core/env';
@@ -127,53 +127,63 @@ export async function getActiveApiCredential(userId: number, platform: string) {
 
 // ============ Products ============
 
+const UPSERT_BATCH_SIZE = 100;
+
+function mapProductRow(userId: number, platform: string, product: any) {
+  return {
+    userId,
+    platform,
+    platformProductId: product.platformProductId,
+    name: product.name,
+    vendor: product.vendor,
+    category: product.category,
+    keywords: product.keywords ? JSON.stringify(product.keywords) : null,
+    description: product.description,
+    saleCount: product.saleCount || 0,
+    aggregateSales: product.aggregateSales || "0",
+    refundCount: product.refundCount || 0,
+    commissionRate: product.commissionRate,
+    conversionRate: product.conversionRate,
+    cartValue: product.cartValue,
+    commissionType: product.commissionType,
+    affiliateLink: product.affiliateLink,
+    hiddenGemScore: product.hiddenGemScore || "0",
+    scoreComponents: product.scoreComponents ? JSON.stringify(product.scoreComponents) : null,
+    platformCreatedAt: product.platformCreatedAt,
+    dataFetchedAt: new Date(),
+  };
+}
+
 export async function upsertProducts(userId: number, platform: string, productsData: any[]) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
+  if (!productsData.length) return;
 
-  for (const product of productsData) {
+  for (let offset = 0; offset < productsData.length; offset += UPSERT_BATCH_SIZE) {
+    const batch = productsData.slice(offset, offset + UPSERT_BATCH_SIZE);
+    const rows = batch.map(product => mapProductRow(userId, platform, product));
+
     await db.insert(products)
-      .values({
-        userId,
-        platform,
-        platformProductId: product.platformProductId,
-        name: product.name,
-        vendor: product.vendor,
-        category: product.category,
-        keywords: product.keywords ? JSON.stringify(product.keywords) : null,
-        description: product.description,
-        saleCount: product.saleCount || 0,
-        aggregateSales: product.aggregateSales || "0",
-        refundCount: product.refundCount || 0,
-        commissionRate: product.commissionRate,
-        conversionRate: product.conversionRate,
-        cartValue: product.cartValue,
-        commissionType: product.commissionType,
-        affiliateLink: product.affiliateLink,
-        hiddenGemScore: product.hiddenGemScore || "0",
-        scoreComponents: product.scoreComponents ? JSON.stringify(product.scoreComponents) : null,
-        platformCreatedAt: product.platformCreatedAt,
-        dataFetchedAt: new Date(),
-      })
+      .values(rows)
       .onDuplicateKeyUpdate({
         set: {
-          name: product.name,
-          vendor: product.vendor,
-          category: product.category,
-          keywords: product.keywords ? JSON.stringify(product.keywords) : null,
-          description: product.description,
-          saleCount: product.saleCount || 0,
-          aggregateSales: product.aggregateSales || "0",
-          refundCount: product.refundCount || 0,
-          commissionRate: product.commissionRate,
-          conversionRate: product.conversionRate,
-          cartValue: product.cartValue,
-          commissionType: product.commissionType,
-          affiliateLink: product.affiliateLink,
-          platformCreatedAt: product.platformCreatedAt,
-          hiddenGemScore: product.hiddenGemScore || "0",
-          scoreComponents: product.scoreComponents ? JSON.stringify(product.scoreComponents) : null,
-          dataFetchedAt: new Date(),
+          name: sql`values(${products.name})`,
+          vendor: sql`values(${products.vendor})`,
+          category: sql`values(${products.category})`,
+          keywords: sql`values(${products.keywords})`,
+          description: sql`values(${products.description})`,
+          saleCount: sql`values(${products.saleCount})`,
+          aggregateSales: sql`values(${products.aggregateSales})`,
+          refundCount: sql`values(${products.refundCount})`,
+          commissionRate: sql`values(${products.commissionRate})`,
+          conversionRate: sql`values(${products.conversionRate})`,
+          cartValue: sql`values(${products.cartValue})`,
+          commissionType: sql`values(${products.commissionType})`,
+          affiliateLink: sql`values(${products.affiliateLink})`,
+          platformCreatedAt: sql`values(${products.platformCreatedAt})`,
+          hiddenGemScore: sql`values(${products.hiddenGemScore})`,
+          scoreComponents: sql`values(${products.scoreComponents})`,
+          dataFetchedAt: sql`values(${products.dataFetchedAt})`,
         },
       });
   }

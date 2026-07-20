@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import readline from 'node:readline/promises'
 import { stdin as input, stdout as output } from 'node:process'
 import mysql from 'mysql2/promise'
+import { ensureTableExists } from './apf-db-helpers.mjs'
 
 function loadEnv(file = '.env') {
   if (!fs.existsSync(file)) return
@@ -90,26 +91,7 @@ async function columns(conn, table) {
 }
 
 async function ensureAffiliateTable(conn) {
-  await conn.query(`
-    CREATE TABLE IF NOT EXISTS product_affiliate_links (
-      id BIGINT AUTO_INCREMENT PRIMARY KEY,
-      product_id BIGINT NOT NULL,
-      provider VARCHAR(32) NOT NULL,
-      affiliate_nickname VARCHAR(100) NOT NULL,
-      vendor_nickname VARCHAR(100),
-      platform_product_id VARCHAR(100),
-      affiliate_url TEXT NOT NULL,
-      campaign_key VARCHAR(120),
-      status VARCHAR(32) NOT NULL DEFAULT 'approved',
-      notes TEXT,
-      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-      UNIQUE KEY uq_product_provider_affiliate (product_id, provider, affiliate_nickname),
-      INDEX idx_product_affiliate_links_product (product_id),
-      INDEX idx_product_affiliate_links_provider (provider),
-      INDEX idx_product_affiliate_links_status (status)
-    )
-  `)
+  await ensureTableExists(conn, 'product_affiliate_links')
 }
 
 async function queueReview(conn, productId) {

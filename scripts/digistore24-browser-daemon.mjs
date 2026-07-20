@@ -42,12 +42,61 @@ if (!process.env.PLAYWRIGHT_BROWSERS_PATH) {
 const PORT = Number(process.env.DIGISTORE24_DAEMON_PORT || "3219");
 const PROFILE_DIR =
   process.env.DIGISTORE24_BROWSER_PROFILE ||
-  path.join(process.env.HOME || "", ".config", "unloved-digistore24-daemon-firefox-profile");
+  path.join(process.env.HOME || "", ".config", "unloved-digistore24-firefox-profile");
 const START_URL =
   "https://www.digistore24-app.com/app/en/affiliate/account/marketplace/all";
+const MARKETPLACE_DETAIL_SELECTOR = 'a[href*="/detail/"]';
+const DIGISTORE_USER_AGENT =
+  "Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0";
 
 let context;
 let mainPage;
+
+async function waitForMarketplaceDetailLinks(page, timeoutMs = 5000) {
+  try {
+    await page.waitForSelector(MARKETPLACE_DETAIL_SELECTOR, {
+      timeout: timeoutMs,
+      state: "attached",
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function waitForPageSettle(page, timeoutMs = 3000) {
+  await page.waitForLoadState("domcontentloaded", { timeout: timeoutMs }).catch(() => {});
+  await page.waitForLoadState("networkidle", { timeout: timeoutMs }).catch(() => {});
+}
+
+async function waitForPromolinkOrSettle(page, affiliateId, timeoutMs = 8000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const links = await extractPromolinksFromPage(page, affiliateId);
+    if (links.length) return true;
+    await waitForPageSettle(page, 1500);
+  }
+  return false;
+}
+
+async function assertDigistoreSession(page) {
+  const url = page.url();
+  if (/login|signin|auth/i.test(url)) {
+    throw new Error("Digistore24 session expired — run: pnpm run digistore24:login");
+  }
+
+  const links = await visibleDetailLinks(page);
+  if (links.length) return { ok: true, linkCount: links.length };
+
+  const ready = await waitForMarketplaceDetailLinks(page, 8000);
+  if (!ready) {
+    throw new Error(
+      "Digistore24 marketplace not ready — complete login in Firefox or run: pnpm run digistore24:session:check"
+    );
+  }
+
+  return { ok: true, linkCount: (await visibleDetailLinks(page)).length };
+}
 
 function clean(v) {
   return String(v ?? "").replace(/\s+/g, " ").trim();
@@ -86,8 +135,13 @@ async function ensureBrowser() {
 
     context = await firefox.launchPersistentContext(PROFILE_DIR, {
       headless: false,
-      viewport: { width: 1440, height: 1000 },
+      viewport: { width: 1920, height: 1080 },
+      userAgent: DIGISTORE_USER_AGENT,
       acceptDownloads: true,
+    });
+
+    await context.addInitScript(() => {
+      Object.defineProperty(navigator, "webdriver", { get: () => undefined });
     });
   }
 
@@ -165,7 +219,7 @@ async function collectDetailLinks(page, options = {}) {
     ? options.shouldInclude
     : () => true;
 
-  await page.waitForTimeout(1000);
+  await waitForMarketplaceDetailLinks(page, 5000).catch(() => {});
 
   const seenLinks = new Set();
   const candidates = [];
@@ -174,7 +228,10 @@ async function collectDetailLinks(page, options = {}) {
 
   for (let round = 0; round < maxScrollRounds; round++) {
     await page.mouse.wheel(0, 1400).catch(() => {});
-    await page.waitForTimeout(450);
+    await page.waitForFunction(
+      () => document.querySelectorAll("a[href*='/detail/']").length > 0,
+      { timeout: 800 }
+    ).catch(() => {});
 
     const links = await visibleDetailLinks(page);
     let sawNewLink = false;
@@ -213,7 +270,7 @@ async function collectDetailLinks(page, options = {}) {
     if (!movedToNextPage) break;
 
     noGrowthRounds = 0;
-    await page.waitForTimeout(1200);
+    await waitForMarketplaceDetailLinks(page, 10000);
   }
 
   return {
@@ -285,7 +342,7 @@ async function waitForDetailLinks(page, timeoutMs, options = {}) {
       console.log(`Still waiting for marketplace links. Current page: ${page.url()}`);
     }
 
-    await page.waitForTimeout(2000);
+    await waitForMarketplaceDetailLinks(page, 2000).catch(() => {});
   }
 
   return {
@@ -445,7 +502,7 @@ async function promoteAndExtract(page, affiliateId, shouldPromote, shouldConfirm
       } catch {}
     }
 
-    await page.waitForTimeout(2500);
+    await waitForPromolinkOrSettle(page, affiliateId, 2500);
   }
 
   links = await extractPromolinksFromPage(page, affiliateId);
@@ -505,7 +562,7 @@ async function captureVendorMaterials(conn, productId, detailPage, detailUrl, af
       materialPage = await context.newPage();
       closeAfter = true;
       await materialPage.goto(candidate.url, { waitUntil: "domcontentloaded", timeout: 45000 }).catch(() => {});
-      await materialPage.waitForTimeout(1200);
+      await waitForPageSettle(materialPage, 5000);
     }
 
     const raw = await materialPage.evaluate(pageEvaluateExtractScript()).catch(() => ({ title: "", body: "", links: [] }));
@@ -733,6 +790,19 @@ async function collectProducts(options) {
   let openedCount = 0;
 
   try {
+    try {
+      const session = await assertDigistoreSession(mainPage);
+      console.log(`Digistore24 session preflight ok (${session.linkCount} marketplace links visible).`);
+    } catch (err) {
+      return {
+        success: false,
+        needsLoginOrMarketplace: true,
+        message: err.message,
+        pageUrl: mainPage.url(),
+        imported: [],
+      };
+    }
+
     const knownState = await loadKnownProductState(conn, options.userId, options.promote);
 
     const detailLookup = await waitForDetailLinks(
@@ -770,7 +840,7 @@ async function collectProducts(options) {
 
       const detailPage = await context.newPage();
       await detailPage.goto(detailUrl, { waitUntil: "domcontentloaded", timeout: 60000 }).catch(() => {});
-      await detailPage.waitForTimeout(1500);
+      await detailPage.waitForSelector("h1, h2, body", { timeout: 10000 }).catch(() => {});
 
       const rawDetail = await detailPage.evaluate(() => {
         const txt = el => (el?.innerText || el?.textContent || "").replace(/\s+/g, " ").trim();

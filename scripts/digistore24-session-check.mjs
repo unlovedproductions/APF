@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import fs from "node:fs";
+import path from "node:path";
 import readline from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 import { firefox } from "playwright";
@@ -26,7 +27,7 @@ if (!process.env.PLAYWRIGHT_BROWSERS_PATH) {
 
 const profileDir =
   process.env.DIGISTORE24_BROWSER_PROFILE ||
-  "/home/unloved/.config/unloved-digistore24-firefox-profile";
+  path.join(process.env.HOME || "", ".config", "unloved-digistore24-firefox-profile");
 
 const startUrl =
   "https://www.digistore24-app.com/app/en/affiliate/account/marketplace/all";
@@ -39,7 +40,8 @@ console.log("");
 
 const context = await firefox.launchPersistentContext(profileDir, {
   headless: false,
-  viewport: { width: 1440, height: 1000 },
+  viewport: { width: 1920, height: 1080 },
+  userAgent: "Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0",
   acceptDownloads: true,
 });
 
@@ -50,7 +52,7 @@ const page =
 
 await page.goto(startUrl, { waitUntil: "domcontentloaded", timeout: 60000 }).catch(() => {});
 
-await page.waitForTimeout(3000);
+await page.waitForSelector('a[href*="/detail/"], body', { timeout: 10000 }).catch(() => {});
 
 let currentUrl = page.url();
 let title = await page.title().catch(() => "");
@@ -75,7 +77,7 @@ console.log("");
 await rl.question("Press Enter after login/session check is complete...");
 rl.close();
 
-await page.waitForTimeout(2000);
+await page.waitForLoadState("networkidle", { timeout: 5000 }).catch(() => {});
 
 currentUrl = page.url();
 title = await page.title().catch(() => "");

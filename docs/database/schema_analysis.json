@@ -1,0 +1,120 @@
+{
+  "schema_overview": {
+    "total_tables": 11,
+    "total_columns": 34,
+    "tables_with_primary_keys": 11,
+    "total_foreign_keys": 0,
+    "total_indexes": 15
+  },
+  "normalization_analysis": {
+    "total_issues": 0,
+    "by_severity": {
+      "high": 0,
+      "medium": 0,
+      "low": 0,
+      "warning": 0
+    },
+    "issues": []
+  },
+  "data_type_analysis": {
+    "total_issues": 0,
+    "issues": []
+  },
+  "constraint_analysis": {
+    "total_issues": 7,
+    "by_severity": {
+      "high": 0,
+      "medium": 5,
+      "low": 2
+    },
+    "issues": [
+      {
+        "table": "bookmarks",
+        "issue_type": "MISSING_NOT_NULL",
+        "severity": "LOW",
+        "description": "Column 'status' allows NULL but typically should not",
+        "suggestion": "Consider adding NOT NULL constraint to 'status'",
+        "columns_affected": [
+          "status"
+        ]
+      },
+      {
+        "table": "product_affiliate_links",
+        "issue_type": "MISSING_FOREIGN_KEY",
+        "severity": "MEDIUM",
+        "description": "Column 'product_id' appears to be a foreign key but has no constraint",
+        "suggestion": "Add foreign key constraint referencing product table",
+        "columns_affected": [
+          "product_id"
+        ]
+      },
+      {
+        "table": "product_review_sources",
+        "issue_type": "MISSING_FOREIGN_KEY",
+        "severity": "MEDIUM",
+        "description": "Column 'product_id' appears to be a foreign key but has no constraint",
+        "suggestion": "Add foreign key constraint referencing product table",
+        "columns_affected": [
+          "product_id"
+        ]
+      },
+      {
+        "table": "product_review_briefs",
+        "issue_type": "MISSING_FOREIGN_KEY",
+        "severity": "MEDIUM",
+        "description": "Column 'product_id' appears to be a foreign key but has no constraint",
+        "suggestion": "Add foreign key constraint referencing product table",
+        "columns_affected": [
+          "product_id"
+        ]
+      },
+      {
+        "table": "review_enrichment_jobs",
+        "issue_type": "MISSING_FOREIGN_KEY",
+        "severity": "MEDIUM",
+        "description": "Column 'product_id' appears to be a foreign key but has no constraint",
+        "suggestion": "Add foreign key constraint referencing product table",
+        "columns_affected": [
+          "product_id"
+        ]
+      },
+      {
+        "table": "review_enrichment_jobs",
+        "issue_type": "MISSING_NOT_NULL",
+        "severity": "LOW",
+        "description": "Column 'status' allows NULL but typically should not",
+        "suggestion": "Consider adding NOT NULL constraint to 'status'",
+        "columns_affected": [
+          "status"
+        ]
+      },
+      {
+        "table": "product_vendor_materials",
+        "issue_type": "MISSING_FOREIGN_KEY",
+        "severity": "MEDIUM",
+        "description": "Column 'product_id' appears to be a foreign key but has no constraint",
+        "suggestion": "Add foreign key constraint referencing product table",
+        "columns_affected": [
+          "product_id"
+        ]
+      }
+    ]
+  },
+  "naming_analysis": {
+    "total_issues": 1,
+    "issues": [
+      {
+        "table": "data_refresh_log",
+        "column": null,
+        "issue": "Table name should be plural",
+        "current_name": "data_refresh_log",
+        "suggested_name": "data_refresh_logs"
+      }
+    ]
+  },
+  "missing_indexes": [],
+  "recommendations": [
+    "Consider adding 5 foreign key constraints for referential integrity"
+  ],
+  "mermaid_erd": "erDiagram\n    USERS {\n        INTEGER id \"PK\"\n        VARCHAR openid\n    }\n    API_CREDENTIALS {\n        INTEGER id \"PK\"\n        INTEGER userid \"NOT NULL\"\n        VARCHAR platform\n    }\n    PRODUCTS {\n        INTEGER id \"PK\"\n        INTEGER userid \"NOT NULL\"\n        VARCHAR platform\n    }\n    BOOKMARKS {\n        INTEGER id \"PK\"\n        INTEGER userid \"NOT NULL\"\n        INTEGER productid \"NOT NULL\"\n        TEXT notes\n        VARCHAR status\n    }\n    DATA_REFRESH_LOG {\n        INTEGER id \"PK\"\n        INTEGER userid \"NOT NULL\"\n        VARCHAR platform\n    }\n    PRODUCT_AFFILIATE_LINKS {\n        INTEGER id \"PK\"\n        INTEGER product_id \"NOT NULL\"\n        VARCHAR provider\n    }\n    PRODUCT_REVIEW_SOURCES {\n        INTEGER id \"PK\"\n        INTEGER product_id \"NOT NULL\"\n        VARCHAR source_type\n    }\n    PRODUCT_REVIEW_BRIEFS {\n        INTEGER id \"PK\"\n        INTEGER product_id \"NOT NULL UNIQUE\"\n        VARCHAR enrichment_status\n    }\n    REVIEW_ENRICHMENT_JOBS {\n        INTEGER id \"PK\"\n        INTEGER product_id \"NOT NULL UNIQUE\"\n        VARCHAR status\n    }\n    PRODUCT_VENDOR_MATERIALS {\n        INTEGER id \"PK\"\n        INTEGER product_id \"NOT NULL\"\n        TEXT source_url \"NOT NULL\"\n        VARCHAR source_url_hash\n    }\n    VENDOR_PROFILES {\n        INTEGER id \"PK\"\n        VARCHAR platform\n    }"
+}

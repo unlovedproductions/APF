@@ -36,6 +36,13 @@
       "when": 1783597515729,
       "tag": "0004_tiresome_the_fury",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "5",
+      "when": 1784000000000,
+      "tag": "0005_apf_performance_indexes",
+      "breakpoints": true
     }
   ]
 }

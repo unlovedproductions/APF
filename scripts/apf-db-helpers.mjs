@@ -124,3 +124,10 @@ export async function queueReview(conn, productId) {
       updated_at = NOW()
   `, [productId, staleMin, staleMin, staleMin, staleMin]);
 }
+
+export async function ensureTableExists(conn, tableName) {
+  const [rows] = await conn.query("SHOW TABLES LIKE ?", [tableName]);
+  if (!rows?.length) {
+    throw new Error(`${tableName} table missing — run: pnpm db:push`);
+  }
+}

@@ -1,4 +1,4 @@
-import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, decimal, boolean, json, unique } from "drizzle-orm/mysql-core";
+import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, decimal, boolean, json, unique, index } from "drizzle-orm/mysql-core";
 
 /**
  * Core user table backing auth flow.
@@ -36,7 +36,9 @@ export const apiCredentials = mysqlTable("api_credentials", {
   isActive: boolean("isActive").default(true).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, (table) => ({
+  userPlatformIdx: index("idx_api_credentials_user_platform").on(table.userId, table.platform),
+}));
 
 export type ApiCredential = typeof apiCredentials.$inferSelect;
 export type InsertApiCredential = typeof apiCredentials.$inferInsert;
@@ -78,6 +80,8 @@ export const products = mysqlTable("products", {
   dataFetchedAt: timestamp("dataFetchedAt").defaultNow().notNull(),
 }, (table) => ({
   userPlatformProductUnique: unique("products_user_platform_product_unique").on(table.userId, table.platform, table.platformProductId),
+  userPlatformScoreIdx: index("idx_products_user_platform_score").on(table.userId, table.platform, table.hiddenGemScore),
+  userPlatformCategoryIdx: index("idx_products_user_platform_category").on(table.userId, table.platform, table.category),
 }));
 
 export type Product = typeof products.$inferSelect;
@@ -96,6 +100,7 @@ export const bookmarks = mysqlTable("bookmarks", {
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (table) => ({
   userProductBookmarkUnique: unique("bookmarks_user_product_unique").on(table.userId, table.productId),
+  userIdx: index("idx_bookmarks_user").on(table.userId),
 }));
 
 export type Bookmark = typeof bookmarks.$inferSelect;
@@ -113,7 +118,9 @@ export const dataRefreshLog = mysqlTable("data_refresh_log", {
   errorMessage: text("errorMessage"),
   startedAt: timestamp("startedAt").defaultNow().notNull(),
   completedAt: timestamp("completedAt"),
-});
+}, (table) => ({
+  userPlatformIdx: index("idx_data_refresh_user_platform").on(table.userId, table.platform),
+}));
 
 export type DataRefreshLog = typeof dataRefreshLog.$inferSelect;
 export type InsertDataRefreshLog = typeof dataRefreshLog.$inferInsert;
@@ -136,6 +143,9 @@ export const productAffiliateLinks = mysqlTable("product_affiliate_links", {
   updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
 }, (table) => ({
   productProviderAffiliateUnique: unique("uq_product_provider_affiliate").on(table.productId, table.provider, table.affiliateNickname),
+  productIdx: index("idx_product_affiliate_links_product").on(table.productId),
+  providerIdx: index("idx_product_affiliate_links_provider").on(table.provider),
+  statusIdx: index("idx_product_affiliate_links_status").on(table.status),
 }));
 
 export type ProductAffiliateLink = typeof productAffiliateLinks.$inferSelect;
@@ -160,6 +170,8 @@ export const productReviewSources = mysqlTable("product_review_sources", {
   rawJson: json("raw_json"),
 }, (table) => ({
   productReviewUrlUnique: unique("uq_product_review_url").on(table.productId, table.url),
+  productIdx: index("idx_product_review_sources_product").on(table.productId),
+  sourceTypeIdx: index("idx_product_review_sources_type").on(table.sourceType),
 }));
 
 export type ProductReviewSource = typeof productReviewSources.$inferSelect;
@@ -196,6 +208,8 @@ export const productReviewBriefs = mysqlTable("product_review_briefs", {
   updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
 }, (table) => ({
   reviewBriefPerProductUnique: unique("uq_review_brief_product").on(table.productId),
+  statusIdx: index("idx_review_briefs_status").on(table.enrichmentStatus),
+  confidenceIdx: index("idx_review_briefs_confidence").on(table.confidenceScore),
 }));
 
 export type ProductReviewBrief = typeof productReviewBriefs.$inferSelect;
@@ -216,6 +230,7 @@ export const reviewEnrichmentJobs = mysqlTable("review_enrichment_jobs", {
   updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
 }, (table) => ({
   reviewJobPerProductUnique: unique("uq_review_job_product").on(table.productId),
+  queueIdx: index("idx_review_jobs_queue").on(table.status, table.nextRunAt),
 }));
 
 export type ReviewEnrichmentJob = typeof reviewEnrichmentJobs.$inferSelect;
@@ -240,6 +255,8 @@ export const productVendorMaterials = mysqlTable("product_vendor_materials", {
   updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
 }, (table) => ({
   vendorMaterialProductUrlUnique: unique("uq_vendor_material_product_url").on(table.productId, table.sourceUrlHash),
+  productIdx: index("idx_vendor_materials_product").on(table.productId),
+  sourceTypeIdx: index("idx_vendor_materials_type").on(table.sourceType),
 }));
 
 export type ProductVendorMaterial = typeof productVendorMaterials.$inferSelect;
