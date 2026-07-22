@@ -74,10 +74,10 @@
 - [x] Update UI descriptions to mention "multiple marketplaces"
 
 ## Phase 10: GitHub Deployment
-- [ ] Create GitHub repository
-- [ ] Push all code to GitHub
-- [ ] Add README with setup instructions
-- [ ] Add GitHub Actions CI/CD (optional)
+- [x] Create GitHub repository
+- [x] Push all code to GitHub
+- [x] Add README with setup instructions
+- [ ] Add GitHub Actions CI/CD (`.github/workflows/ci.yml` — runs `pnpm check` + `pnpm test` on PR/push)
 
 ## Phase 11: Digistore24 → ShadowCast ops (local)
 - [x] Align docs with Firefox daemon path (not no-key scrape)

@@ -1,0 +1,251 @@
+{
+  "$schema": "./questions.schema.json",
+  "version": 1,
+  "description": "Starter eval set for review enrichment brief generation. Each case is a product stub plus reference expectations for regression testing.",
+  "cases": [
+    {
+      "id": "ds24-skin-serum",
+      "platform": "digistore24",
+      "prompt_variant": "digistore24",
+      "product": {
+        "name": "GlowRenew Anti-Aging Serum",
+        "vendor": "Wellness Labs Co",
+        "category": "Skincare",
+        "description": "Daily serum targeting fine lines and uneven tone.",
+        "cartValue": 47.0
+      },
+      "expect": {
+        "required_fields": ["review_summary", "best_video_angles", "recommended_content_style"],
+        "content_style_one_of": ["honest_review", "worth_it_or_waste", "standard"],
+        "min_competitors": 2,
+        "consumer_tone": true
+      }
+    },
+    {
+      "id": "ds24-weight-program",
+      "platform": "digistore24",
+      "prompt_variant": "digistore24",
+      "product": {
+        "name": "LeanShift 21-Day Reset",
+        "vendor": "FitPath Media",
+        "category": "Weight Loss",
+        "description": "Meal-plan and habit program for busy adults.",
+        "cartValue": 67.0
+      },
+      "expect": {
+        "required_fields": ["who_it_may_help", "who_should_skip_it", "price_display"],
+        "avoid_terms": ["commission", "promote", "JV"]
+      }
+    },
+    {
+      "id": "ds24-digital-course",
+      "platform": "digistore24",
+      "prompt_variant": "digistore24",
+      "product": {
+        "name": "Freelance Launch Kit",
+        "vendor": "Creator Edge",
+        "category": "Business",
+        "description": "Video course on landing first freelance clients.",
+        "cartValue": 97.0
+      },
+      "expect": {
+        "required_fields": ["target_audience", "best_video_angles"],
+        "min_angles": 2
+      }
+    },
+    {
+      "id": "ds24-supplement",
+      "platform": "digistore24",
+      "prompt_variant": "digistore24",
+      "product": {
+        "name": "JointFlex Pro",
+        "vendor": "NatureForm",
+        "category": "Supplements",
+        "description": "Joint support formula with turmeric and collagen.",
+        "cartValue": 39.95
+      },
+      "expect": {
+        "required_fields": ["negative_signals", "common_complaints"],
+        "no_medical_claims": true
+      }
+    },
+    {
+      "id": "ds24-pet-product",
+      "platform": "digistore24",
+      "prompt_variant": "digistore24",
+      "product": {
+        "name": "CalmPaws Anxiety Chews",
+        "vendor": "PetWell",
+        "category": "Pet Care",
+        "description": "Calming chews for dogs during storms and travel.",
+        "cartValue": 29.0
+      },
+      "expect": {
+        "required_fields": ["review_summary", "cta_guidance"],
+        "consumer_tone": true
+      }
+    },
+    {
+      "id": "cb-software-tool",
+      "platform": "clickbank",
+      "prompt_variant": "generic",
+      "product": {
+        "name": "Keyword Scout Pro",
+        "vendor": "RankTools",
+        "category": "SEO Software",
+        "description": "Keyword research desktop tool for niche site builders.",
+        "cartValue": 0,
+        "aggregateSales": 1200
+      },
+      "expect": {
+        "required_fields": ["review_summary", "suggested_competitors", "price_display"],
+        "min_competitors": 2
+      }
+    },
+    {
+      "id": "cb-health-guide",
+      "platform": "clickbank",
+      "prompt_variant": "generic",
+      "product": {
+        "name": "Sleep Reset Blueprint",
+        "vendor": "RestLab",
+        "category": "Health",
+        "description": "Digital guide for improving sleep hygiene.",
+        "cartValue": 37.0
+      },
+      "expect": {
+        "required_fields": ["positive_signals", "negative_signals"],
+        "no_guaranteed_results": true
+      }
+    },
+    {
+      "id": "cb-finance-offer",
+      "platform": "clickbank",
+      "prompt_variant": "generic",
+      "product": {
+        "name": "Debt Freedom Accelerator",
+        "vendor": "MoneyMind",
+        "category": "Personal Finance",
+        "description": "Budgeting templates and payoff planner.",
+        "cartValue": 27.0
+      },
+      "expect": {
+        "required_fields": ["common_claims", "best_video_angles"],
+        "content_style_one_of": ["honest_review", "worth_it_or_waste", "budget_challenge"]
+      }
+    },
+    {
+      "id": "wp-marketing-kit",
+      "platform": "warriorplus",
+      "prompt_variant": "generic",
+      "product": {
+        "name": "Launch Stack Templates",
+        "vendor": "MarketerOS",
+        "category": "Marketing",
+        "description": "PLR funnel templates for info products.",
+        "cartValue": 17.0
+      },
+      "expect": {
+        "required_fields": ["target_audience", "confidence_score"],
+        "confidence_range": [30, 95]
+      }
+    },
+    {
+      "id": "cb-relationship",
+      "platform": "clickbank",
+      "prompt_variant": "generic",
+      "product": {
+        "name": "Reconnect Method",
+        "vendor": "HeartPath",
+        "category": "Relationships",
+        "description": "Communication exercises for couples.",
+        "cartValue": 47.0
+      },
+      "expect": {
+        "required_fields": ["who_it_may_help", "who_should_skip_it"],
+        "min_angles": 2
+      }
+    },
+    {
+      "id": "ds24-home-gadget",
+      "platform": "digistore24",
+      "prompt_variant": "digistore24",
+      "product": {
+        "name": "AquaPure Filter Pitcher",
+        "vendor": "HomePure",
+        "category": "Home",
+        "description": "Countertop water filter pitcher with replaceable cartridges.",
+        "cartValue": 59.0
+      },
+      "expect": {
+        "required_fields": ["price_comparison", "evidence_coverage"],
+        "consumer_tone": true
+      }
+    },
+    {
+      "id": "cb-survival",
+      "platform": "clickbank",
+      "prompt_variant": "generic",
+      "product": {
+        "name": "72-Hour Ready Pack Guide",
+        "vendor": "PrepWise",
+        "category": "Survival",
+        "description": "Checklist and shopping list for emergency kits.",
+        "cartValue": 19.0
+      },
+      "expect": {
+        "required_fields": ["review_summary", "common_complaints"],
+        "weak_evidence_language": true
+      }
+    },
+    {
+      "id": "ds24-meditation",
+      "platform": "digistore24",
+      "prompt_variant": "digistore24",
+      "product": {
+        "name": "MindClear Audio Series",
+        "vendor": "ZenWave",
+        "category": "Self Help",
+        "description": "Guided meditation audio library subscription.",
+        "cartValue": 14.99
+      },
+      "expect": {
+        "required_fields": ["best_video_angles", "series_name"],
+        "content_style_one_of": ["honest_review", "standard", "worth_it_or_waste"]
+      }
+    },
+    {
+      "id": "cb-language",
+      "platform": "clickbank",
+      "prompt_variant": "generic",
+      "product": {
+        "name": "Spanish Sprint 30",
+        "vendor": "LingoFast",
+        "category": "Education",
+        "description": "30-day conversational Spanish challenge.",
+        "cartValue": 67.0
+      },
+      "expect": {
+        "required_fields": ["suggested_competitors", "price_display"],
+        "min_competitors": 2
+      }
+    },
+    {
+      "id": "ds24-thin-evidence",
+      "platform": "digistore24",
+      "prompt_variant": "digistore24",
+      "product": {
+        "name": "Obscure Niche Widget",
+        "vendor": "Unknown Vendor LLC",
+        "category": "Gadgets",
+        "description": "Limited public information; tests fallback and degraded paths.",
+        "cartValue": 0
+      },
+      "expect": {
+        "degraded_ok": true,
+        "required_fields": ["review_summary", "best_video_angles"],
+        "notes": "Use with empty vendor materials and zero sources to test fallback."
+      }
+    }
+  ]
+}

@@ -1,4 +1,4 @@
-import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, decimal, boolean, json, unique, index } from "drizzle-orm/mysql-core";
+import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, decimal, boolean, json, unique, index, foreignKey } from "drizzle-orm/mysql-core";
 
 /**
  * Core user table backing auth flow.
@@ -78,6 +78,7 @@ export const products = mysqlTable("products", {
   
   // For tracking data freshness
   dataFetchedAt: timestamp("dataFetchedAt").defaultNow().notNull(),
+  deletedAt: timestamp("deletedAt"),
 }, (table) => ({
   userPlatformProductUnique: unique("products_user_platform_product_unique").on(table.userId, table.platform, table.platformProductId),
   userPlatformScoreIdx: index("idx_products_user_platform_score").on(table.userId, table.platform, table.hiddenGemScore),
@@ -98,6 +99,7 @@ export const bookmarks = mysqlTable("bookmarks", {
   status: mysqlEnum("status", ["interested", "researching", "promoting", "archived"]).default("interested").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  deletedAt: timestamp("deletedAt"),
 }, (table) => ({
   userProductBookmarkUnique: unique("bookmarks_user_product_unique").on(table.userId, table.productId),
   userIdx: index("idx_bookmarks_user").on(table.userId),
@@ -109,7 +111,7 @@ export type InsertBookmark = typeof bookmarks.$inferInsert;
 /**
  * Tracks data refresh history for each user
  */
-export const dataRefreshLog = mysqlTable("data_refresh_log", {
+export const dataRefreshLogs = mysqlTable("data_refresh_logs", {
   id: int("id").autoincrement().primaryKey(),
   userId: int("userId").notNull(),
   platform: varchar("platform", { length: 32 }).notNull(),
@@ -122,8 +124,8 @@ export const dataRefreshLog = mysqlTable("data_refresh_log", {
   userPlatformIdx: index("idx_data_refresh_user_platform").on(table.userId, table.platform),
 }));
 
-export type DataRefreshLog = typeof dataRefreshLog.$inferSelect;
-export type InsertDataRefreshLog = typeof dataRefreshLog.$inferInsert;
+export type DataRefreshLog = typeof dataRefreshLogs.$inferSelect;
+export type InsertDataRefreshLog = typeof dataRefreshLogs.$inferInsert;
 
 /**
  * Canonical affiliate links per product/provider.
@@ -146,6 +148,11 @@ export const productAffiliateLinks = mysqlTable("product_affiliate_links", {
   productIdx: index("idx_product_affiliate_links_product").on(table.productId),
   providerIdx: index("idx_product_affiliate_links_provider").on(table.provider),
   statusIdx: index("idx_product_affiliate_links_status").on(table.status),
+  productFk: foreignKey({
+    name: "fk_pal_product_id",
+    columns: [table.productId],
+    foreignColumns: [products.id],
+  }).onDelete("cascade"),
 }));
 
 export type ProductAffiliateLink = typeof productAffiliateLinks.$inferSelect;
@@ -172,6 +179,11 @@ export const productReviewSources = mysqlTable("product_review_sources", {
   productReviewUrlUnique: unique("uq_product_review_url").on(table.productId, table.url),
   productIdx: index("idx_product_review_sources_product").on(table.productId),
   sourceTypeIdx: index("idx_product_review_sources_type").on(table.sourceType),
+  productFk: foreignKey({
+    name: "fk_prs_product_id",
+    columns: [table.productId],
+    foreignColumns: [products.id],
+  }).onDelete("cascade"),
 }));
 
 export type ProductReviewSource = typeof productReviewSources.$inferSelect;
@@ -210,6 +222,11 @@ export const productReviewBriefs = mysqlTable("product_review_briefs", {
   reviewBriefPerProductUnique: unique("uq_review_brief_product").on(table.productId),
   statusIdx: index("idx_review_briefs_status").on(table.enrichmentStatus),
   confidenceIdx: index("idx_review_briefs_confidence").on(table.confidenceScore),
+  productFk: foreignKey({
+    name: "fk_prb_product_id",
+    columns: [table.productId],
+    foreignColumns: [products.id],
+  }).onDelete("cascade"),
 }));
 
 export type ProductReviewBrief = typeof productReviewBriefs.$inferSelect;
@@ -231,6 +248,11 @@ export const reviewEnrichmentJobs = mysqlTable("review_enrichment_jobs", {
 }, (table) => ({
   reviewJobPerProductUnique: unique("uq_review_job_product").on(table.productId),
   queueIdx: index("idx_review_jobs_queue").on(table.status, table.nextRunAt),
+  productFk: foreignKey({
+    name: "fk_rej_product_id",
+    columns: [table.productId],
+    foreignColumns: [products.id],
+  }).onDelete("cascade"),
 }));
 
 export type ReviewEnrichmentJob = typeof reviewEnrichmentJobs.$inferSelect;
@@ -257,6 +279,11 @@ export const productVendorMaterials = mysqlTable("product_vendor_materials", {
   vendorMaterialProductUrlUnique: unique("uq_vendor_material_product_url").on(table.productId, table.sourceUrlHash),
   productIdx: index("idx_vendor_materials_product").on(table.productId),
   sourceTypeIdx: index("idx_vendor_materials_type").on(table.sourceType),
+  productFk: foreignKey({
+    name: "fk_pvm_product_id",
+    columns: [table.productId],
+    foreignColumns: [products.id],
+  }).onDelete("cascade"),
 }));
 
 export type ProductVendorMaterial = typeof productVendorMaterials.$inferSelect;

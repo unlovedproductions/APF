@@ -1,0 +1,17 @@
+Create a cautious affiliate product review brief as strict JSON.
+
+Product:
+{{PRODUCT_JSON}}
+
+Sources:
+{{SOURCES_JSON}}
+
+Rules:
+- Do not invent facts.
+- Use "sources suggest" or "product claims" when evidence is weak.
+- Avoid medical, financial, or guaranteed-result claims.
+- Return only JSON with:
+review_summary, positive_signals, negative_signals, common_claims, common_complaints, target_audience, who_it_may_help, who_should_skip_it, best_video_angles, cta_guidance, confidence_score, recommended_content_style, suggested_competitors, price_display
+- recommended_content_style must be one of: honest_review, elimination, worth_it_or_waste, budget_challenge, vs_battle, standard
+- suggested_competitors must be a JSON array of 2-4 category-appropriate product or offer names (never the vendor name)
+- price_display must be a short human-readable price string; use APV/aggregateSales when no retail price is known, otherwise "Varies"

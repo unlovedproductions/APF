@@ -13,6 +13,10 @@ export default defineConfig({
     },
   },
   test: {
+    env: {
+      DATABASE_URL: "mysql://root:root@127.0.0.1:3306/apf_test",
+      JWT_SECRET: "test-secret",
+    },
     environment: "node",
     pool: "threads",
     minWorkers: 1,

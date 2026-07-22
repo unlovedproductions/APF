@@ -109,7 +109,7 @@ export async function runPostRefreshWorkflow(platform: Marketplace, userId: numb
     steps.push("clickbank_native_score_from_importer");
   }
 
-  const reviewRuns = Math.max(0, Math.min(10, finiteNumber(process.env.APF_REFRESH_REVIEW_RUNS, 1)));
+  const reviewRuns = Math.max(0, Math.min(10, finiteNumber(process.env.APF_REFRESH_REVIEW_RUNS, 3)));
 
   for (let i = 0; i < reviewRuns; i++) {
     await runNodeScript(

@@ -1,10 +1,30 @@
 -- FK constraints + NOT NULL fixes from docs/database/schema_analysis.json
 
-ALTER TABLE `bookmarks` MODIFY `status` varchar(32) NOT NULL DEFAULT 'active';
---> statement-breakpoint
-ALTER TABLE `review_enrichment_jobs` MODIFY `status` varchar(32) NOT NULL DEFAULT 'queued';
---> statement-breakpoint
 SET @db := DATABASE();
+--> statement-breakpoint
+SET @sql := (SELECT IF(
+  (SELECT IS_NULLABLE FROM information_schema.columns WHERE table_schema = @db AND table_name = 'bookmarks' AND column_name = 'status') = 'YES',
+  'ALTER TABLE `bookmarks` MODIFY `status` enum(''interested'',''researching'',''promoting'',''archived'') NOT NULL DEFAULT ''interested''',
+  'SELECT 1'
+));
+--> statement-breakpoint
+PREPARE _stmt FROM @sql;
+--> statement-breakpoint
+EXECUTE _stmt;
+--> statement-breakpoint
+DEALLOCATE PREPARE _stmt;
+--> statement-breakpoint
+SET @sql := (SELECT IF(
+  (SELECT IS_NULLABLE FROM information_schema.columns WHERE table_schema = @db AND table_name = 'review_enrichment_jobs' AND column_name = 'status') = 'YES',
+  'ALTER TABLE `review_enrichment_jobs` MODIFY `status` varchar(32) NOT NULL DEFAULT ''queued''',
+  'SELECT 1'
+));
+--> statement-breakpoint
+PREPARE _stmt FROM @sql;
+--> statement-breakpoint
+EXECUTE _stmt;
+--> statement-breakpoint
+DEALLOCATE PREPARE _stmt;
 --> statement-breakpoint
 SET @sql := (SELECT IF(
   (SELECT COUNT(*) FROM information_schema.table_constraints WHERE constraint_schema = @db AND table_name = 'product_affiliate_links' AND constraint_name = 'fk_pal_product_id') = 0,

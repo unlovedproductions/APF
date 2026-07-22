@@ -1,6 +1,6 @@
 import { eq, and, desc, asc, like, inArray, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users, apiCredentials, products, bookmarks, dataRefreshLog, productReviewBriefs } from "../drizzle/schema";
+import { InsertUser, users, apiCredentials, products, bookmarks, dataRefreshLogs, productReviewBriefs } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -318,7 +318,7 @@ export async function logDataRefresh(userId: number, platform: string, status: s
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  await db.insert(dataRefreshLog).values({
+  await db.insert(dataRefreshLogs).values({
     userId,
     platform,
     status: status as any,
@@ -333,9 +333,9 @@ export async function getLastRefreshLog(userId: number, platform: string) {
   if (!db) return null;
 
   const result = await db.select()
-    .from(dataRefreshLog)
-    .where(and(eq(dataRefreshLog.userId, userId), eq(dataRefreshLog.platform, platform)))
-    .orderBy(desc(dataRefreshLog.completedAt))
+    .from(dataRefreshLogs)
+    .where(and(eq(dataRefreshLogs.userId, userId), eq(dataRefreshLogs.platform, platform)))
+    .orderBy(desc(dataRefreshLogs.completedAt))
     .limit(1);
 
   return result.length > 0 ? result[0] : null;

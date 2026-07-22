@@ -6,7 +6,7 @@ async function fetchWithRetry(
   options: { timeoutMs?: number; retries?: number } = {},
 ): Promise<Response> {
   const timeoutMs = options.timeoutMs ?? 60_000;
-  const retries = options.retries ?? 1;
+  const retries = options.retries ?? 2;
   let lastError: unknown;
   for (let attempt = 0; attempt <= retries; attempt += 1) {
     try {
@@ -17,7 +17,7 @@ async function fetchWithRetry(
     } catch (err) {
       lastError = err;
       if (attempt >= retries) break;
-      await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
+      await new Promise((r) => setTimeout(r, 500 * 2 ** attempt));
     }
   }
   throw lastError instanceof Error ? lastError : new Error(String(lastError));
@@ -351,5 +351,11 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
     );
   }
 
-  return (await response.json()) as InvokeResult;
+  const result = (await response.json()) as InvokeResult;
+  if (result.usage) {
+    console.log(
+      `[LLM] usage prompt=${result.usage.prompt_tokens} completion=${result.usage.completion_tokens} total=${result.usage.total_tokens}`,
+    );
+  }
+  return result;
 }

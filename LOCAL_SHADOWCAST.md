@@ -22,3 +22,25 @@
 6. Confirm ShadowCast returns an open draft URL and the draft is reviewable.
 7. Run script check:
    - `pnpm local:smoke-test`
+
+## Replacing synthetic (generated) promolinks
+
+Importer/backfill may create `product_affiliate_links.status=generated` synthetic URLs. Live approved promolinks require a logged-in Digistore24 Firefox session.
+
+1. Start the daemon: `pnpm digistore24:daemon`
+2. Log in via Firefox: `pnpm digistore24:login` (or use **Refresh Data** in APF and complete login/2FA in the opened window)
+3. Re-collect with promote enabled (any of):
+   - APF UI **Refresh Data** when `DIGISTORE24_AUTO_PROMOTE=true` in `.env` (default in `.env.example`)
+   - CLI: `node scripts/digistore24-daemon-client.mjs collect --ensure --promote --limit 50`
+4. On success the daemon updates `products.affiliateLink` and upserts `product_affiliate_links` with `status=approved`, replacing prior `generated` rows for the same product/provider/nickname.
+
+Verify:
+
+```sql
+SELECT p.id, p.name, l.status, l.affiliate_url
+FROM products p
+JOIN product_affiliate_links l ON l.product_id = p.id
+WHERE p.platform = 'digistore24' AND l.status = 'generated';
+```
+
+Re-run step 3 until this query returns no rows (or only products still awaiting manual vendor approval).

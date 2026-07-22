@@ -113,10 +113,13 @@ start_apf_if_needed() {
   fi
 
   local script_path="$APF_ROOT/scripts/.video-audit-run-apf.sh"
-  cat >"$script_path" <<EOF
+  if [ ! -f "$script_path" ]; then
+    cat >"$script_path" <<EOF
 #!/usr/bin/env bash
 set -Eeuo pipefail
-cd "$APF_ROOT"
+SCRIPT_DIR="\$(cd "\$(dirname "\${BASH_SOURCE[0]}")" && pwd)"
+APF_ROOT="\${APF_ROOT:-\$(cd "\$SCRIPT_DIR/.." && pwd)}"
+cd "\$APF_ROOT"
 if [ -s "\$HOME/.nvm/nvm.sh" ]; then
   export NVM_DIR="\$HOME/.nvm"
   source "\$NVM_DIR/nvm.sh"
@@ -125,11 +128,12 @@ fi
 set -a
 source .env
 set +a
-export PORT=3001
+export PORT="\${PORT:-3001}"
 echo "Opening APF on http://localhost:\${PORT}"
 pnpm dev
 EOF
-  chmod +x "$script_path"
+    chmod +x "$script_path"
+  fi
 
   if ! open_terminal_tab "APF" "$script_path"; then
     echo "Could not open APF tab automatically." >&2

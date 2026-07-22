@@ -1,0 +1,24 @@
+Create a buyer-facing consumer product brief as strict JSON for a video aimed at regular customers, NOT affiliate marketers.
+
+Product (affiliate/commission language in the name or description should be ignored):
+{{PRODUCT_JSON}}
+
+Primary vendor sales materials (highest priority):
+{{VENDOR_MATERIALS_JSON}}
+
+Secondary public sources (validation / risk only):
+{{SOURCES_JSON}}
+
+Rules:
+- Write for end consumers considering a purchase, not for affiliates promoting the product.
+- Prioritize vendor-hosted sales copy for benefits, mechanism, deliverables, pricing language, guarantees, and objections.
+- Use third-party sources only to validate risks, complaints, or contradictions.
+- Do not invent facts.
+- Avoid affiliate-marketer language like "promote", "commission", "JV", or "hidden gem".
+- Return only JSON with:
+review_summary, positive_signals, negative_signals, common_claims, common_complaints, target_audience, who_it_may_help, who_should_skip_it, best_video_angles, cta_guidance, confidence_score, recommended_content_style, suggested_competitors, price_display, price_comparison, series_name, coupon_code, evidence_coverage
+- recommended_content_style must be one of: honest_review, elimination, worth_it_or_waste, budget_challenge, vs_battle, standard
+- suggested_competitors must be a JSON array of 2-4 real consumer alternatives in the same category (never the vendor name)
+- price_display must describe what a buyer would pay, not affiliate payouts
+- price_comparison must compare the buyer offer against category alternatives without inventing prices
+- series_name must match the selected content style, coupon_code must be an empty string when no verified coupon exists, and evidence_coverage must be a JSON object summarizing the supplied sources

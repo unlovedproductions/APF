@@ -5,6 +5,7 @@ APF discovers affiliate products, scores them, enriches product intelligence, an
 
 ## Runtime Components
 - Frontend and backend run from one Node.js workspace (`pnpm local:start` / `pnpm dev`).
+- Route pages are code-split via `React.lazy` in `client/src/App.tsx` to keep the initial bundle small.
 - Database persistence via MySQL (`drizzle-orm`, `drizzle-kit` migration flow).
 - Product and enrichment workers run via scripts in `package.json`.
 

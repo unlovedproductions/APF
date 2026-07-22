@@ -12,9 +12,9 @@ import { ENV } from "./env";
 
 const rateBuckets = new Map<string, { count: number; resetAt: number }>();
 
-function rateLimitMiddleware(maxPerWindow: number, windowMs: number) {
+function rateLimitMiddleware(maxPerWindow: number, windowMs: number, bucketPrefix = "default") {
   return (req: express.Request, res: express.Response, next: express.NextFunction) => {
-    const key = req.ip || req.socket.remoteAddress || "local";
+    const key = `${bucketPrefix}:${req.ip || req.socket.remoteAddress || "local"}`;
     const now = Date.now();
     let bucket = rateBuckets.get(key);
     if (!bucket || now > bucket.resetAt) {
@@ -54,11 +54,10 @@ async function startServer() {
   const server = createServer(app);
   app.use(
     cors({
-      origin: ENV.corsOrigins.length ? ENV.corsOrigins : true,
+      origin: ENV.isProduction ? ENV.corsOrigins : ENV.corsOrigins.length ? ENV.corsOrigins : true,
       credentials: true,
     }),
   );
-  app.use(rateLimitMiddleware(300, 60_000));
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
@@ -67,10 +66,12 @@ async function startServer() {
     res.json({ status: "ok", app: "APF", timestamp: Date.now() });
   });
   // OAuth callback under /api/oauth/callback
+  app.use("/api/oauth", rateLimitMiddleware(30, 60_000, "oauth"));
   registerOAuthRoutes(app);
   // tRPC API
   app.use(
     "/api/trpc",
+    rateLimitMiddleware(120, 60_000, "trpc"),
     createExpressMiddleware({
       router: appRouter,
       createContext,
@@ -83,7 +84,7 @@ async function startServer() {
     serveStatic(app);
   }
 
-  const preferredPort = parseInt(process.env.PORT || "3000");
+  const preferredPort = ENV.port ?? 3000;
   const port = await findAvailablePort(preferredPort);
 
   if (port !== preferredPort) {

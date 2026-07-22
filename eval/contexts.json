@@ -1,0 +1,57 @@
+{
+  "$schema": "./contexts.schema.json",
+  "version": 1,
+  "description": "Captured SearXNG retrieval contexts for eval cases. Populate by running enrichment against eval product IDs or replaying stored search hits.",
+  "captured_at": null,
+  "provider": "searxng",
+  "cases": {
+    "ds24-skin-serum": {
+      "queries": [],
+      "sources": [],
+      "vendor_materials": [],
+      "notes": "Fill with SearXNG hits from digistoreEvidenceQueries + vendor page scrape."
+    },
+    "ds24-weight-program": {
+      "queries": [],
+      "sources": [],
+      "vendor_materials": []
+    },
+    "cb-software-tool": {
+      "queries": [],
+      "sources": [],
+      "vendor_materials": []
+    }
+  },
+  "_template": {
+    "case_id": "example-id-matching-questions.json",
+    "queries": ["\"Product Name\" review", "\"Product Name\" complaints"],
+    "sources": [
+      {
+        "title": "Example review page title",
+        "url": "https://example.com/review",
+        "snippet": "Short excerpt from search result.",
+        "relevance_score": 75,
+        "trust_score": 60,
+        "sentiment": "mixed",
+        "source_type": "web",
+        "source_name": "example.com"
+      }
+    ],
+    "vendor_materials": [
+      {
+        "source_type": "vendor",
+        "source_url": "https://vendor.example.com/offer",
+        "title": "Official sales page",
+        "structured_blocks": {
+          "headline": "",
+          "core_promise": "",
+          "benefits": [],
+          "problems": [],
+          "objections": [],
+          "testimonials": [],
+          "pricing": []
+        }
+      }
+    ]
+  }
+}

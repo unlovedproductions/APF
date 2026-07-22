@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import mysql from "mysql2/promise";
+import { z } from "zod";
 import { SCORING_VERSION, scoreProduct } from "./marketplace-scoring.mjs";
 import {
   ensureVendorMaterialsTable,
@@ -153,6 +154,150 @@ function consumerProductContext(product) {
     platform: product.platform,
     cartValue: product.cartValue,
   };
+}
+
+const PROMPTS_DIR = path.resolve(process.cwd(), "docs/prompts");
+
+const INLINE_PROMPTS = {
+  digistore24: `Create a buyer-facing consumer product brief as strict JSON for a video aimed at regular customers, NOT affiliate marketers.
+
+Product (affiliate/commission language in the name or description should be ignored):
+{{PRODUCT_JSON}}
+
+Primary vendor sales materials (highest priority):
+{{VENDOR_MATERIALS_JSON}}
+
+Secondary public sources (validation / risk only):
+{{SOURCES_JSON}}
+
+Rules:
+- Write for end consumers considering a purchase, not for affiliates promoting the product.
+- Prioritize vendor-hosted sales copy for benefits, mechanism, deliverables, pricing language, guarantees, and objections.
+- Use third-party sources only to validate risks, complaints, or contradictions.
+- Do not invent facts.
+- Avoid affiliate-marketer language like "promote", "commission", "JV", or "hidden gem".
+- Return only JSON with:
+review_summary, positive_signals, negative_signals, common_claims, common_complaints, target_audience, who_it_may_help, who_should_skip_it, best_video_angles, cta_guidance, confidence_score, recommended_content_style, suggested_competitors, price_display, price_comparison, series_name, coupon_code, evidence_coverage
+- recommended_content_style must be one of: honest_review, elimination, worth_it_or_waste, budget_challenge, vs_battle, standard
+- suggested_competitors must be a JSON array of 2-4 real consumer alternatives in the same category (never the vendor name)
+- price_display must describe what a buyer would pay, not affiliate payouts
+- price_comparison must compare the buyer offer against category alternatives without inventing prices
+- series_name must match the selected content style, coupon_code must be an empty string when no verified coupon exists, and evidence_coverage must be a JSON object summarizing the supplied sources`,
+  generic: `Create a cautious affiliate product review brief as strict JSON.
+
+Product:
+{{PRODUCT_JSON}}
+
+Sources:
+{{SOURCES_JSON}}
+
+Rules:
+- Do not invent facts.
+- Use "sources suggest" or "product claims" when evidence is weak.
+- Avoid medical, financial, or guaranteed-result claims.
+- Return only JSON with:
+review_summary, positive_signals, negative_signals, common_claims, common_complaints, target_audience, who_it_may_help, who_should_skip_it, best_video_angles, cta_guidance, confidence_score, recommended_content_style, suggested_competitors, price_display
+- recommended_content_style must be one of: honest_review, elimination, worth_it_or_waste, budget_challenge, vs_battle, standard
+- suggested_competitors must be a JSON array of 2-4 category-appropriate product or offer names (never the vendor name)
+- price_display must be a short human-readable price string; use APV/aggregateSales when no retail price is known, otherwise "Varies"`,
+};
+
+function loadPromptTemplate(name) {
+  const filePath = path.join(PROMPTS_DIR, `enrichment-${name}.txt`);
+  try {
+    if (fs.existsSync(filePath)) {
+      return fs.readFileSync(filePath, "utf8");
+    }
+  } catch {
+    // fall through to inline template
+  }
+  return INLINE_PROMPTS[name] || "";
+}
+
+function renderPromptTemplate(template, vars) {
+  let out = template;
+  for (const [key, value] of Object.entries(vars)) {
+    out = out.replaceAll(`{{${key}}}`, value);
+  }
+  return out;
+}
+
+function sourcePayload(sources, limit = 12) {
+  return JSON.stringify(sources.slice(0, limit).map(s => ({
+    title: s.title,
+    url: s.url,
+    snippet: s.snippet,
+    relevance_score: s.relevance_score,
+    trust_score: s.trust_score,
+    sentiment: s.sentiment,
+  })), null, 2);
+}
+
+function buildEnrichmentPrompt(isDigistore, product, sources, vendorMaterials) {
+  const variant = isDigistore ? "digistore24" : "generic";
+  const template = loadPromptTemplate(variant);
+  const vars = isDigistore
+    ? {
+      PRODUCT_JSON: JSON.stringify(consumerProductContext(product), null, 2),
+      VENDOR_MATERIALS_JSON: JSON.stringify(vendorMaterialSummary(vendorMaterials), null, 2),
+      SOURCES_JSON: sourcePayload(sources),
+    }
+    : {
+      PRODUCT_JSON: JSON.stringify(product, null, 2),
+      SOURCES_JSON: sourcePayload(sources, sources.length),
+    };
+  return renderPromptTemplate(template, vars);
+}
+
+const briefString = z.union([z.string(), z.number()]).transform(v => String(v));
+const briefStringArray = z.array(briefString).optional();
+const contentStyleSchema = z.enum([
+  "honest_review",
+  "elimination",
+  "worth_it_or_waste",
+  "budget_challenge",
+  "vs_battle",
+  "standard",
+]);
+
+const digistoreBriefSchema = z.object({
+  review_summary: briefString.pipe(z.string().min(1)),
+  positive_signals: briefStringArray,
+  negative_signals: briefStringArray,
+  common_claims: briefStringArray,
+  common_complaints: briefStringArray,
+  target_audience: briefString.optional(),
+  who_it_may_help: briefString.optional(),
+  who_should_skip_it: briefString.optional(),
+  best_video_angles: z.array(briefString).min(1),
+  cta_guidance: briefString.optional(),
+  confidence_score: z.coerce.number().min(0).max(100).optional(),
+  recommended_content_style: contentStyleSchema.optional(),
+  suggested_competitors: briefStringArray,
+  price_display: briefString.optional(),
+  price_comparison: briefString.optional(),
+  series_name: briefString.optional(),
+  coupon_code: briefString.optional(),
+  evidence_coverage: z.record(z.string(), z.unknown()).optional(),
+});
+
+const genericBriefSchema = digistoreBriefSchema.omit({
+  price_comparison: true,
+  series_name: true,
+  coupon_code: true,
+  evidence_coverage: true,
+});
+
+function parseAndValidateLlmBrief(raw, isDigistore) {
+  const schema = isDigistore ? digistoreBriefSchema : genericBriefSchema;
+  const parsed = schema.safeParse(raw);
+  if (parsed.success) return parsed.data;
+
+  const issues = parsed.error.issues
+    .map(i => `${i.path.join(".") || "(root)"}: ${i.message}`)
+    .join("; ");
+  console.error(`Brief schema validation failed: ${issues}`);
+  return null;
 }
 
 const REVIEW_BRIEF_COLUMNS = [
@@ -692,62 +837,7 @@ async function summarizeWithOllama(product, sources, vendorMaterials = []) {
   if (!isDigistore && !sources.length) return { brief: fallback, degraded: true };
   if (isDigistore && !sources.length && !vendorMaterials.length) return { brief: fallback, degraded: true };
 
-  const prompt = isDigistore
-    ? `Create a buyer-facing consumer product brief as strict JSON for a video aimed at regular customers, NOT affiliate marketers.
-
-Product (affiliate/commission language in the name or description should be ignored):
-${JSON.stringify(consumerProductContext(product), null, 2)}
-
-Primary vendor sales materials (highest priority):
-${JSON.stringify(vendorMaterialSummary(vendorMaterials), null, 2)}
-
-Secondary public sources (validation / risk only):
-${JSON.stringify(sources.slice(0, 12).map(s => ({
-    title: s.title,
-    url: s.url,
-    snippet: s.snippet,
-    relevance_score: s.relevance_score,
-    trust_score: s.trust_score,
-    sentiment: s.sentiment
-  })), null, 2)}
-
-Rules:
-- Write for end consumers considering a purchase, not for affiliates promoting the product.
-- Prioritize vendor-hosted sales copy for benefits, mechanism, deliverables, pricing language, guarantees, and objections.
-- Use third-party sources only to validate risks, complaints, or contradictions.
-- Do not invent facts.
-- Avoid affiliate-marketer language like "promote", "commission", "JV", or "hidden gem".
-- Return only JSON with:
-review_summary, positive_signals, negative_signals, common_claims, common_complaints, target_audience, who_it_may_help, who_should_skip_it, best_video_angles, cta_guidance, confidence_score, recommended_content_style, suggested_competitors, price_display, price_comparison, series_name, coupon_code, evidence_coverage
-- recommended_content_style must be one of: honest_review, elimination, worth_it_or_waste, budget_challenge, vs_battle, standard
-- suggested_competitors must be a JSON array of 2-4 real consumer alternatives in the same category (never the vendor name)
-- price_display must describe what a buyer would pay, not affiliate payouts
-- price_comparison must compare the buyer offer against category alternatives without inventing prices
-- series_name must match the selected content style, coupon_code must be an empty string when no verified coupon exists, and evidence_coverage must be a JSON object summarizing the supplied sources`
-    : `Create a cautious affiliate product review brief as strict JSON.
-
-Product:
-${JSON.stringify(product, null, 2)}
-
-Sources:
-${JSON.stringify(sources.map(s => ({
-    title: s.title,
-    url: s.url,
-    snippet: s.snippet,
-    relevance_score: s.relevance_score,
-    trust_score: s.trust_score,
-    sentiment: s.sentiment
-  })), null, 2)}
-
-Rules:
-- Do not invent facts.
-- Use "sources suggest" or "product claims" when evidence is weak.
-- Avoid medical, financial, or guaranteed-result claims.
-- Return only JSON with:
-review_summary, positive_signals, negative_signals, common_claims, common_complaints, target_audience, who_it_may_help, who_should_skip_it, best_video_angles, cta_guidance, confidence_score, recommended_content_style, suggested_competitors, price_display
-- recommended_content_style must be one of: honest_review, elimination, worth_it_or_waste, budget_challenge, vs_battle, standard
-- suggested_competitors must be a JSON array of 2-4 category-appropriate product or offer names (never the vendor name)
-- price_display must be a short human-readable price string; use APV/aggregateSales when no retail price is known, otherwise "Varies"`;
+  const prompt = buildEnrichmentPrompt(isDigistore, product, sources, vendorMaterials);
 
   try {
     const res = await fetch(`${OLLAMA_BASE_URL}/api/chat`, {
@@ -766,8 +856,21 @@ review_summary, positive_signals, negative_signals, common_claims, common_compla
 
     if (!res.ok) throw new Error(`Ollama failed ${res.status}: ${await res.text()}`);
     const json = await res.json();
+    let rawBrief;
+    try {
+      rawBrief = JSON.parse(json.message?.content || "{}");
+    } catch (parseErr) {
+      console.error("Ollama JSON parse failed; using fallback:", parseErr.message);
+      return { brief: fallback, degraded: true };
+    }
+
+    const validated = parseAndValidateLlmBrief(rawBrief, isDigistore);
+    if (!validated) {
+      return { brief: fallback, degraded: true };
+    }
+
     return {
-      brief: finalizeBrief(product, {...fallback, ...JSON.parse(json.message?.content || "{}")}, sources),
+      brief: finalizeBrief(product, {...fallback, ...validated}, sources),
       degraded: false,
     };
   } catch (err) {
