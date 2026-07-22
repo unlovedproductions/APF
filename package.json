@@ -49,7 +49,8 @@
     "local:smoke-test": "node scripts/local-smoke-test.mjs",
     "review:daemon:start": "bash scripts/start-review-enrichment-daemon.sh",
     "review:daemon:logs": "tail -f exports/review-enrichment-daemon.log",
-    "review:daemon": "node scripts/review-enrichment-daemon.mjs"
+    "review:daemon": "node scripts/review-enrichment-daemon.mjs",
+    "docs:stack-pdf": "node scripts/render-html-to-pdf.mjs docs/unloved-stack-useful-commands/unloved-stack-useful-commands.html \"docs/unloved-stack-useful-commands/Unloved Stack Useful Commands.pdf\" && node scripts/render-html-to-pdf.mjs docs/unloved-stack-useful-commands/unloved-full-stack-commands.html \"docs/unloved-stack-useful-commands/Unloved Full Stack Commands.pdf\""
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1075.0",

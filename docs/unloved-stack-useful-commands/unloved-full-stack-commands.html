@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Unloved Full Stack Commands</title>
+  <style>
+    @page { margin: 20mm; }
+    body {
+      font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+      color: #1a1a1a;
+      line-height: 1.5;
+      font-size: 11pt;
+      max-width: 100%;
+    }
+    h1 {
+      font-size: 22pt;
+      margin: 0 0 0.25em;
+      border-bottom: 2px solid #111;
+      padding-bottom: 0.2em;
+    }
+    h2 {
+      font-size: 14pt;
+      margin-top: 1.4em;
+      margin-bottom: 0.4em;
+      color: #222;
+      page-break-after: avoid;
+    }
+    h3 { font-size: 12pt; margin-top: 1em; page-break-after: avoid; }
+    p, li { margin: 0.35em 0; }
+    ul, ol { margin: 0.4em 0 0.8em 1.2em; padding: 0; }
+    code {
+      font-family: "SF Mono", Consolas, monospace;
+      font-size: 9.5pt;
+      background: #f4f4f4;
+      padding: 0.1em 0.35em;
+      border-radius: 3px;
+    }
+    pre {
+      background: #f6f8fa;
+      border: 1px solid #e1e4e8;
+      border-radius: 6px;
+      padding: 0.75em 1em;
+      overflow-x: auto;
+      font-size: 9pt;
+      line-height: 1.45;
+      page-break-inside: avoid;
+    }
+    pre code { background: none; padding: 0; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 0.6em 0 1em;
+      font-size: 10pt;
+      page-break-inside: avoid;
+    }
+    th, td {
+      border: 1px solid #d0d7de;
+      padding: 0.45em 0.6em;
+      text-align: left;
+      vertical-align: top;
+    }
+    th { background: #f0f3f6; font-weight: 600; }
+    hr {
+      border: none;
+      border-top: 1px solid #ddd;
+      margin: 1.2em 0;
+    }
+    .subtitle { color: #555; margin-bottom: 1.2em; font-size: 10.5pt; }
+    .footer { margin-top: 2em; font-size: 9pt; color: #666; font-style: italic; }
+    strong { font-weight: 600; }
+  </style>
+</head>
+<body>
+  <h1>Unloved Full Stack Commands</h1>
+  <p class="subtitle">Desktop launcher and manual startup reference for APF, ShadowCast, Mission Control, and infrastructure. For APF enrichment/Digistore24 detail, see <strong>Unloved Stack Useful Commands</strong> in this folder.</p>
+
+  <h2>Repo paths</h2>
+  <table>
+    <tr><th>Repo</th><th>Path</th></tr>
+    <tr><td>APF</td><td><code>~/APF</code></td></tr>
+    <tr><td>ShadowCast</td><td><code>~/shadowcast-</code></td></tr>
+    <tr><td>Mission Control</td><td><code>~/mission-control</code></td></tr>
+    <tr><td>SearXNG (Docker)</td><td><code>~/searxng</code></td></tr>
+    <tr><td>Desktop launchers</td><td><code>~/.local/bin/unloved-launchers</code></td></tr>
+  </table>
+
+  <h2>Shared secret</h2>
+  <p><code>INTERNAL_SERVICE_SECRET</code> must be <strong>identical</strong> in <code>~/APF/.env</code>, <code>~/shadowcast-/backend/.env</code>, and <code>~/mission-control/backend/.env</code>.</p>
+  <pre><code>~/.local/bin/unloved-launchers/preflight-unloved-stack.sh</code></pre>
+
+  <h2>Service map</h2>
+  <table>
+    <tr><th>Service</th><th>URL</th><th>Start (summary)</th></tr>
+    <tr><td>MySQL</td><td>per DATABASE_URL</td><td><code>docker start apf-mysql</code></td></tr>
+    <tr><td>SearXNG</td><td>http://localhost:8088</td><td><code>cd ~/searxng && docker compose up -d</code></td></tr>
+    <tr><td>Ollama</td><td>http://localhost:11434</td><td><code>ollama serve &amp;</code></td></tr>
+    <tr><td>APF</td><td>http://localhost:3001</td><td><code>pnpm local:start</code> or launcher</td></tr>
+    <tr><td>ShadowCast</td><td>http://localhost:8000</td><td>uvicorn or launcher</td></tr>
+    <tr><td>Mission Control API</td><td>http://localhost:8100</td><td>uvicorn or launcher</td></tr>
+    <tr><td>Mission Control UI</td><td>http://localhost:3100</td><td><code>pnpm dev</code> or launcher</td></tr>
+  </table>
+
+  <h2>One-shot desktop launchers</h2>
+  <pre><code># Full stack: ShadowCast + APF + Mission Control (4 tabs, opens :3100)
+~/.local/bin/unloved-launchers/launch-unloved-stack.sh
+
+# Individual apps
+~/.local/bin/unloved-launchers/launch-shadowcast.sh
+~/.local/bin/unloved-launchers/launch-apf.sh
+~/.local/bin/unloved-launchers/launch-mission-control.sh
+
+# Preflight only
+~/.local/bin/unloved-launchers/preflight-unloved-stack.sh
+~/.local/bin/unloved-launchers/preflight-apf.sh
+~/.local/bin/unloved-launchers/preflight-shadowcast.sh</code></pre>
+  <p><code>launch-unloved-stack.sh</code> order: ShadowCast → APF → MC backend → MC frontend → open http://localhost:3100.</p>
+  <p><code>launch-apf.sh</code> starts review enrichment daemon ~20s after APF when enabled.</p>
+  <p><strong>Note:</strong> Launchers do not start SearXNG — start it separately below.</p>
+
+  <h2>Infrastructure startup</h2>
+  <pre><code># MySQL
+docker start apf-mysql
+# or: sudo systemctl start mysql
+
+# SearXNG
+cd ~/searxng
+docker compose up -d
+docker compose down             # stop
+docker restart unloved-searxng  # restart
+
+# Ollama
+ollama serve &amp;
+ollama pull qwen2.5:14b-instruct-q5_K_M</code></pre>
+
+  <h2>Manual per-service startup</h2>
+  <h3>ShadowCast</h3>
+  <pre><code>cd ~/shadowcast-/backend
+source ../.venv/bin/activate
+source .env
+python -m uvicorn app:app --host 0.0.0.0 --port 8000 --reload</code></pre>
+  <p>Or: <code>~/.local/bin/unloved-launchers/run-shadowcast-terminal.sh</code></p>
+
+  <h3>APF</h3>
+  <pre><code>cd ~/APF
+source .env
+export PORT="${PORT:-3001}"
+pnpm dev
+# or: pnpm local:start</code></pre>
+  <p>Or: <code>~/.local/bin/unloved-launchers/run-apf-terminal.sh</code></p>
+
+  <h3>Mission Control backend</h3>
+  <pre><code>cd ~/mission-control/backend
+source venv/bin/activate
+source .env
+python -m uvicorn main:app --host 0.0.0.0 --port 8100 --reload</code></pre>
+
+  <h3>Mission Control frontend</h3>
+  <pre><code>cd ~/mission-control/frontend
+pnpm run dev -- --host 0.0.0.0 --port 3100</code></pre>
+
+  <h2>Health matrix</h2>
+  <pre><code>docker ps --filter name=apf-mysql --filter name=unloved-searxng
+curl -fsS http://localhost:8088/ >/dev/null && echo "SearXNG OK"
+curl -fsS http://localhost:11434/api/tags >/dev/null && echo "Ollama OK"
+curl -fsS http://localhost:8000/api/health >/dev/null && echo "ShadowCast OK"
+curl -fsS http://localhost:3001/api/health >/dev/null && echo "APF OK"
+curl -fsS http://localhost:8100/api/health >/dev/null && echo "MC backend OK"
+curl -fsS http://localhost:3100 >/dev/null && echo "MC frontend OK"</code></pre>
+
+  <h2>APF video audit helper</h2>
+  <pre><code>cd ~/APF
+pnpm video-audit:start</code></pre>
+  <p>Auto-starts ShadowCast and APF if not healthy, then runs the style matrix audit.</p>
+
+  <h2>Recommended full-stack startup order</h2>
+  <ol>
+    <li>Infrastructure: MySQL → SearXNG → Ollama</li>
+    <li><code>launch-unloved-stack.sh</code> or start each service manually</li>
+    <li><code>cd ~/APF &amp;&amp; pnpm digistore24:daemon</code> (if using Digistore24)</li>
+    <li><code>pnpm review:status</code> until complete</li>
+    <li>ShadowCast handoff from APF UI or <code>pnpm local:smoke-test</code></li>
+  </ol>
+
+  <p class="footer">APF enrichment detail: unloved-stack-useful-commands.md. Runbook: LOCAL_SHADOWCAST.md.</p>
+</body>
+</html>

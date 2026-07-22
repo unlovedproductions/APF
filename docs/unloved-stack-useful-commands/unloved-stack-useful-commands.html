@@ -72,10 +72,11 @@
 </head>
 <body>
   <h1>Unloved Stack Useful Commands</h1>
-  <p class="subtitle">APF (Affiliate Product Finder) — local workflow reference for enrichment, Digistore24, scoring, and ShadowCast.</p>
+  <p class="subtitle">APF (Affiliate Product Finder) — local workflow reference for enrichment, Digistore24, scoring, and ShadowCast handoff. For desktop launchers and Mission Control, see <strong>Unloved Full Stack Commands</strong> in the same folder.</p>
 
   <h2>Prerequisites</h2>
-  <pre><code>pnpm install
+  <pre><code>cd ~/APF
+pnpm install
 cp .env.example .env   # edit DATABASE_URL, DIGISTORE24_ID, SHADOWCAST_*, etc.
 pnpm db:push           # apply migrations</code></pre>
 
@@ -87,6 +88,7 @@ pnpm db:push           # apply migrations</code></pre>
     <tr><td>SearXNG</td><td>http://localhost:8088</td><td>Review search</td></tr>
     <tr><td>Ollama</td><td>http://localhost:11434</td><td>Review summarization</td></tr>
   </table>
+  <p>APF dev server default: <strong>http://localhost:3001</strong> (<code>PORT=3001</code> in desktop launcher; override in <code>.env</code>).</p>
 
   <h3>Required .env flags</h3>
   <pre><code>REVIEW_ENRICHMENT_ENABLED=true
@@ -96,19 +98,50 @@ OLLAMA_BASE_URL=http://localhost:11434
 SHADOWCAST_BASE_URL=http://localhost:8000
 INTERNAL_SERVICE_SECRET=change-me-local-secret
 DIGISTORE24_ID=YourAffiliateNickname</code></pre>
+  <p><code>INTERNAL_SERVICE_SECRET</code> must match <code>~/shadowcast-/backend/.env</code>.</p>
+
+  <h2>Infrastructure startup (run before APF)</h2>
+  <pre><code># MySQL
+docker start apf-mysql          # preferred if Docker container exists
+# or: sudo systemctl start mysql
+
+# SearXNG (APF review enrichment)
+cd ~/searxng
+docker compose up -d            # starts unloved-searxng on :8088
+docker compose down             # stop
+docker restart unloved-searxng  # restart existing container
+
+# Ollama (enrichment + ShadowCast LLM)
+ollama serve &                  # skip if already running
+ollama pull qwen2.5:14b-instruct-q5_K_M   # ShadowCast default; adjust per .env</code></pre>
+
+  <h3>Health checks</h3>
+  <pre><code>mysqladmin ping -h 127.0.0.1 -u root   # or pnpm db:push
+curl -fsS http://localhost:8088/ >/dev/null
+curl -fsS http://localhost:11434/api/tags >/dev/null
+curl -fsS http://localhost:8000/api/health >/dev/null
+curl -fsS http://localhost:3001/api/health >/dev/null   # APF (adjust PORT if needed)</code></pre>
+
+  <h2>ShadowCast (minimal — for APF handoff)</h2>
+  <pre><code>cd ~/shadowcast-/backend
+source ../.venv/bin/activate    # or ../venv/bin/activate
+source .env
+python -m uvicorn app:app --host 0.0.0.0 --port 8000 --reload
+# alt: python3 app.py</code></pre>
 
   <h2>Daily startup (recommended order)</h2>
-  <p><strong>Terminal 1 — APF + enrichment daemon</strong></p>
-  <pre><code>pnpm local:start</code></pre>
-  <p>Starts review enrichment daemon (if enabled) and dev server on :3000.</p>
-
-  <p><strong>Terminal 2 — Digistore24 browser collector</strong></p>
-  <pre><code>pnpm digistore24:daemon</code></pre>
-
-  <p><strong>First login or expired session</strong></p>
-  <pre><code>pnpm digistore24:login</code></pre>
-
-  <p><strong>In the UI:</strong> Digistore24 → Refresh Data (collects, scores, queues enrichment).</p>
+  <ol>
+    <li>Start infrastructure: MySQL → SearXNG → Ollama → ShadowCast</li>
+    <li><code>pnpm db:push</code> (first time or after migrations)</li>
+    <li><strong>Terminal 1 — APF + enrichment daemon:</strong>
+      <pre><code>cd ~/APF
+pnpm local:start</code></pre>
+      Starts review enrichment daemon (if enabled) and dev server (default <code>:3001</code>).</li>
+    <li><strong>Terminal 2 — Digistore24 browser collector:</strong> <code>pnpm digistore24:daemon</code></li>
+    <li><strong>First login or expired session:</strong> <code>pnpm digistore24:login</code></li>
+    <li><strong>In the UI:</strong> Digistore24 → Refresh Data</li>
+    <li><code>pnpm review:status</code> until <code>complete</code>, then ShadowCast handoff</li>
+  </ol>
 
   <h2>Enrichment commands</h2>
   <table>
@@ -171,8 +204,8 @@ pnpm test                # vitest</code></pre>
 
   <h2>Minimal checklist</h2>
   <ol>
+    <li>Start MySQL, SearXNG, Ollama, ShadowCast (see Infrastructure startup)</li>
     <li><code>pnpm db:push</code></li>
-    <li>Start MySQL, ShadowCast, SearXNG, Ollama</li>
     <li><code>pnpm local:start</code></li>
     <li><code>pnpm digistore24:daemon</code> (+ login if needed)</li>
     <li>Refresh Digistore24 in UI</li>
@@ -180,6 +213,6 @@ pnpm test                # vitest</code></pre>
     <li><code>pnpm local:smoke-test</code> or Send to ShadowCast in UI</li>
   </ol>
 
-  <p class="footer">Full runbook: LOCAL_SHADOWCAST.md in the APF repo.</p>
+  <p class="footer">Full runbook: LOCAL_SHADOWCAST.md. Full stack + desktop launchers: unloved-full-stack-commands.md in this folder.</p>
 </body>
 </html>
