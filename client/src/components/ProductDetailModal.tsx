@@ -17,6 +17,7 @@ interface ProductDetailModalProps {
 
 function enrichmentBadgeClass(status: string) {
   if (status === "complete") return "bg-emerald-100 text-emerald-800";
+  if (status === "complete_degraded") return "bg-amber-100 text-amber-800";
   if (status === "failed") return "bg-red-100 text-red-800";
   if (status === "pending_api_key") return "bg-amber-100 text-amber-800";
   return "bg-slate-100 text-slate-800";

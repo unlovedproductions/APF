@@ -227,8 +227,27 @@ export default function Home() {
       return;
     }
 
+    const incomplete = productIds.filter((id) => {
+      const p = (productsQuery.data || []).find((row: { id: number; enrichmentStatus?: string }) => row.id === id);
+      return p?.enrichmentStatus !== "complete";
+    });
+    if (incomplete.length) {
+      toast.error(
+        `${incomplete.length} selected product(s) are not fully enriched (status must be complete, not degraded/pending).`,
+      );
+      return;
+    }
+
     shadowCastExportMutation.mutate({ productIds });
   };
+
+  const selectedExportBlocked = useMemo(() => {
+    if (selectedProducts.size === 0) return false;
+    return Array.from(selectedProducts).some((id) => {
+      const p = (productsQuery.data || []).find((row: { id: number; enrichmentStatus?: string }) => row.id === id);
+      return p?.enrichmentStatus !== "complete";
+    });
+  }, [selectedProducts, productsQuery.data]);
 
   // Filter and sort products
   const filteredProducts = useMemo(() => {
@@ -553,9 +572,10 @@ export default function Home() {
               {selectedProducts.size > 0 && (
                 <Button
                   onClick={exportSelectedToShadowCast}
-                  disabled={shadowCastExportMutation.isPending}
+                  disabled={shadowCastExportMutation.isPending || selectedExportBlocked}
                   variant="outline"
                   className="flex-1 md:flex-none"
+                  title={selectedExportBlocked ? "All selected products need enrichment status complete" : undefined}
                 >
                   {shadowCastExportMutation.isPending ? (
                     <>

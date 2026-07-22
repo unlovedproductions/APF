@@ -1,5 +1,28 @@
 import { ENV } from "./env";
 
+async function fetchWithRetry(
+  url: string,
+  init: RequestInit,
+  options: { timeoutMs?: number; retries?: number } = {},
+): Promise<Response> {
+  const timeoutMs = options.timeoutMs ?? 60_000;
+  const retries = options.retries ?? 1;
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    try {
+      return await fetch(url, {
+        ...init,
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+    } catch (err) {
+      lastError = err;
+      if (attempt >= retries) break;
+      await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error(String(lastError));
+}
+
 export type Role = "system" | "user" | "assistant" | "tool" | "function";
 
 export type TextContent = {
@@ -312,14 +335,14 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
     payload.response_format = normalizedResponseFormat;
   }
 
-  const response = await fetch(resolveApiUrl(), {
+  const response = await fetchWithRetry(resolveApiUrl(), {
     method: "POST",
     headers: {
       "content-type": "application/json",
       authorization: `Bearer ${ENV.forgeApiKey}`,
     },
     body: JSON.stringify(payload),
-  });
+  }, { timeoutMs: 120_000, retries: 2 });
 
   if (!response.ok) {
     const errorText = await response.text();

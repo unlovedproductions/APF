@@ -22,15 +22,33 @@ if (!process.env.DATABASE_URL) {
   process.exit(1);
 }
 
+async function verifyShadowCastAuth() {
+  const base = process.env.SHADOWCAST_BASE_URL || "http://localhost:8000";
+  const secret = process.env.INTERNAL_SERVICE_SECRET || "";
+  if (!secret) {
+    throw new Error("INTERNAL_SERVICE_SECRET missing in APF .env (must match ShadowCast + Mission Control).");
+  }
+  const res = await fetch(`${base}/api/health`, {
+    headers: { "X-Service-Key": secret },
+    signal: AbortSignal.timeout(10_000),
+  });
+  if (!res.ok) {
+    throw new Error(`ShadowCast auth/health failed (${res.status}). Check INTERNAL_SERVICE_SECRET matches ShadowCast .env.`);
+  }
+}
+
 async function main() {
+  await verifyShadowCastAuth();
   const conn = await mysql.createConnection(process.env.DATABASE_URL);
   const [rows] = await conn.query(`
-    SELECT id, platform, name, hiddenGemScore
-    FROM products
-    WHERE platform IN ('clickbank','digistore24')
+    SELECT p.id, p.platform, p.name, p.hiddenGemScore,
+           COALESCE(b.enrichment_status, 'pending') AS enrichmentStatus
+    FROM products p
+    LEFT JOIN product_review_briefs b ON b.product_id = p.id
+    WHERE p.platform IN ('clickbank','digistore24')
     ORDER BY
-      CASE WHEN platform='clickbank' THEN 0 ELSE 1 END,
-      COALESCE(lastUpdatedAt, createdAt) DESC
+      CASE WHEN p.platform='clickbank' THEN 0 ELSE 1 END,
+      COALESCE(p.lastUpdatedAt, p.createdAt) DESC
     LIMIT 1
   `);
   await conn.end();
@@ -41,6 +59,12 @@ async function main() {
   const row = rows[0];
   const productId = Number(row.id);
   const score = Number(row.hiddenGemScore || 0);
+  const enrichmentStatus = String(row.enrichmentStatus || "pending");
+  if (enrichmentStatus !== "complete") {
+    throw new Error(
+      `Enrichment gate failed for product ${productId}: status=${enrichmentStatus}. Run review enrichment first or use send-shadowcast-direct.mjs --force.`,
+    );
+  }
   if (!Number.isFinite(score) || score <= 0) {
     throw new Error(`Score check failed for product ${productId} (${row.platform}). Run scoring backfill first.`);
   }

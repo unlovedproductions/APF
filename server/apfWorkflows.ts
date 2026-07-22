@@ -238,7 +238,8 @@ export async function exportProductsToShadowCast(
     if (incomplete.length) {
       const names = incomplete.map((id) => {
         const meta = metaById.get(id);
-        return meta?.name ? `${meta.name} (#${id})` : `#${id}`;
+        const status = meta?.enrichmentStatus || "pending";
+        return meta?.name ? `${meta.name} (#${id}, ${status})` : `#${id} (${status})`;
       });
       throw new Error(
         `Review enrichment is not complete for: ${names.join(", ")}. Wait for enrichment or use force export in CLI.`,

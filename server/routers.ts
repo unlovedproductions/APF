@@ -91,7 +91,13 @@ export const appRouter = router({
       .query(async ({ input, ctx }) => {
         try {
           const products = await db.getProductsByUser(ctx.user.id, input.platform, input.limit, input.offset);
-          return products;
+          const withStatus = await Promise.all(
+            products.map(async (product) => ({
+              ...product,
+              enrichmentStatus: await db.getProductEnrichmentStatus(product.id),
+            })),
+          );
+          return withStatus;
         } catch (error) {
           console.error("[Products] Error listing products:", error);
           throw new TRPCError({
@@ -368,7 +374,10 @@ export const appRouter = router({
           const enriched = await Promise.all(
             bookmarks.map(async (bookmark) => {
               const product = await db.getProductById(bookmark.productId);
-              return { ...bookmark, product };
+              const enrichmentStatus = product
+                ? await db.getProductEnrichmentStatus(product.id)
+                : "pending";
+              return { ...bookmark, product, enrichmentStatus };
             })
           );
           return enriched;

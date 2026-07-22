@@ -8,6 +8,27 @@ import { registerOAuthRoutes } from "./oauth";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
+import { ENV } from "./env";
+
+const rateBuckets = new Map<string, { count: number; resetAt: number }>();
+
+function rateLimitMiddleware(maxPerWindow: number, windowMs: number) {
+  return (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    const key = req.ip || req.socket.remoteAddress || "local";
+    const now = Date.now();
+    let bucket = rateBuckets.get(key);
+    if (!bucket || now > bucket.resetAt) {
+      bucket = { count: 0, resetAt: now + windowMs };
+      rateBuckets.set(key, bucket);
+    }
+    bucket.count += 1;
+    if (bucket.count > maxPerWindow) {
+      res.status(429).json({ error: "Too many requests" });
+      return;
+    }
+    next();
+  };
+}
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -31,8 +52,13 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
 async function startServer() {
   const app = express();
   const server = createServer(app);
-  // Configure body parser with larger size limit for file uploads
-  app.use(cors({ origin: true, credentials: true }));
+  app.use(
+    cors({
+      origin: ENV.corsOrigins.length ? ENV.corsOrigins : true,
+      credentials: true,
+    }),
+  );
+  app.use(rateLimitMiddleware(300, 60_000));
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
 

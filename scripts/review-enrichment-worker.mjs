@@ -689,8 +689,8 @@ function fallbackConsumerBrief(product, sources, vendorMaterials) {
 async function summarizeWithOllama(product, sources, vendorMaterials = []) {
   const fallback = fallbackBrief(product, sources, vendorMaterials);
   const isDigistore = String(product.platform || "").toLowerCase() === "digistore24";
-  if (!isDigistore && !sources.length) return fallback;
-  if (isDigistore && !sources.length && !vendorMaterials.length) return fallback;
+  if (!isDigistore && !sources.length) return { brief: fallback, degraded: true };
+  if (isDigistore && !sources.length && !vendorMaterials.length) return { brief: fallback, degraded: true };
 
   const prompt = isDigistore
     ? `Create a buyer-facing consumer product brief as strict JSON for a video aimed at regular customers, NOT affiliate marketers.
@@ -766,14 +766,27 @@ review_summary, positive_signals, negative_signals, common_claims, common_compla
 
     if (!res.ok) throw new Error(`Ollama failed ${res.status}: ${await res.text()}`);
     const json = await res.json();
-    return finalizeBrief(product, {...fallback, ...JSON.parse(json.message?.content || "{}")}, sources);
+    return {
+      brief: finalizeBrief(product, {...fallback, ...JSON.parse(json.message?.content || "{}")}, sources),
+      degraded: false,
+    };
   } catch (err) {
     console.error("Ollama summary failed; using fallback:", err.message);
-    return fallback;
+    return { brief: fallback, degraded: true };
   }
 }
 
-async function saveBrief(conn, product, brief, sourceCount) {
+function validateBriefShape(brief) {
+  if (!brief || typeof brief !== "object") return false;
+  if (!String(brief.review_summary || "").trim()) return false;
+  if (!Array.isArray(brief.best_video_angles) || brief.best_video_angles.length === 0) return false;
+  return true;
+}
+
+async function saveBrief(conn, product, brief, sourceCount, enrichmentStatus = "complete") {
+  if (!validateBriefShape(brief)) {
+    throw new Error(`Brief validation failed for product ${product.id}`);
+  }
   await conn.query(`
     INSERT INTO product_review_briefs
     (product_id, enrichment_status, review_summary, positive_signals, negative_signals,
@@ -781,10 +794,10 @@ async function saveBrief(conn, product, brief, sourceCount) {
      best_video_angles, cta_guidance, recommended_content_style, suggested_competitors, price_display, price_comparison,
      series_name, coupon_code, evidence_coverage,
      source_count, confidence_score, generated_at)
-    VALUES (?, 'complete', ?, CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON),
+    VALUES (?, ?, ?, CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON),
             ?, ?, ?, CAST(? AS JSON), ?, ?, CAST(? AS JSON), ?, ?, ?, ?, CAST(? AS JSON), ?, ?, NOW())
     ON DUPLICATE KEY UPDATE
-      enrichment_status='complete',
+      enrichment_status=VALUES(enrichment_status),
       review_summary=VALUES(review_summary),
       positive_signals=VALUES(positive_signals),
       negative_signals=VALUES(negative_signals),
@@ -809,6 +822,7 @@ async function saveBrief(conn, product, brief, sourceCount) {
       updated_at=NOW()
   `, [
     product.id,
+    enrichmentStatus,
     clamp(brief.review_summary, 4000),
     JSON.stringify(brief.positive_signals || []),
     JSON.stringify(brief.negative_signals || []),
@@ -936,8 +950,9 @@ async function processJob(conn, job) {
       hits: vendorHits,
     });
   }
-  const brief = await summarizeWithOllama(product, sources, vendorMaterials);
-  await saveBrief(conn, product, brief, sources.length + vendorMaterials.length);
+  const { brief, degraded } = await summarizeWithOllama(product, sources, vendorMaterials);
+  const enrichmentStatus = degraded ? "complete_degraded" : "complete";
+  await saveBrief(conn, product, brief, sources.length + vendorMaterials.length, enrichmentStatus);
   await rescoreProductAfterEnrichment(
     conn, product, sources.length + vendorMaterials.length, Number(brief.confidence_score || 0),
     vendorProfile?.vendor_trust_score ?? null
@@ -950,7 +965,7 @@ async function processJob(conn, job) {
     WHERE id=?
   `, [REFRESH_DAYS, job.id]);
 
-  console.log(`[${product.name}] complete: ${sources.length} web sources, ${vendorMaterials.length} vendor materials`);
+  console.log(`[${product.name}] ${enrichmentStatus}: ${sources.length} web sources, ${vendorMaterials.length} vendor materials`);
 }
 
 async function main() {

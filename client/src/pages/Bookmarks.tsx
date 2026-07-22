@@ -68,6 +68,26 @@ export default function Bookmarks() {
     else setSelected(new Set(exportable));
   };
 
+  const selectedIncomplete = useMemo(
+    () =>
+      Array.from(selected).filter((productId) => {
+        const bookmark = bookmarks.find(
+          (b: { productId: number; enrichmentStatus?: string }) => b.productId === productId,
+        );
+        return bookmark?.enrichmentStatus !== "complete";
+      }),
+    [selected, bookmarks],
+  );
+
+  const exportSelected = () => {
+    const productIds = Array.from(selected);
+    if (selectedIncomplete.length) {
+      toast.error(`${selectedIncomplete.length} selected bookmark(s) are not fully enriched (complete required).`);
+      return;
+    }
+    exportMutation.mutate({ productIds });
+  };
+
   return (
     <main className="container mx-auto p-6 space-y-6">
       <div className="flex items-center justify-between">
@@ -76,8 +96,9 @@ export default function Bookmarks() {
           {bookmarks.length > 0 && (
             <Button
               variant="outline"
-              onClick={() => exportMutation.mutate({ productIds: Array.from(selected) })}
-              disabled={selected.size === 0 || exportMutation.isPending}
+              onClick={exportSelected}
+              disabled={selected.size === 0 || exportMutation.isPending || selectedIncomplete.length > 0}
+              title={selectedIncomplete.length ? "All selected bookmarks need enrichment status complete" : undefined}
             >
               {exportMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
               Send {selected.size} to ShadowCast
