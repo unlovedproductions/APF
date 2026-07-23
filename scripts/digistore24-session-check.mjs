@@ -4,6 +4,11 @@ import path from "node:path";
 import readline from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 import { firefox } from "playwright";
+import {
+  clearStaleFirefoxProfileLock,
+  ensurePlaywrightBrowsersPath,
+  getDigistore24FirefoxProfileDir,
+} from "./digistore24-firefox-profile.mjs";
 
 function loadEnv(file = ".env") {
   if (!fs.existsSync(file)) return;
@@ -17,22 +22,15 @@ function loadEnv(file = ".env") {
 }
 
 loadEnv();
+ensurePlaywrightBrowsersPath();
 
-if (!process.env.PLAYWRIGHT_BROWSERS_PATH) {
-  const defaultBrowsers = `${process.env.HOME || ""}/.cache/ms-playwright`;
-  if (defaultBrowsers && fs.existsSync(defaultBrowsers)) {
-    process.env.PLAYWRIGHT_BROWSERS_PATH = defaultBrowsers;
-  }
-}
-
-const profileDir =
-  process.env.DIGISTORE24_BROWSER_PROFILE ||
-  path.join(process.env.HOME || "", ".config", "unloved-digistore24-firefox-profile");
+const profileDir = getDigistore24FirefoxProfileDir();
 
 const startUrl =
   "https://www.digistore24-app.com/app/en/affiliate/account/marketplace/all";
 
 fs.mkdirSync(profileDir, { recursive: true });
+clearStaleFirefoxProfileLock(profileDir);
 
 console.log("Digistore24 persistent Firefox session check");
 console.log("Profile:", profileDir);

@@ -18,6 +18,11 @@ import {
   ensureVendorMaterialsTable,
   cleanText,
 } from "./digistore24-vendor-materials.mjs";
+import {
+  clearStaleFirefoxProfileLock,
+  ensurePlaywrightBrowsersPath,
+  getDigistore24FirefoxProfileDir,
+} from "./digistore24-firefox-profile.mjs";
 
 function loadEnv(file = ".env") {
   if (!fs.existsSync(file)) return;
@@ -31,18 +36,10 @@ function loadEnv(file = ".env") {
 }
 
 loadEnv();
-
-if (!process.env.PLAYWRIGHT_BROWSERS_PATH) {
-  const defaultBrowsers = `${process.env.HOME || ""}/.cache/ms-playwright`;
-  if (defaultBrowsers && fs.existsSync(defaultBrowsers)) {
-    process.env.PLAYWRIGHT_BROWSERS_PATH = defaultBrowsers;
-  }
-}
+ensurePlaywrightBrowsersPath();
 
 const PORT = Number(process.env.DIGISTORE24_DAEMON_PORT || "3219");
-const PROFILE_DIR =
-  process.env.DIGISTORE24_BROWSER_PROFILE ||
-  path.join(process.env.HOME || "", ".config", "unloved-digistore24-firefox-profile");
+const PROFILE_DIR = getDigistore24FirefoxProfileDir();
 const START_URL =
   "https://www.digistore24-app.com/app/en/affiliate/account/marketplace/all";
 const MARKETPLACE_DETAIL_SELECTOR = 'a[href*="/detail/"]';
@@ -127,6 +124,10 @@ async function ensureBrowser() {
 
   if (!contextUsable) {
     fs.mkdirSync(PROFILE_DIR, { recursive: true });
+    const lockCleanup = clearStaleFirefoxProfileLock(PROFILE_DIR);
+    if (lockCleanup.cleared.length > 0) {
+      console.log("Removed stale Firefox profile lock(s):", lockCleanup.cleared.join(", "));
+    }
 
     console.log("Starting long-lived Digistore24 Firefox daemon.");
     console.log("Profile:", PROFILE_DIR);
@@ -940,6 +941,71 @@ function sendJson(res, code, data) {
   res.end(JSON.stringify(data, null, 2));
 }
 
+async function sleep(ms) {
+  await new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function fetchDaemonHealth() {
+  try {
+    const res = await fetch(`http://127.0.0.1:${PORT}/health`);
+    const data = await res.json().catch(() => ({}));
+    return { reachable: true, healthy: res.ok && data.ok === true, data };
+  } catch {
+    return { reachable: false, healthy: false, data: null };
+  }
+}
+
+async function shutdownDaemonOnPort() {
+  try {
+    await fetch(`http://127.0.0.1:${PORT}/shutdown`);
+  } catch {}
+
+  const deadline = Date.now() + 10000;
+  while (Date.now() < deadline) {
+    const check = await fetchDaemonHealth();
+    if (!check.reachable) return true;
+    await sleep(500);
+  }
+
+  return false;
+}
+
+async function startDaemon() {
+  const existing = await fetchDaemonHealth();
+
+  if (existing.healthy) {
+    console.log(`Digistore24 daemon already running on http://127.0.0.1:${PORT}`);
+    if (existing.data?.pageUrl) console.log("Page:", existing.data.pageUrl);
+    process.exit(0);
+  }
+
+  if (existing.reachable) {
+    console.log(`Replacing unhealthy Digistore24 daemon on port ${PORT}...`);
+    const stopped = await shutdownDaemonOnPort();
+    if (!stopped) {
+      console.error(`Could not stop existing daemon on port ${PORT}. Run: pnpm run digistore24:daemon:stop`);
+      process.exit(1);
+    }
+  }
+
+  await new Promise((resolve, reject) => {
+    server.once("error", err => {
+      if (err?.code === "EADDRINUSE") {
+        reject(new Error(`Port ${PORT} is already in use. Run: pnpm run digistore24:daemon:stop`));
+      } else {
+        reject(err);
+      }
+    });
+    server.listen(PORT, "127.0.0.1", resolve);
+  });
+
+  console.log(`Digistore24 browser daemon listening on http://127.0.0.1:${PORT}`);
+  console.log("");
+  console.log("Keep this terminal and browser open.");
+
+  await ensureBrowser();
+}
+
 const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url || "/", `http://${req.headers.host}`);
@@ -1009,10 +1075,4 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-await ensureBrowser();
-
-server.listen(PORT, "127.0.0.1", () => {
-  console.log(`Digistore24 browser daemon listening on http://127.0.0.1:${PORT}`);
-  console.log("");
-  console.log("Keep this terminal and browser open.");
-});
+await startDaemon();

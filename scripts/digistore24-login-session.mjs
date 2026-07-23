@@ -4,6 +4,11 @@ import path from "node:path";
 import readline from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 import { firefox } from "playwright";
+import {
+  clearStaleFirefoxProfileLock,
+  ensurePlaywrightBrowsersPath,
+  getDigistore24FirefoxProfileDir,
+} from "./digistore24-firefox-profile.mjs";
 
 function loadEnv(file = ".env") {
   if (!fs.existsSync(file)) return;
@@ -17,17 +22,9 @@ function loadEnv(file = ".env") {
 }
 
 loadEnv();
+ensurePlaywrightBrowsersPath();
 
-if (!process.env.PLAYWRIGHT_BROWSERS_PATH) {
-  const defaultBrowsers = `${process.env.HOME || ""}/.cache/ms-playwright`;
-  if (defaultBrowsers && fs.existsSync(defaultBrowsers)) {
-    process.env.PLAYWRIGHT_BROWSERS_PATH = defaultBrowsers;
-  }
-}
-
-const PROFILE_DIR =
-  process.env.DIGISTORE24_BROWSER_PROFILE ||
-  path.join(process.env.HOME || "", ".config", "unloved-digistore24-firefox-profile");
+const PROFILE_DIR = getDigistore24FirefoxProfileDir();
 
 const START_URL =
   "https://www.digistore24-app.com/app/en/affiliate/account/marketplace/all";
@@ -40,6 +37,14 @@ console.log("Do not press Enter here until you can see the marketplace/account p
 console.log("");
 
 fs.mkdirSync(PROFILE_DIR, { recursive: true });
+
+const lockCleanup = clearStaleFirefoxProfileLock(PROFILE_DIR);
+if (lockCleanup.cleared.length > 0) {
+  console.log("Removed stale Firefox profile lock(s):", lockCleanup.cleared.join(", "));
+}
+if (lockCleanup.skipped.length > 0) {
+  console.warn("Firefox profile lock present and profile appears in use. Close other Digistore24 Firefox windows first.");
+}
 
 const browser = await firefox.launchPersistentContext(PROFILE_DIR, {
   headless: false,

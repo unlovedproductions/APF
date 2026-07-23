@@ -1,8 +1,30 @@
-ALTER TABLE `products`
-	ADD COLUMN `conversionRate` decimal(5,2),
-	ADD COLUMN `cartValue` decimal(12,2);
+SET @db := DATABASE();
 --> statement-breakpoint
-CREATE TABLE `product_affiliate_links` (
+SET @sql := (SELECT IF(
+  (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = @db AND table_name = 'products' AND column_name = 'conversionRate') = 0,
+  'ALTER TABLE `products` ADD COLUMN `conversionRate` decimal(5,2)',
+  'SELECT 1'
+));
+--> statement-breakpoint
+PREPARE _stmt FROM @sql;
+--> statement-breakpoint
+EXECUTE _stmt;
+--> statement-breakpoint
+DEALLOCATE PREPARE _stmt;
+--> statement-breakpoint
+SET @sql := (SELECT IF(
+  (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = @db AND table_name = 'products' AND column_name = 'cartValue') = 0,
+  'ALTER TABLE `products` ADD COLUMN `cartValue` decimal(12,2)',
+  'SELECT 1'
+));
+--> statement-breakpoint
+PREPARE _stmt FROM @sql;
+--> statement-breakpoint
+EXECUTE _stmt;
+--> statement-breakpoint
+DEALLOCATE PREPARE _stmt;
+--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS `product_affiliate_links` (
 	`id` int AUTO_INCREMENT NOT NULL,
 	`product_id` int NOT NULL,
 	`provider` varchar(32) NOT NULL,
@@ -19,7 +41,7 @@ CREATE TABLE `product_affiliate_links` (
 	CONSTRAINT `uq_product_provider_affiliate` UNIQUE(`product_id`,`provider`,`affiliate_nickname`)
 );
 --> statement-breakpoint
-CREATE TABLE `product_review_sources` (
+CREATE TABLE IF NOT EXISTS `product_review_sources` (
 	`id` int AUTO_INCREMENT NOT NULL,
 	`product_id` int NOT NULL,
 	`source_type` varchar(32) NOT NULL,
@@ -34,10 +56,10 @@ CREATE TABLE `product_review_sources` (
 	`sentiment` varchar(32),
 	`raw_json` json,
 	CONSTRAINT `product_review_sources_id` PRIMARY KEY(`id`),
-	CONSTRAINT `uq_product_review_url` UNIQUE(`product_id`,`url`)
+	CONSTRAINT `uq_product_review_url` UNIQUE(`product_id`,`url`(512))
 );
 --> statement-breakpoint
-CREATE TABLE `product_review_briefs` (
+CREATE TABLE IF NOT EXISTS `product_review_briefs` (
 	`id` int AUTO_INCREMENT NOT NULL,
 	`product_id` int NOT NULL,
 	`enrichment_status` varchar(32) NOT NULL DEFAULT 'pending',
@@ -63,7 +85,7 @@ CREATE TABLE `product_review_briefs` (
 	CONSTRAINT `uq_review_brief_product` UNIQUE(`product_id`)
 );
 --> statement-breakpoint
-CREATE TABLE `review_enrichment_jobs` (
+CREATE TABLE IF NOT EXISTS `review_enrichment_jobs` (
 	`id` int AUTO_INCREMENT NOT NULL,
 	`product_id` int NOT NULL,
 	`status` varchar(32) NOT NULL DEFAULT 'queued',
@@ -77,6 +99,26 @@ CREATE TABLE `review_enrichment_jobs` (
 	CONSTRAINT `uq_review_job_product` UNIQUE(`product_id`)
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX `products_user_platform_product_unique` ON `products` (`userId`,`platform`,`platformProductId`);
+SET @sql := (SELECT IF(
+  (SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema = @db AND table_name = 'products' AND index_name = 'products_user_platform_product_unique') = 0,
+  'CREATE UNIQUE INDEX `products_user_platform_product_unique` ON `products` (`userId`,`platform`,`platformProductId`)',
+  'SELECT 1'
+));
 --> statement-breakpoint
-CREATE UNIQUE INDEX `bookmarks_user_product_unique` ON `bookmarks` (`userId`,`productId`);
+PREPARE _stmt FROM @sql;
+--> statement-breakpoint
+EXECUTE _stmt;
+--> statement-breakpoint
+DEALLOCATE PREPARE _stmt;
+--> statement-breakpoint
+SET @sql := (SELECT IF(
+  (SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema = @db AND table_name = 'bookmarks' AND index_name = 'bookmarks_user_product_unique') = 0,
+  'CREATE UNIQUE INDEX `bookmarks_user_product_unique` ON `bookmarks` (`userId`,`productId`)',
+  'SELECT 1'
+));
+--> statement-breakpoint
+PREPARE _stmt FROM @sql;
+--> statement-breakpoint
+EXECUTE _stmt;
+--> statement-breakpoint
+DEALLOCATE PREPARE _stmt;

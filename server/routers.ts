@@ -185,7 +185,7 @@ export const appRouter = router({
             await db.logDataRefresh(
               ctx.user.id,
               input.platform,
-              workflow.partial ? "partial" : "success",
+              workflow.partial ? "failed" : "success",
               workflow.productsCount,
               workflow.postError || undefined,
             );
@@ -297,22 +297,33 @@ export const appRouter = router({
         } catch (error) {
           console.error("[Products] Error refreshing products:", error);
 
-          // Log the error
-          await db.logDataRefresh(
-            ctx.user.id,
-            input.platform,
-            "failed",
-            0,
-            error instanceof Error ? error.message : "Unknown error"
-          );
+          const errorMessage = error instanceof Error ? error.message : "Unknown error";
+          try {
+            await db.logDataRefresh(
+              ctx.user.id,
+              input.platform,
+              "failed",
+              0,
+              errorMessage
+            );
+          } catch (logError) {
+            console.error("[Products] Failed to log refresh error:", logError);
+          }
 
           if (error instanceof TRPCError) {
             throw error;
           }
 
+          if (input.platform === "digistore24" && /needsLoginOrMarketplace|session expired/i.test(errorMessage)) {
+            throw new TRPCError({
+              code: "UNAUTHORIZED",
+              message: "Digistore24 session expired — run: pnpm run digistore24:login",
+            });
+          }
+
           throw new TRPCError({
             code: "INTERNAL_SERVER_ERROR",
-            message: error instanceof Error ? error.message : "Failed to refresh products",
+            message: errorMessage,
           });
         }
       }),
