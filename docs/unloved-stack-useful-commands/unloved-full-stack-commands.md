@@ -56,16 +56,18 @@ Preflight check:
 
 ## One-shot desktop launchers
 
+All launchers use **kitty** with a shared control socket (`/tmp/unloved-stack.sock`). The first launcher opens one kitty window; later launchers add tabs to that same window (or focus an existing tab). Node apps (APF, Mission Control frontend) run via **pnpm** — not npm.
+
 Run from any directory:
 
 ```bash
-# Full stack: ShadowCast + APF + Mission Control (4 terminal tabs, opens :3100)
+# Full stack: 4 tabs (ShadowCast, APF, MC backend, MC frontend) in one kitty window
 ~/.local/bin/unloved-launchers/launch-unloved-stack.sh
 
-# Individual apps
-~/.local/bin/unloved-launchers/launch-shadowcast.sh
-~/.local/bin/unloved-launchers/launch-apf.sh
-~/.local/bin/unloved-launchers/launch-mission-control.sh
+# Individual apps (add tabs to the shared kitty window, or open it if closed)
+~/.local/bin/unloved-launchers/launch-shadowcast.sh      # 1 tab
+~/.local/bin/unloved-launchers/launch-apf.sh             # 1 tab (pnpm dev)
+~/.local/bin/unloved-launchers/launch-mission-control.sh # 2 tabs (backend + pnpm frontend)
 
 # Preflight only (MySQL, secrets, deps)
 ~/.local/bin/unloved-launchers/preflight-unloved-stack.sh
@@ -73,7 +75,7 @@ Run from any directory:
 ~/.local/bin/unloved-launchers/preflight-shadowcast.sh
 ```
 
-`launch-unloved-stack.sh` order: ShadowCast → APF → Mission Control backend → Mission Control frontend → open http://localhost:3100.
+`launch-unloved-stack.sh` tab order: ShadowCast → APF → MC Backend → MC Frontend → opens browser URLs when ready.
 
 `launch-apf.sh` also starts the review enrichment daemon ~20s after APF if `REVIEW_ENRICHMENT_ENABLED=true`.
 
