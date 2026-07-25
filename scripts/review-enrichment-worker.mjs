@@ -13,16 +13,28 @@ import {
   resolveCreatorVendor,
 } from "./digistore24-vendor-materials.mjs";
 import {
+  isMarketplaceBrandName,
+  resolveExportProductName,
+  sanitizeBuyerPrice,
+} from "./digistore24-detail-extractor.mjs";
+import {
   classifySourceHost,
+  competitorEvidenceQueries,
   digistoreEvidenceQueries,
   digistoreVendorQueries,
   evidenceCoverageFromSources,
+  extractCompetitorCandidatesFromHits,
+  normalizeSuggestedCompetitors,
+  productNameTokenMatch,
   seriesNameForStyle,
+  splitClaimAndReviewSources,
+  stripAffiliateMetaLines,
 } from "./enrichment-source-trust.mjs";
 import {
   ensureVendorProfilesTable,
   upsertVendorProfile,
 } from "./vendor-profiles.mjs";
+import { enrichHighTrustSources } from "./enrichment-page-fetch.mjs";
 import { reapExhaustedJobs, reapStaleRunningJobs } from "./apf-db-helpers.mjs";
 
 // BEGIN UNLOVED_MYSQL_NAN_GUARD
@@ -114,6 +126,9 @@ const REVIEW_ENRICHMENT_PROVIDER = process.env.REVIEW_ENRICHMENT_PROVIDER || "se
 const SEARXNG_BASE_URL = process.env.SEARXNG_BASE_URL || "http://localhost:8088";
 const BRAVE_SEARCH_API_KEY = process.env.BRAVE_SEARCH_API_KEY || "";
 const MAX_SOURCES = Number(process.env.REVIEW_ENRICHMENT_MAX_SOURCES || "25");
+const FULL_PAGE_SOURCE_LIMIT = Number(process.env.REVIEW_ENRICHMENT_FULL_PAGE_LIMIT || "4");
+const FULL_PAGE_FETCH_TIMEOUT_MS = Number(process.env.REVIEW_ENRICHMENT_FETCH_TIMEOUT_MS || "8000");
+const FULL_PAGE_FETCH_DELAY_MS = Number(process.env.REVIEW_ENRICHMENT_FETCH_DELAY_MS || "250");
 const REFRESH_DAYS = Number(process.env.REVIEW_ENRICHMENT_REFRESH_DAYS || "14");
 const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || "http://localhost:11434";
 const LLM_MODEL = process.env.LLM_MODEL || "qwen2.5:14b-instruct-q5_K_M";
@@ -165,22 +180,30 @@ const INLINE_PROMPTS = {
 Product (affiliate/commission language in the name or description should be ignored):
 {{PRODUCT_JSON}}
 
-Primary vendor sales materials (highest priority):
+Primary vendor sales materials (highest priority — claims / mechanism / benefits only):
 {{VENDOR_MATERIALS_JSON}}
 
-Secondary public sources (validation / risk only):
-{{SOURCES_JSON}}
+Vendor-domain claim sources (sales/marketing only — do not treat as independent reviews):
+{{CLAIM_SOURCES_JSON}}
+
+Independent review sources (reviews / complaints / scam checks / YouTube only):
+{{REVIEW_SOURCES_JSON}}
+
+Retrieved competitor candidates (choose only from this list; empty array is allowed):
+{{COMPETITOR_CANDIDATES_JSON}}
 
 Rules:
 - Write for end consumers considering a purchase, not for affiliates promoting the product.
-- Prioritize vendor-hosted sales copy for benefits, mechanism, deliverables, pricing language, guarantees, and objections.
-- Use third-party sources only to validate risks, complaints, or contradictions.
+- common_claims, mechanism language, and benefits must come from vendor materials / claim sources only.
+- positive_signals and common_complaints must come from independent review sources only. If none exist, use [] and lower confidence_score.
+- Never invent praises from sales copy when independent reviews are missing.
+- Explicitly ban affiliate compliance text, keyword-bidding rules, Digistore nav chrome, commission/EPC language.
 - Do not invent facts.
 - Avoid affiliate-marketer language like "promote", "commission", "JV", or "hidden gem".
 - Return only JSON with:
 review_summary, positive_signals, negative_signals, common_claims, common_complaints, target_audience, who_it_may_help, who_should_skip_it, best_video_angles, cta_guidance, confidence_score, recommended_content_style, suggested_competitors, price_display, price_comparison, series_name, coupon_code, evidence_coverage
 - recommended_content_style must be one of: honest_review, elimination, worth_it_or_waste, budget_challenge, vs_battle, standard
-- suggested_competitors must be a JSON array of 2-4 real consumer alternatives in the same category (never the vendor name)
+- suggested_competitors must be chosen only from COMPETITOR_CANDIDATES_JSON (use [] if none are real). Never invent brand names.
 - price_display must describe what a buyer would pay, not affiliate payouts
 - price_comparison must compare the buyer offer against category alternatives without inventing prices
 - series_name must match the selected content style, coupon_code must be an empty string when no verified coupon exists, and evidence_coverage must be a JSON object summarizing the supplied sources`,
@@ -192,6 +215,9 @@ Product:
 Sources:
 {{SOURCES_JSON}}
 
+Retrieved competitor candidates (choose only from this list; empty array is allowed):
+{{COMPETITOR_CANDIDATES_JSON}}
+
 Rules:
 - Do not invent facts.
 - Use "sources suggest" or "product claims" when evidence is weak.
@@ -199,7 +225,7 @@ Rules:
 - Return only JSON with:
 review_summary, positive_signals, negative_signals, common_claims, common_complaints, target_audience, who_it_may_help, who_should_skip_it, best_video_angles, cta_guidance, confidence_score, recommended_content_style, suggested_competitors, price_display
 - recommended_content_style must be one of: honest_review, elimination, worth_it_or_waste, budget_challenge, vs_battle, standard
-- suggested_competitors must be a JSON array of 2-4 category-appropriate product or offer names (never the vendor name)
+- suggested_competitors must be chosen only from COMPETITOR_CANDIDATES_JSON (use [] if none are real). Never invent brand names.
 - price_display must be a short human-readable price string; use APV/aggregateSales when no retail price is known, otherwise "Varies"`,
 };
 
@@ -228,24 +254,31 @@ function sourcePayload(sources, limit = 12) {
     title: s.title,
     url: s.url,
     snippet: s.snippet,
+    excerpt: String(s.raw_json?.content_text || "").slice(0, 8000),
+    channel: s.raw_json?.channel_name || "",
     relevance_score: s.relevance_score,
     trust_score: s.trust_score,
     sentiment: s.sentiment,
   })), null, 2);
 }
 
-function buildEnrichmentPrompt(isDigistore, product, sources, vendorMaterials) {
+function buildEnrichmentPrompt(isDigistore, product, sources, vendorMaterials, options = {}) {
   const variant = isDigistore ? "digistore24" : "generic";
   const template = loadPromptTemplate(variant);
+  const competitorJson = JSON.stringify(options.competitorCandidates || [], null, 2);
+  const { claimSources = [], reviewSources = [] } = options;
   const vars = isDigistore
     ? {
       PRODUCT_JSON: JSON.stringify(consumerProductContext(product), null, 2),
       VENDOR_MATERIALS_JSON: JSON.stringify(vendorMaterialSummary(vendorMaterials), null, 2),
-      SOURCES_JSON: sourcePayload(sources),
+      CLAIM_SOURCES_JSON: sourcePayload(claimSources.length ? claimSources : sources.filter(s => s.source_type === "vendor")),
+      REVIEW_SOURCES_JSON: sourcePayload(reviewSources),
+      COMPETITOR_CANDIDATES_JSON: competitorJson,
     }
     : {
       PRODUCT_JSON: JSON.stringify(product, null, 2),
       SOURCES_JSON: sourcePayload(sources, sources.length),
+      COMPETITOR_CANDIDATES_JSON: competitorJson,
     };
   return renderPromptTemplate(template, vars);
 }
@@ -547,33 +580,53 @@ function scoreSource(product, source, vendorDomains = new Set()) {
   const host = hostnameFromUrl(source.url);
   const classified = classifySourceHost(host);
   const isDigistore = String(product.platform || "").toLowerCase() === "digistore24";
+  const nameMatched = productNameTokenMatch(hay, name);
+  const isVendorDomain = vendorDomains.has(host);
 
   let relevance = 40;
-  if (name && hay.includes(name)) relevance += 35;
+  if (nameMatched) relevance += 35;
+  else if (name && hay.includes(name)) relevance += 35;
   if (vendor && hay.includes(vendor)) relevance += 10;
+
   if (isDigistore) {
-    if (vendorDomains.has(host)) relevance += 35;
+    if (isVendorDomain) relevance += 35;
     if (/official|how it works|what is|benefits|ingredients|faq|guarantee|refund/i.test(hay)) relevance += 15;
-    if (/affiliate|jvzoo|warriorplus|clickbank|promo link|earn commission/i.test(hay)) relevance -= 20;
+    if (/earn commission|\bepc\b|affiliates are seeing|promote now|marketplace analytics|dashboard marketplace/i.test(hay)) {
+      relevance -= 35;
+    }
+    if (/affiliate|jvzoo|warriorplus|clickbank|promo link/i.test(hay)) relevance -= 20;
+    if (classified.tier === "affiliate_noise") relevance -= 40;
+    // Digistore-only / marketplace pages without product tokens are weak
+    if (!nameMatched && !isVendorDomain && /digistore24/i.test(host || hay)) relevance -= 45;
+    if (!nameMatched && !isVendorDomain) relevance -= 20;
   } else if (/review|reviews|worth|scam|complaint|reddit|youtube|before|after/i.test(hay)) {
     relevance += 15;
   }
 
+  if (classified.tier === "video" && /review|honest|worth it|exposed|scam/i.test(hay)) {
+    relevance += 12;
+  }
+
   let trust = 45 + classified.trust_boost;
-  if (vendorDomains.has(host)) trust += 25;
+  if (isVendorDomain) trust += 25;
   if (/official|refund|ingredients|terms|guarantee/i.test(hay)) trust += 8;
-  if (/affiliate|promo|bonus|jvzoo|warriorplus/i.test(hay)) trust -= 12;
+  if (/affiliate|promo|bonus|jvzoo|warriorplus|\bepc\b|commission/i.test(hay)) trust -= 12;
+  if (classified.tier === "affiliate_noise") trust = Math.min(trust, 20);
 
   let sentiment = "unknown";
   if (/scam|complaint|warning|refund|doesn't work|does not work|side effect/i.test(hay)) sentiment = "negative";
   else if (/best|works|benefit|positive|recommended|worth/i.test(hay)) sentiment = "positive";
   if (/mixed|pros and cons|honest|warning|red flag/i.test(hay)) sentiment = "mixed";
 
+  const sourceType = source.source_type === "competitor_search"
+    ? "competitor_search"
+    : (isVendorDomain ? "vendor" : classified.source_type);
+
   return {
     relevance_score: Math.max(0, Math.min(100, relevance)),
     trust_score: Math.max(0, Math.min(100, trust)),
     sentiment,
-    source_type: vendorDomains.has(host) ? "vendor" : classified.source_type,
+    source_type: sourceType,
   };
 }
 
@@ -612,15 +665,38 @@ function vendorMaterialSummary(materials) {
 async function saveSources(conn, product, sources, vendorDomains = new Set()) {
   const seen = new Set();
   const final = [];
+  const [cachedRows] = await conn.query(`
+    SELECT url, raw_json
+    FROM product_review_sources
+    WHERE product_id=?
+  `, [product.id]);
+  const cachedByUrl = new Map((cachedRows || []).map((row) => {
+    let raw = row.raw_json || {};
+    if (typeof raw === "string") {
+      try { raw = JSON.parse(raw); } catch { raw = {}; }
+    }
+    return [row.url, raw];
+  }));
 
   for (const s of sources) {
     if (!s.url || seen.has(s.url)) continue;
     seen.add(s.url);
-    final.push({...s, ...scoreSource(product, s, vendorDomains)});
+    const cached = cachedByUrl.get(s.url) || {};
+    final.push({
+      ...s,
+      raw_json: { ...s.raw_json, ...cached },
+      ...scoreSource(product, s, vendorDomains),
+    });
   }
 
   final.sort((a, b) => (b.relevance_score + b.trust_score) - (a.relevance_score + a.trust_score));
-  const top = final.slice(0, MAX_SOURCES);
+  const top = await enrichHighTrustSources(final.slice(0, MAX_SOURCES), {
+    vendorDomains,
+    limit: FULL_PAGE_SOURCE_LIMIT,
+    timeoutMs: FULL_PAGE_FETCH_TIMEOUT_MS,
+    delayMs: FULL_PAGE_FETCH_DELAY_MS,
+    textLimit: 8000,
+  });
 
   for (const s of top) {
     await conn.query(`
@@ -698,63 +774,98 @@ function derivePriceDisplay(product) {
   if (meta.price) return String(meta.price);
   if (meta.apv) return `$${Number(meta.apv).toFixed(2)} avg payout`;
 
-  return "Varies";
+  return String(product.platform || "").toLowerCase() === "digistore24"
+    ? "See official offer page"
+    : "Varies";
 }
 
-function fallbackSuggestedCompetitors(product) {
-  const category = String(product.category || "niche").trim() || "niche";
-  return [
-    `Top ${category} alternative`,
-    `Popular ${category} competitor`,
-    `Budget ${category} option`
-  ];
-}
-
-function normalizeSuggestedCompetitors(product, competitors) {
-  const vendor = String(product.vendor || "").trim().toLowerCase();
-  const cleaned = (Array.isArray(competitors) ? competitors : [])
-    .map(c => String(c || "").replace(/\s+/g, " ").trim())
-    .filter(Boolean)
-    .filter(c => !vendor || c.toLowerCase() !== vendor);
-
-  return (cleaned.length >= 2 ? cleaned : fallbackSuggestedCompetitors(product)).slice(0, 4);
-}
-
-function finalizeBrief(product, brief, sources = []) {
+function finalizeBrief(product, brief, sources = [], options = {}) {
+  const isDigistore = String(product.platform || "").toLowerCase() === "digistore24";
   const angles = (brief.best_video_angles || []).map(a => briefText(a)).filter(Boolean);
   const inferredStyle = inferContentStyleFromAngles(angles);
-  const recommended_content_style = CONTENT_STYLES.has(brief.recommended_content_style)
+  let recommended_content_style = CONTENT_STYLES.has(brief.recommended_content_style)
     ? brief.recommended_content_style
     : inferredStyle;
+
+  const competitorCandidates = options.competitorCandidates || [];
+  const suggested_competitors = normalizeSuggestedCompetitors(
+    product,
+    brief.suggested_competitors,
+    competitorCandidates,
+  );
+
+  if (
+    suggested_competitors.length < 2
+    && (recommended_content_style === "vs_battle" || recommended_content_style === "elimination")
+  ) {
+    recommended_content_style = isDigistore ? "worth_it_or_waste" : "honest_review";
+  }
+
+  const coverage = brief.evidence_coverage && typeof brief.evidence_coverage === "object"
+    ? {
+      ...evidenceCoverageFromSources(sources, {
+        has_vendor_material: Boolean(options.hasVendorMaterial),
+        resolved_product_name: product.name || "",
+      }),
+      ...brief.evidence_coverage,
+      resolved_product_name: product.name || brief.evidence_coverage.resolved_product_name || "",
+    }
+    : evidenceCoverageFromSources(sources, {
+      has_vendor_material: Boolean(options.hasVendorMaterial),
+      resolved_product_name: product.name || "",
+    });
+
+  let confidence_score = Number(brief.confidence_score || 0) || Math.min(95, 50);
+  if (options.identityUnresolved) {
+    confidence_score = Math.min(confidence_score, 25);
+    recommended_content_style = isDigistore ? "worth_it_or_waste" : "honest_review";
+  } else if (!coverage.has_independent_review && !coverage.has_vendor_material) {
+    confidence_score = Math.min(confidence_score, 40);
+  } else if (!coverage.has_independent_review && isDigistore) {
+    confidence_score = Math.min(confidence_score, 55);
+  }
+
+  const positive_signals = stripAffiliateMetaLines(
+    (brief.positive_signals || []).map(x => briefText(x)).filter(Boolean),
+  );
+  const common_claims = stripAffiliateMetaLines(
+    (brief.common_claims || []).map(x => briefText(x)).filter(Boolean),
+  );
+  const common_complaints = stripAffiliateMetaLines(
+    (brief.common_complaints || []).map(x => briefText(x)).filter(Boolean),
+  );
 
   return {
     ...brief,
     review_summary: briefText(brief.review_summary),
-    positive_signals: (brief.positive_signals || []).map(x => briefText(x)).filter(Boolean),
-    negative_signals: (brief.negative_signals || []).map(x => briefText(x)).filter(Boolean),
-    common_claims: (brief.common_claims || []).map(x => briefText(x)).filter(Boolean),
-    common_complaints: (brief.common_complaints || []).map(x => briefText(x)).filter(Boolean),
+    positive_signals,
+    negative_signals: stripAffiliateMetaLines(
+      (brief.negative_signals || []).map(x => briefText(x)).filter(Boolean),
+    ),
+    common_claims,
+    common_complaints,
     target_audience: briefText(brief.target_audience),
     who_it_may_help: briefText(brief.who_it_may_help),
     who_should_skip_it: briefText(brief.who_should_skip_it),
     best_video_angles: angles.length ? angles : ["What problem does this solve for buyers?", "What to verify before buying"],
     cta_guidance: briefText(brief.cta_guidance, "Check the official offer page for current price and refund terms."),
     recommended_content_style,
-    suggested_competitors: normalizeSuggestedCompetitors(product, brief.suggested_competitors),
-    price_display: clamp(brief.price_display || derivePriceDisplay(product), 200),
+    suggested_competitors,
+    price_display: sanitizeBuyerPrice(
+      brief.price_display || derivePriceDisplay(product),
+      product.cartValue,
+    ),
     price_comparison: briefText(brief.price_comparison, `Compare the current ${derivePriceDisplay(product)} offer against 2-3 category alternatives before buying.`),
     series_name: seriesNameForStyle(recommended_content_style),
     coupon_code: briefText(brief.coupon_code, ""),
-    evidence_coverage: brief.evidence_coverage && typeof brief.evidence_coverage === "object"
-      ? brief.evidence_coverage
-      : evidenceCoverageFromSources(sources),
-    confidence_score: Number(brief.confidence_score || 0) || Math.min(95, 50),
+    evidence_coverage: coverage,
+    confidence_score,
   };
 }
 
-function fallbackBrief(product, sources, vendorMaterials = []) {
+function fallbackBrief(product, sources, vendorMaterials = [], options = {}) {
   const isDigistore = String(product.platform || "").toLowerCase() === "digistore24";
-  if (isDigistore) return fallbackConsumerBrief(product, sources, vendorMaterials);
+  if (isDigistore) return fallbackConsumerBrief(product, sources, vendorMaterials, options);
 
   const category = product.category || "this category";
   const positives = sources.filter(s => s.sentiment === "positive").slice(0, 5).map(s => s.title || s.snippet).filter(Boolean);
@@ -771,46 +882,48 @@ function fallbackBrief(product, sources, vendorMaterials = []) {
     who_should_skip_it: "People expecting guaranteed results or anyone who should consult a professional before using the product.",
     best_video_angles: ["Hidden gem or hype?", "What to verify before buying", "Pros, cons, and red flags"],
     cta_guidance: "Invite viewers to check the current product page and verify the details before buying.",
-    confidence_score: Math.min(95, Math.max(35, 40 + sources.length * 3))
+    confidence_score: Math.min(95, Math.max(35, 40 + sources.length * 3)),
+    suggested_competitors: (options.competitorCandidates || []).map(c => c.name || c).slice(0, 4),
   };
 
-  return finalizeBrief(product, base, sources);
+  return finalizeBrief(product, base, sources, options);
 }
 
-function fallbackConsumerBrief(product, sources, vendorMaterials) {
+function fallbackConsumerBrief(product, sources, vendorMaterials, options = {}) {
   const category = product.category || "this product category";
   const summary = vendorMaterialSummary(vendorMaterials);
   const primary = summary[0] || {};
-  const benefits = summary.flatMap(s => s.benefits || []).slice(0, 6);
+  const benefits = stripAffiliateMetaLines(summary.flatMap(s => s.benefits || []).slice(0, 6));
   const problems = summary.flatMap(s => s.problems || []).slice(0, 4);
-  const objections = summary.flatMap(s => s.objections || []).slice(0, 4);
-  const testimonials = summary.flatMap(s => s.testimonials || []).slice(0, 4);
+  const objections = stripAffiliateMetaLines(summary.flatMap(s => s.objections || []).slice(0, 4));
+  const { reviewSources = [] } = options;
+  const independent = reviewSources.length
+    ? reviewSources
+    : sources.filter(s => s.source_type !== "vendor");
+  const riskSignals = stripAffiliateMetaLines(
+    independent
+      .filter(s => s.sentiment === "negative" || s.sentiment === "mixed")
+      .slice(0, 4)
+      .map(s => s.title || s.snippet)
+      .filter(Boolean),
+  );
   const pricing = summary.flatMap(s => s.pricing || []).slice(0, 2);
-  const riskSignals = sources
-    .filter(s => s.sentiment === "negative" || s.sentiment === "mixed")
-    .slice(0, 4)
-    .map(s => s.title || s.snippet)
-    .filter(Boolean);
 
   const base = {
     review_summary: primary.core_promise
       || primary.headline
       || `${product.name} is positioned for everyday buyers in ${category}. Use vendor sales copy as the primary source and treat third-party claims as secondary.`,
-    positive_signals: testimonials.length
-      ? testimonials
-      : benefits.length
-        ? benefits
-        : [`Vendor materials highlight benefits for ${category} buyers.`],
+    positive_signals: [],
     negative_signals: riskSignals.length
       ? riskSignals
       : ["Verify refund terms and current pricing on the official offer page."],
     common_claims: benefits.length
       ? benefits
       : [`Vendor copy presents ${product.name} as a solution in ${category}.`],
-    common_complaints: objections.length
-      ? objections
-      : riskSignals.length
-        ? riskSignals
+    common_complaints: riskSignals.length
+      ? riskSignals
+      : objections.length
+        ? objections
         : ["Results may vary between customers.", "Some marketing claims should be verified before purchase."],
     target_audience: problems[0]
       ? `Everyday consumers dealing with: ${problems[0]}`
@@ -825,20 +938,25 @@ function fallbackConsumerBrief(product, sources, vendorMaterials) {
       "Who should buy and who should skip",
     ],
     cta_guidance: "Tell viewers to check the official product page for current price, refund policy, and offer details before buying.",
-    confidence_score: Math.min(95, Math.max(40, 50 + summary.length * 8 + sources.length * 2)),
+    confidence_score: Math.min(95, Math.max(40, 50 + summary.length * 8 + independent.length * 2)),
     price_display: pricing[0] || derivePriceDisplay(product),
+    suggested_competitors: (options.competitorCandidates || []).map(c => c.name || c).slice(0, 4),
   };
 
-  return finalizeBrief(product, base, sources);
+  return finalizeBrief(product, base, sources, {
+    ...options,
+    hasVendorMaterial: summary.length > 0,
+  });
 }
 
-async function summarizeWithOllama(product, sources, vendorMaterials = []) {
-  const fallback = fallbackBrief(product, sources, vendorMaterials);
+async function summarizeWithOllama(product, sources, vendorMaterials = [], options = {}) {
+  const fallback = fallbackBrief(product, sources, vendorMaterials, options);
   const isDigistore = String(product.platform || "").toLowerCase() === "digistore24";
   if (!isDigistore && !sources.length) return { brief: fallback, degraded: true };
   if (isDigistore && !sources.length && !vendorMaterials.length) return { brief: fallback, degraded: true };
+  if (options.identityUnresolved) return { brief: fallback, degraded: true };
 
-  const prompt = buildEnrichmentPrompt(isDigistore, product, sources, vendorMaterials);
+  const prompt = buildEnrichmentPrompt(isDigistore, product, sources, vendorMaterials, options);
 
   try {
     const res = await fetch(`${OLLAMA_BASE_URL}/api/chat`, {
@@ -870,9 +988,12 @@ async function summarizeWithOllama(product, sources, vendorMaterials = []) {
       return { brief: fallback, degraded: true };
     }
 
+    const finalized = finalizeBrief(product, {...fallback, ...validated}, sources, options);
+    const coverage = finalized.evidence_coverage || {};
+    const weakEvidence = !coverage.has_independent_review && !coverage.has_vendor_material;
     return {
-      brief: finalizeBrief(product, {...fallback, ...validated}, sources),
-      degraded: false,
+      brief: finalized,
+      degraded: weakEvidence || options.identityUnresolved,
     };
   } catch (err) {
     console.error("Ollama summary failed; using fallback:", err.message);
@@ -1028,16 +1149,47 @@ async function processJob(conn, job) {
     vendorMaterials = await loadVendorMaterials(conn, product.id);
   }
 
-  const collected = [];
-  const secondaryQueryLimit = isDigistore ? digistoreEvidenceQueries(product).length : queriesFor(product).length;
+  const resolvedName = isDigistore
+    ? resolveExportProductName(product, vendorMaterials)
+    : product.name;
+  const enrichProduct = { ...product, name: resolvedName };
+  if (String(product.name || "") !== String(resolvedName || "")) {
+    console.log(`[${product.id}] ${product.name} → ${resolvedName}`);
+  }
 
-  for (const q of queriesFor(product).slice(0, secondaryQueryLimit)) {
-    console.log(`[${product.name}] ${q}`);
+  const identityUnresolved = isDigistore && (
+    isMarketplaceBrandName(resolvedName)
+    || /^Digistore24 Product\b/i.test(String(resolvedName || ""))
+  );
+  if (identityUnresolved) {
+    console.warn(`[${product.id}] unresolved marketplace brand name after vendor materials; degrading brief`);
+  }
+
+  const collected = [];
+  const evidenceQueries = queriesFor(enrichProduct);
+  const secondaryQueryLimit = isDigistore ? digistoreEvidenceQueries(enrichProduct).length : evidenceQueries.length;
+
+  for (const q of evidenceQueries.slice(0, secondaryQueryLimit)) {
+    console.log(`[${enrichProduct.name}] ${q}`);
     collected.push(...await searchReviews(q));
   }
 
+  const competitorHits = [];
+  for (const q of competitorEvidenceQueries(enrichProduct)) {
+    console.log(`[${enrichProduct.name}] competitor: ${q}`);
+    const hits = await searchReviews(q);
+    for (const hit of hits) {
+      competitorHits.push({
+        ...hit,
+        source_type: "competitor_search",
+        raw_json: { ...(hit.raw_json || {}), competitor_search: true },
+      });
+    }
+  }
+  collected.push(...competitorHits);
+
   const vendorDomains = vendorDomainSet(vendorMaterials);
-  const sources = await saveSources(conn, product, collected, vendorDomains);
+  const sources = await saveSources(conn, enrichProduct, collected, vendorDomains);
   let vendorProfile = null;
   const creatorVendor = isDigistore
     ? resolveCreatorVendor(product.vendor, vendorMaterials)
@@ -1045,7 +1197,7 @@ async function processJob(conn, job) {
   if (isDigistore && creatorVendor) {
     const vendorHits = [];
     for (const q of digistoreVendorQueries(creatorVendor)) {
-      console.log(`[${product.name}] vendor: ${q}`);
+      console.log(`[${enrichProduct.name}] vendor: ${q}`);
       vendorHits.push(...await searchReviews(q));
     }
     vendorProfile = await upsertVendorProfile(conn, {
@@ -1054,11 +1206,56 @@ async function processJob(conn, job) {
       hits: vendorHits,
     });
   }
-  const { brief, degraded } = await summarizeWithOllama(product, sources, vendorMaterials);
-  const enrichmentStatus = degraded ? "complete_degraded" : "complete";
-  await saveBrief(conn, product, brief, sources.length + vendorMaterials.length, enrichmentStatus);
+
+  let catalogMatches = [];
+  try {
+    const [rows] = await conn.query(`
+      SELECT name
+      FROM products
+      WHERE id <> ?
+        AND name IS NOT NULL
+        AND name <> ''
+        AND (
+          platform = ?
+          OR (category IS NOT NULL AND category <> '' AND category = ?)
+        )
+      ORDER BY lastUpdatedAt DESC
+      LIMIT 25
+    `, [product.id, product.platform || "digistore24", product.category || ""]);
+    catalogMatches = rows || [];
+  } catch {
+    catalogMatches = [];
+  }
+
+  const competitorCandidates = extractCompetitorCandidatesFromHits(
+    [...competitorHits, ...sources],
+    enrichProduct,
+    { vendorMaterials, catalogMatches, vendor: creatorVendor || product.vendor },
+  );
+
+  const { claimSources, reviewSources } = splitClaimAndReviewSources(sources, vendorDomains);
+  const enrichOptions = {
+    competitorCandidates,
+    claimSources,
+    reviewSources,
+    hasVendorMaterial: vendorMaterials.length > 0,
+    identityUnresolved,
+  };
+
+  const { brief, degraded } = await summarizeWithOllama(
+    enrichProduct,
+    sources,
+    vendorMaterials,
+    enrichOptions,
+  );
+  const coverage = brief.evidence_coverage || {};
+  const forceDegraded = identityUnresolved
+    || degraded
+    || (!coverage.has_independent_review && !coverage.has_vendor_material);
+  const enrichmentStatus = forceDegraded ? "complete_degraded" : "complete";
+  await saveBrief(conn, enrichProduct, brief, sources.length + vendorMaterials.length, enrichmentStatus);
   await rescoreProductAfterEnrichment(
-    conn, product, sources.length + vendorMaterials.length, Number(brief.confidence_score || 0),
+    conn, enrichProduct, sources.length + vendorMaterials.length, Number(brief.confidence_score || 0),
     vendorProfile?.vendor_trust_score ?? null
   );
 
@@ -1069,7 +1266,7 @@ async function processJob(conn, job) {
     WHERE id=?
   `, [REFRESH_DAYS, job.id]);
 
-  console.log(`[${product.name}] ${enrichmentStatus}: ${sources.length} web sources, ${vendorMaterials.length} vendor materials`);
+  console.log(`[${enrichProduct.name}] ${enrichmentStatus}: ${sources.length} web sources, ${vendorMaterials.length} vendor materials, ${competitorCandidates.length} competitor candidates`);
 }
 
 async function main() {

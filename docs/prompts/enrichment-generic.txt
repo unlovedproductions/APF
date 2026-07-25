@@ -6,6 +6,9 @@ Product:
 Sources:
 {{SOURCES_JSON}}
 
+Retrieved competitor candidates (choose only from this list; empty array is allowed):
+{{COMPETITOR_CANDIDATES_JSON}}
+
 Rules:
 - Do not invent facts.
 - Use "sources suggest" or "product claims" when evidence is weak.
@@ -13,5 +16,5 @@ Rules:
 - Return only JSON with:
 review_summary, positive_signals, negative_signals, common_claims, common_complaints, target_audience, who_it_may_help, who_should_skip_it, best_video_angles, cta_guidance, confidence_score, recommended_content_style, suggested_competitors, price_display
 - recommended_content_style must be one of: honest_review, elimination, worth_it_or_waste, budget_challenge, vs_battle, standard
-- suggested_competitors must be a JSON array of 2-4 category-appropriate product or offer names (never the vendor name)
+- suggested_competitors must be chosen only from COMPETITOR_CANDIDATES_JSON (use [] if none are real). Never invent brand names. Never use placeholder strings like "Top X alternative".
 - price_display must be a short human-readable price string; use APV/aggregateSales when no retail price is known, otherwise "Varies"
