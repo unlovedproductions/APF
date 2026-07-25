@@ -3,6 +3,10 @@ import path from "node:path";
 import mysql from "mysql2/promise";
 import { normalizeKeywordList, safeJsonParse } from "./apf-db-helpers.mjs";
 import {
+  resolveExportProductName,
+  sanitizeBuyerPrice,
+} from "./digistore24-detail-extractor.mjs";
+import {
   ensureVendorMaterialsTable,
   loadVendorMaterials,
 } from "./digistore24-vendor-materials.mjs";
@@ -222,8 +226,25 @@ export async function buildPayload(productId) {
     } : null;
     const bestAffiliateUrl = clean(p.linkedAffiliateUrl) || clean(p.affiliateLink);
     const affiliateStatus = p.linkedAffiliateStatus || (bestAffiliateUrl ? "approved" : "needs_approval");
+    const mappedVendorMaterials = vendorMaterials.map(m => ({
+      source_type: m.source_type,
+      url: m.source_url,
+      domain: m.domain,
+      title: m.title,
+      excerpt: clean(m.content_text).slice(0, 1200),
+      structured_blocks: m.structured_blocks || {},
+    }));
+    const resolvedName = isDigistore
+      ? resolveExportProductName(p, mappedVendorMaterials)
+      : clean(p.name || "");
+    const couponCode = clean(reviewBrief?.coupon_code || "");
+    const rawDiscount = clean(reviewBrief?.discount_info || "");
+    const discountLower = rawDiscount.toLowerCase();
     const discountInfo = isDigistore
-      ? clean(reviewBrief?.price_display || "")
+      ? [
+          rawDiscount && !/(commission|affiliate|epc)/i.test(discountLower) ? rawDiscount : "",
+          couponCode ? `Coupon: ${couponCode}` : "",
+        ].filter(Boolean).join("; ")
       : (p.commissionRate ? `${p.commissionRate}% commission` : "");
     const keyFeatures = reviewBrief?.common_claims?.length
       ? reviewBrief.common_claims.slice(0, 5)
@@ -234,16 +255,22 @@ export async function buildPayload(productId) {
       ? reviewBrief.suggested_competitors
       : [];
     const recommendedStyle = reviewBrief?.recommended_content_style || (isDigistore ? "worth_it_or_waste" : "honest_review");
-    const priceDisplay = reviewBrief?.price_display
-      || (p.cartValue ? `$${Number(p.cartValue).toFixed(2)}` : "")
-      || (isDigistore ? "See official offer page" : (p.aggregateSales && Number(p.aggregateSales) > 0
-        ? `$${Number(p.aggregateSales).toFixed(2)} avg payout`
-        : "Varies"));
+    const sanitizedBriefPrice = sanitizeBuyerPrice(reviewBrief?.price_display || "", p.cartValue);
+    const priceDisplay = isDigistore
+      ? sanitizedBriefPrice
+      : (
+        (reviewBrief?.price_display && sanitizedBriefPrice !== "See official offer page")
+          ? sanitizedBriefPrice
+          : (p.cartValue ? `$${Number(p.cartValue).toFixed(2)}` : "")
+            || (p.aggregateSales && Number(p.aggregateSales) > 0
+              ? `$${Number(p.aggregateSales).toFixed(2)} avg payout`
+              : "Varies")
+      );
     const consumerUsp = reviewBrief?.review_summary
       || keyFeatures[0]
       || clean(p.description).slice(0, 240);
     const shadowcastImport = {
-      product_name: p.name || "",
+      product_name: resolvedName || p.name || "",
       niche: p.category || "",
       key_features: keyFeatures,
       affiliate_link: shadowCastAffiliateUrl({ ...p, affiliateLink: bestAffiliateUrl }),
@@ -258,7 +285,7 @@ export async function buildPayload(productId) {
       price: priceDisplay,
       price_comparison: reviewBrief?.price_comparison || "Compare current pricing with category alternatives before buying.",
       series_name: reviewBrief?.series_name || "",
-      coupon_code: reviewBrief?.coupon_code || "",
+      coupon_code: couponCode,
       target_audience: reviewBrief?.target_audience || (isDigistore ? "Everyday consumers researching this product before buying" : ""),
       common_complaints: commonComplaints,
       common_praises: commonPraises,
@@ -274,7 +301,7 @@ export async function buildPayload(productId) {
         source_product_id: String(p.id),
         marketplace: p.platform || "clickbank",
         platform_product_id: p.platformProductId || "",
-        name: p.name || "",
+        name: resolvedName || p.name || "",
         vendor: p.vendor || "",
         category: p.category || "",
         keywords: safeKeywords,
@@ -299,16 +326,11 @@ export async function buildPayload(productId) {
         vendor_rank_band: parseJson(vendorProfile?.ranking_components, {})?.band ?? null,
         evidence_coverage: reviewBrief?.evidence_coverage || {}
       },
-      review_brief: reviewBrief,
+      review_brief: reviewBrief
+        ? { ...reviewBrief, price_display: isDigistore ? priceDisplay : (reviewBrief.price_display || priceDisplay) }
+        : reviewBrief,
       review_sources: sources,
-      vendor_materials: vendorMaterials.map(m => ({
-        source_type: m.source_type,
-        url: m.source_url,
-        domain: m.domain,
-        title: m.title,
-        excerpt: clean(m.content_text).slice(0, 1200),
-        structured_blocks: m.structured_blocks || {},
-      })),
+      vendor_materials: mappedVendorMaterials,
       shadowcast_import: shadowcastImport,
     };
   } finally {
