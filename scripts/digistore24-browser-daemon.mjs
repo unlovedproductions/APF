@@ -78,7 +78,14 @@ async function waitForPromolinkOrSettle(page, affiliateId, timeoutMs = 8000) {
 
 async function assertDigistoreSession(page) {
   const url = page.url();
-  if (/login|signin|auth/i.test(url)) {
+  let pathname = url;
+  try {
+    pathname = new URL(url).pathname;
+  } catch {
+    // keep raw url fallback for malformed URLs
+  }
+  // Match real login/signin paths only — do not treat query params like auth_testpay as expired.
+  if (/\/(?:login|signin|auth)(?:\/|$)/i.test(pathname)) {
     throw new Error("Digistore24 session expired — run: pnpm run digistore24:login");
   }
 
