@@ -6,7 +6,7 @@ import path from "node:path";
 import mysql from "mysql2/promise";
 import { firefox } from "playwright";
 import { scoreProduct, SCORING_VERSION } from "./marketplace-scoring.mjs";
-import { extractDigistore24Detail } from "./digistore24-detail-extractor.mjs";
+import { extractDigistore24Detail, resolveProductName } from "./digistore24-detail-extractor.mjs";
 import { queueReview, upsertAffiliateLink } from "./apf-db-helpers.mjs";
 import {
   classifySourceType,
@@ -860,16 +860,18 @@ async function collectProducts(options) {
       await detailPage.waitForSelector("h1, h2, body", { timeout: 10000 }).catch(() => {});
 
       const rawDetail = await detailPage.evaluate(() => {
-        const txt = el => (el?.innerText || el?.textContent || "").replace(/\s+/g, " ").trim();
-
-        const title =
-          txt(document.querySelector("h1")) ||
-          txt(document.querySelector("h2")) ||
-          document.title.replace(/\s+/g, " ").trim();
-
-        const body = txt(document.body).slice(0, 10000);
+        const collapse = (el) => (el?.innerText || el?.textContent || "").replace(/\s+/g, " ").trim();
+        const isBrand = (value) => /^(digistore24?|marketplace)$/i.test(String(value || "").trim());
+        const candidates = [
+          collapse(document.querySelector("h1")),
+          collapse(document.querySelector("h2")),
+          document.title.replace(/\s+/g, " ").trim(),
+        ].filter((value) => value && !isBrand(value));
+        const title = candidates[0] || "";
+        // Preserve newlines so Vendor:/Category: label parsing works.
+        const body = String(document.body?.innerText || "").slice(0, 10000);
         const descriptionSection =
-          txt(document.querySelector("[class*='description'], [id*='description'], .product-description")) ||
+          collapse(document.querySelector("[class*='description'], [id*='description'], .product-description")) ||
           body;
         return { title, body, descriptionSection };
       });
@@ -882,15 +884,16 @@ async function collectProducts(options) {
         options.confirm
       );
 
+      const productName = resolveProductName(detail.title, item.text, platformProductId);
       const product = {
         userId: options.userId,
         platformProductId,
-        name: clean(detail.title || item.text || `Digistore24 Product ${platformProductId}`).slice(0, 255),
+        name: productName.slice(0, 255),
         vendor: detail.vendor || "",
         category: detail.category || "Digistore24 Marketplace",
         keywords: [
           "digistore24",
-          ...clean(detail.title).toLowerCase().split(/[^a-z0-9]+/).filter(Boolean).slice(0, 10),
+          ...clean(productName).toLowerCase().split(/[^a-z0-9]+/).filter(Boolean).slice(0, 10),
           ...clean(detail.category).toLowerCase().split(/[^a-z0-9]+/).filter(Boolean).slice(0, 4),
         ],
         description: clean(detail.description || rawDetail.body || `Digistore24 marketplace product ${platformProductId}`).slice(0, 3500),

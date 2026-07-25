@@ -14,7 +14,7 @@ import { fetchAndProcessAwinProducts } from "./awin";
 import { fetchAndProcessImpactCatalogItems } from "./impact";
 import { fetchAndProcessAmazonCreatorsProducts } from "./amazon";
 import { TRPCError } from "@trpc/server";
-import { exportProductsToShadowCast, runDigistore24RefreshWorkflow, runPostRefreshWorkflow } from "./apfWorkflows";
+import { exportProductsToShadowCast, queueProductsForEnrichment, runDigistore24RefreshWorkflow, runPostRefreshWorkflow } from "./apfWorkflows";
 
 const PLATFORM_VALUES = [
   "warriorplus",
@@ -343,6 +343,22 @@ export const appRouter = router({
           throw new TRPCError({
             code: "INTERNAL_SERVER_ERROR",
             message: error instanceof Error ? error.message : "Failed to export products to ShadowCast",
+          });
+        }
+      }),
+
+    queueEnrichment: protectedProcedure
+      .input(z.object({
+        productIds: z.array(z.number()).max(500).optional(),
+      }).optional())
+      .mutation(async ({ input, ctx }) => {
+        try {
+          return await queueProductsForEnrichment(ctx.user.id, input?.productIds);
+        } catch (error) {
+          console.error("[Products] Error queueing enrichment:", error);
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: error instanceof Error ? error.message : "Failed to queue product enrichment",
           });
         }
       }),

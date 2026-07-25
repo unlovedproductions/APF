@@ -110,6 +110,7 @@ const CLAIM_USER_ID = cliArg("--user-id");
 
 const DATABASE_URL = process.env.DATABASE_URL;
 const REVIEW_ENRICHMENT_PROVIDER = process.env.REVIEW_ENRICHMENT_PROVIDER || "searxng";
+/** Canonical host URL — keep SearXNG on :8088 (docker maps 8088:8080). */
 const SEARXNG_BASE_URL = process.env.SEARXNG_BASE_URL || "http://localhost:8088";
 const BRAVE_SEARCH_API_KEY = process.env.BRAVE_SEARCH_API_KEY || "";
 const MAX_SOURCES = Number(process.env.REVIEW_ENRICHMENT_MAX_SOURCES || "25");
@@ -1074,6 +1075,14 @@ async function processJob(conn, job) {
 async function main() {
   console.log(`Review enrichment provider: ${REVIEW_ENRICHMENT_PROVIDER}`);
   console.log(`SearXNG base URL: ${SEARXNG_BASE_URL}`);
+  try {
+    const searxPort = new URL(SEARXNG_BASE_URL).port || "80";
+    if (searxPort !== "8088") {
+      console.warn(`WARNING: SearXNG must use host port 8088 (got ${SEARXNG_BASE_URL})`);
+    }
+  } catch {
+    console.warn(`WARNING: invalid SEARXNG_BASE_URL: ${SEARXNG_BASE_URL}`);
+  }
 
   const conn = await mysql.createConnection(DATABASE_URL);
 

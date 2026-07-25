@@ -21,6 +21,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Loader2, RefreshCw, Search, Download } from "lucide-react";
 import { trpc } from "@/lib/trpc";
+import { isEnrichmentExportReady } from "@/lib/utils";
 import { toast } from "sonner";
 import { ProductDetailModal } from "@/components/ProductDetailModal";
 
@@ -165,6 +166,16 @@ export default function Home() {
     },
   });
 
+  const queueEnrichmentMutation = trpc.products.queueEnrichment.useMutation({
+    onSuccess: (data: any) => {
+      toast.success(data?.message || `Queued ${data?.queued ?? 0} product(s) for enrichment.`);
+      productsQuery.refetch();
+    },
+    onError: (error) => {
+      toast.error(error.message || "Failed to queue enrichment");
+    },
+  });
+
   const saveCredentialsMutation = trpc.credentials.save.useMutation({
     onSuccess: () => {
       toast.success("API credentials saved!");
@@ -229,11 +240,11 @@ export default function Home() {
 
     const incomplete = productIds.filter((id) => {
       const p = (productsQuery.data || []).find((row: { id: number; enrichmentStatus?: string }) => row.id === id);
-      return p?.enrichmentStatus !== "complete";
+      return !isEnrichmentExportReady(p?.enrichmentStatus);
     });
     if (incomplete.length) {
       toast.error(
-        `${incomplete.length} selected product(s) are not fully enriched (status must be complete, not degraded/pending).`,
+        `${incomplete.length} selected product(s) are not fully enriched (need complete or complete_degraded).`,
       );
       return;
     }
@@ -241,11 +252,19 @@ export default function Home() {
     shadowCastExportMutation.mutate({ productIds });
   };
 
+  const enrichProductBriefs = () => {
+    if (selectedProducts.size > 0) {
+      queueEnrichmentMutation.mutate({ productIds: Array.from(selectedProducts) });
+      return;
+    }
+    queueEnrichmentMutation.mutate({});
+  };
+
   const selectedExportBlocked = useMemo(() => {
     if (selectedProducts.size === 0) return false;
     return Array.from(selectedProducts).some((id) => {
       const p = (productsQuery.data || []).find((row: { id: number; enrichmentStatus?: string }) => row.id === id);
-      return p?.enrichmentStatus !== "complete";
+      return !isEnrichmentExportReady(p?.enrichmentStatus);
     });
   }, [selectedProducts, productsQuery.data]);
 
@@ -569,13 +588,36 @@ export default function Home() {
                   </>
                 )}
               </Button>
+              <Button
+                onClick={enrichProductBriefs}
+                disabled={queueEnrichmentMutation.isPending || !productsQuery.data?.length}
+                variant="outline"
+                className="flex-1 md:flex-none"
+                title={
+                  selectedProducts.size > 0
+                    ? "Queue selected products (skips already enriched)"
+                    : "Queue all products (skips already enriched)"
+                }
+              >
+                {queueEnrichmentMutation.isPending ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Queuing enrichment...
+                  </>
+                ) : (
+                  <>
+                    Enrich Product Briefs
+                    {selectedProducts.size > 0 ? ` (${selectedProducts.size})` : ""}
+                  </>
+                )}
+              </Button>
               {selectedProducts.size > 0 && (
                 <Button
                   onClick={exportSelectedToShadowCast}
                   disabled={shadowCastExportMutation.isPending || selectedExportBlocked}
                   variant="outline"
                   className="flex-1 md:flex-none"
-                  title={selectedExportBlocked ? "All selected products need enrichment status complete" : undefined}
+                  title={selectedExportBlocked ? "All selected products need enrichment status complete or complete_degraded" : undefined}
                 >
                   {shadowCastExportMutation.isPending ? (
                     <>

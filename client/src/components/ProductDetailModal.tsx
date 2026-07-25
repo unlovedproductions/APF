@@ -7,6 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { BookmarkCheck, Bookmark, Copy, ExternalLink, Loader2, Download, Send } from "lucide-react";
 import { trpc } from "@/lib/trpc";
+import { isEnrichmentExportReady } from "@/lib/utils";
 import { toast } from "sonner";
 
 interface ProductDetailModalProps {
@@ -111,7 +112,7 @@ export function ProductDetailModal({ productId, open, onOpenChange }: ProductDet
     scoreComponents = null;
   }
   const enrichmentStatus = String(product.enrichmentStatus || payloadQuery.data?.review_enrichment?.status || "pending");
-  const enrichmentComplete = enrichmentStatus === "complete";
+  const enrichmentComplete = isEnrichmentExportReady(enrichmentStatus);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

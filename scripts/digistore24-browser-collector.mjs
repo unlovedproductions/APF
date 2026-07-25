@@ -5,6 +5,7 @@ import crypto from "node:crypto";
 import mysql from "mysql2/promise";
 import { chromium } from "playwright";
 import { ensureTableExists } from "./apf-db-helpers.mjs";
+import { extractDigistore24Detail, resolveProductName } from "./digistore24-detail-extractor.mjs";
 
 function loadEnv(file = ".env") {
   if (!fs.existsSync(file)) return;
@@ -298,15 +299,21 @@ async function enrichDetail(page, item) {
   }, DIGISTORE24_ID);
 
   const lines = clean(item.text || data.body, 2000).split(/\n| {2,}/).map(s => clean(s)).filter(Boolean);
-  const name = clean(data.title || lines[0] || `Digistore24 Product ${extractDetailId(item.detailUrl)}`, 255);
+  const platformProductId = extractDetailId(item.detailUrl);
+  const detail = extractDigistore24Detail({
+    title: data.title,
+    body: data.body,
+    descriptionSection: data.body,
+  });
+  const name = resolveProductName(detail.title, lines[0] || item.text, platformProductId);
 
   return {
-    platformProductId: extractDetailId(item.detailUrl),
+    platformProductId,
     detailUrl: item.detailUrl,
     name,
-    vendor: "",
-    category: "Digistore24",
-    description: clean(lines.slice(1, 8).join(" "), 2000),
+    vendor: detail.vendor || "",
+    category: detail.category || "Digistore24",
+    description: clean(detail.description || lines.slice(1, 8).join(" "), 2000),
     affiliateLink: clean(data.affiliateLink, 2000)
   };
 }

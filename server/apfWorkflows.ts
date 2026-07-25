@@ -19,6 +19,10 @@ type ScriptResult = {
   stderr: string;
 };
 
+function isEnrichmentExportReady(status: string | null | undefined) {
+  return status === "complete" || status === "complete_degraded";
+}
+
 function finiteNumber(v: unknown, fallback = 0): number {
   const n = Number(v);
   return Number.isFinite(n) ? n : fallback;
@@ -234,7 +238,7 @@ export async function exportProductsToShadowCast(
   }
 
   if (!force) {
-    const incomplete = uniqueIds.filter((id) => metaById.get(id)?.enrichmentStatus !== "complete");
+    const incomplete = uniqueIds.filter((id) => !isEnrichmentExportReady(metaById.get(id)?.enrichmentStatus));
     if (incomplete.length) {
       const names = incomplete.map((id) => {
         const meta = metaById.get(id);
@@ -291,3 +295,99 @@ export async function exportProductsToShadowCast(
     results,
   };
 }
+
+function isEnrichmentFinished(status: string | null | undefined) {
+  return status === "complete" || status === "complete_degraded";
+}
+
+/** Queue review enrichment for selected products, or all owned products if none selected. Skips finished briefs. */
+export async function queueProductsForEnrichment(
+  userId: number,
+  productIds?: number[],
+) {
+  if (!process.env.DATABASE_URL) {
+    throw new Error("DATABASE_URL missing from APF .env");
+  }
+
+  const helpersUrl = pathToFileURL(path.resolve(repoRoot(), "scripts/apf-db-helpers.mjs")).href;
+  const helpers = await import(helpersUrl) as {
+    queueReview: (conn: mysql.Connection, productId: number) => Promise<void>;
+  };
+
+  const requested = Array.from(
+    new Set((productIds || []).map((x) => finiteNumber(x)).filter((x) => x > 0)),
+  ).slice(0, 500);
+
+  const conn = await mysql.createConnection(process.env.DATABASE_URL);
+  try {
+    let rows: Array<{ id: number; name: string; enrichmentStatus: string }>;
+    if (requested.length > 0) {
+      const placeholders = requested.map(() => "?").join(",");
+      const [found] = await conn.query(
+        `SELECT
+           p.id,
+           p.name,
+           COALESCE(b.enrichment_status, 'pending') AS enrichmentStatus
+         FROM products p
+         LEFT JOIN product_review_briefs b ON b.product_id = p.id
+         WHERE p.id IN (${placeholders})
+           AND (p.userId = ? OR ? = 0)
+           AND p.deletedAt IS NULL`,
+        [...requested, userId, userId],
+      ) as [Array<{ id: number; name: string; enrichmentStatus: string }>, unknown];
+      rows = found;
+      const foundIds = new Set(rows.map((r) => r.id));
+      const denied = requested.filter((id) => !foundIds.has(id));
+      if (denied.length) {
+        throw new Error(`Some selected products were not found for this APF user: ${denied.join(", ")}`);
+      }
+    } else {
+      const [found] = await conn.query(
+        `SELECT
+           p.id,
+           p.name,
+           COALESCE(b.enrichment_status, 'pending') AS enrichmentStatus
+         FROM products p
+         LEFT JOIN product_review_briefs b ON b.product_id = p.id
+         WHERE (p.userId = ? OR ? = 0)
+           AND p.deletedAt IS NULL
+         ORDER BY p.id
+         LIMIT 500`,
+        [userId, userId],
+      ) as [Array<{ id: number; name: string; enrichmentStatus: string }>, unknown];
+      rows = found;
+    }
+
+    const toQueue = rows.filter((r) => !isEnrichmentFinished(r.enrichmentStatus));
+    const skipped = rows.length - toQueue.length;
+
+    for (const row of toQueue) {
+      await helpers.queueReview(conn, row.id);
+    }
+
+    if (toQueue.length > 0) {
+      await runNodeScript(
+        "scripts/review-enrichment-worker.mjs",
+        ["--once"],
+        10 * 60 * 1000,
+        userId,
+      );
+    }
+
+    return {
+      success: true,
+      queued: toQueue.length,
+      skipped,
+      totalConsidered: rows.length,
+      productIds: toQueue.map((r) => r.id),
+      message: toQueue.length
+        ? `Queued ${toQueue.length} product(s) for enrichment${skipped ? ` (skipped ${skipped} already enriched)` : ""}.`
+        : skipped
+          ? `Nothing to queue — ${skipped} product(s) already enriched.`
+          : "No products found to enrich.",
+    };
+  } finally {
+    await conn.end();
+  }
+}
+

@@ -1,6 +1,7 @@
 import { Link } from "wouter";
 import { useMemo, useState } from "react";
 import { trpc } from "@/lib/trpc";
+import { isEnrichmentExportReady } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -74,7 +75,7 @@ export default function Bookmarks() {
         const bookmark = bookmarks.find(
           (b: { productId: number; enrichmentStatus?: string }) => b.productId === productId,
         );
-        return bookmark?.enrichmentStatus !== "complete";
+        return !isEnrichmentExportReady(bookmark?.enrichmentStatus);
       }),
     [selected, bookmarks],
   );
@@ -82,7 +83,7 @@ export default function Bookmarks() {
   const exportSelected = () => {
     const productIds = Array.from(selected);
     if (selectedIncomplete.length) {
-      toast.error(`${selectedIncomplete.length} selected bookmark(s) are not fully enriched (complete required).`);
+      toast.error(`${selectedIncomplete.length} selected bookmark(s) are not fully enriched (complete or complete_degraded required).`);
       return;
     }
     exportMutation.mutate({ productIds });
@@ -98,7 +99,7 @@ export default function Bookmarks() {
               variant="outline"
               onClick={exportSelected}
               disabled={selected.size === 0 || exportMutation.isPending || selectedIncomplete.length > 0}
-              title={selectedIncomplete.length ? "All selected bookmarks need enrichment status complete" : undefined}
+              title={selectedIncomplete.length ? "All selected bookmarks need enrichment status complete or complete_degraded" : undefined}
             >
               {exportMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
               Send {selected.size} to ShadowCast
