@@ -368,7 +368,7 @@ export async function queueProductsForEnrichment(
     if (toQueue.length > 0) {
       await runNodeScript(
         "scripts/review-enrichment-worker.mjs",
-        ["--once"],
+        ["--once", "--user-id", String(userId)],
         10 * 60 * 1000,
         userId,
       );

@@ -1,8 +1,17 @@
+import dns from "node:dns/promises";
+import net from "node:net";
 import * as cheerio from "cheerio";
 import { classifySourceHost } from "./enrichment-source-trust.mjs";
 
 const FETCHABLE_TIERS = new Set(["review", "scam_advisor", "retailer"]);
 const BINARY_CONTENT_RE = /(?:application\/pdf|image\/|audio\/|video\/|application\/zip|application\/octet-stream)/i;
+const BLOCKED_HOSTNAMES = new Set([
+  "localhost",
+  "metadata.google.internal",
+  "metadata",
+  "kubernetes.default",
+  "kubernetes.default.svc",
+]);
 
 function cleanText(value, limit = 8000) {
   return String(value || "").replace(/\s+/g, " ").trim().slice(0, limit);
@@ -14,6 +23,78 @@ function hostnameFromUrl(value) {
   } catch {
     return "";
   }
+}
+
+/** True when an IP must not be fetched (loopback, RFC1918, link-local, ULA, CGNAT, metadata). */
+export function isBlockedFetchIp(ip) {
+  const raw = String(ip || "").trim().toLowerCase();
+  if (!raw || !net.isIP(raw)) return true;
+
+  if (net.isIP(raw) === 4) {
+    const [a, b, c] = raw.split(".").map(Number);
+    if (a === 0 || a === 10 || a === 127) return true;
+    if (a === 169 && b === 254) return true;
+    if (a === 172 && b >= 16 && b <= 31) return true;
+    if (a === 192 && b === 168) return true;
+    if (a === 100 && b >= 64 && b <= 127) return true;
+    if (a === 192 && b === 0 && c === 0) return true;
+    if (a === 198 && (b === 18 || b === 19)) return true;
+    return false;
+  }
+
+  if (raw === "::1" || raw === "::") return true;
+  if (raw.startsWith("fc") || raw.startsWith("fd")) return true;
+  if (raw.startsWith("fe80")) return true;
+  if (raw.startsWith("::ffff:")) {
+    const mapped = raw.slice("::ffff:".length);
+    return isBlockedFetchIp(mapped);
+  }
+  return false;
+}
+
+export function isBlockedFetchHostname(hostname) {
+  const host = String(hostname || "").toLowerCase().replace(/^\[|\]$/g, "");
+  if (!host) return true;
+  if (BLOCKED_HOSTNAMES.has(host)) return true;
+  if (host.endsWith(".localhost") || host.endsWith(".local") || host.endsWith(".internal")) return true;
+  if (host === "0.0.0.0") return true;
+  return false;
+}
+
+/** Reject non-http(s), credentials, blocked hosts, and private/link-local DNS answers. */
+export async function assertSafeFetchUrl(urlString) {
+  let url;
+  try {
+    url = new URL(urlString);
+  } catch {
+    throw new Error("invalid URL");
+  }
+
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    throw new Error(`unsupported protocol: ${url.protocol}`);
+  }
+  if (url.username || url.password) {
+    throw new Error("URL credentials not allowed");
+  }
+
+  const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  if (isBlockedFetchHostname(host)) {
+    throw new Error(`blocked host: ${host}`);
+  }
+
+  if (net.isIP(host)) {
+    if (isBlockedFetchIp(host)) throw new Error(`blocked IP: ${host}`);
+    return url;
+  }
+
+  const records = await dns.lookup(host, { all: true, verbatim: true });
+  if (!records.length) throw new Error(`DNS failed for ${host}`);
+  for (const record of records) {
+    if (isBlockedFetchIp(record.address)) {
+      throw new Error(`blocked IP ${record.address} for ${host}`);
+    }
+  }
+  return url;
 }
 
 export function isHighTrustFetchCandidate(source, vendorDomains = new Set()) {
@@ -50,35 +131,52 @@ export function youtubeVideoId(value) {
 async function fetchWithLimits(url, options = {}) {
   const timeoutMs = options.timeoutMs || 8000;
   const maxBytes = options.maxBytes || 1_000_000;
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  const maxRedirects = Math.max(0, Number(options.maxRedirects ?? 5));
+  let current = String(url);
 
-  try {
-    const response = await fetch(url, {
-      redirect: "follow",
-      signal: controller.signal,
-      headers: {
-        "User-Agent": "APF-Enrichment/1.0 (+https://github.com/)",
-        "Accept": "text/html,application/xhtml+xml,application/json;q=0.8",
-      },
-    });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  for (let hop = 0; hop <= maxRedirects; hop++) {
+    await assertSafeFetchUrl(current);
 
-    const contentType = response.headers.get("content-type") || "";
-    if (BINARY_CONTENT_RE.test(contentType)) throw new Error(`unsupported content type: ${contentType}`);
-    const contentLength = Number(response.headers.get("content-length") || 0);
-    if (contentLength > maxBytes) throw new Error(`response too large: ${contentLength}`);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
-    const bytes = new Uint8Array(await response.arrayBuffer());
-    if (bytes.byteLength > maxBytes) throw new Error(`response too large: ${bytes.byteLength}`);
-    return {
-      body: new TextDecoder().decode(bytes),
-      contentType,
-      finalUrl: response.url || url,
-    };
-  } finally {
-    clearTimeout(timeout);
+    try {
+      const response = await fetch(current, {
+        redirect: "manual",
+        signal: controller.signal,
+        headers: {
+          "User-Agent": "APF-Enrichment/1.0 (+https://github.com/)",
+          "Accept": "text/html,application/xhtml+xml,application/json;q=0.8",
+        },
+      });
+
+      if ([301, 302, 303, 307, 308].includes(response.status)) {
+        const location = response.headers.get("location");
+        if (!location) throw new Error("redirect without location");
+        current = new URL(location, current).toString();
+        continue;
+      }
+
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+      const contentType = response.headers.get("content-type") || "";
+      if (BINARY_CONTENT_RE.test(contentType)) throw new Error(`unsupported content type: ${contentType}`);
+      const contentLength = Number(response.headers.get("content-length") || 0);
+      if (contentLength > maxBytes) throw new Error(`response too large: ${contentLength}`);
+
+      const bytes = new Uint8Array(await response.arrayBuffer());
+      if (bytes.byteLength > maxBytes) throw new Error(`response too large: ${bytes.byteLength}`);
+      return {
+        body: new TextDecoder().decode(bytes),
+        contentType,
+        finalUrl: response.url || current,
+      };
+    } finally {
+      clearTimeout(timeout);
+    }
   }
+
+  throw new Error(`too many redirects (>${maxRedirects})`);
 }
 
 async function fetchYouTubeMetadata(url, options = {}) {

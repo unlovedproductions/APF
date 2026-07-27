@@ -14,6 +14,15 @@ export function registerOAuthRoutes(app: Express) {
   // Local development login route.
   // This avoids requiring Manus OAuth during local Pop!_OS development.
   app.get("/api/oauth/login", async (req: Request, res: Response) => {
+    const allowLocalOauth =
+      process.env.NODE_ENV === "development" ||
+      process.env.ALLOW_LOCAL_OAUTH === "1" ||
+      process.env.ALLOW_LOCAL_OAUTH === "true";
+    if (!allowLocalOauth) {
+      res.status(404).json({ error: "Not found" });
+      return;
+    }
+
     const openId = process.env.OWNER_OPEN_ID || "local-dev-owner";
     const name = process.env.LOCAL_DEV_USER_NAME || "Local Developer";
 

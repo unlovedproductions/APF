@@ -118,7 +118,7 @@ function cliArg(name) {
 }
 
 const CLAIM_PRODUCT_ID = cliArg("--product-id");
-const CLAIM_USER_ID = cliArg("--user-id");
+const CLAIM_USER_ID = cliArg("--user-id") || Number(process.env.APF_USER_ID || "0") || 0;
 
 const DATABASE_URL = process.env.DATABASE_URL;
 const REVIEW_ENRICHMENT_PROVIDER = process.env.REVIEW_ENRICHMENT_PROVIDER || "searxng";

@@ -162,6 +162,7 @@ export const appRouter = router({
             enrichmentStatus,
           };
         } catch (error) {
+          if (error instanceof TRPCError) throw error;
           console.error("[Products] Error getting product detail:", error);
           throw new TRPCError({
             code: "INTERNAL_SERVER_ERROR",
@@ -382,6 +383,7 @@ export const appRouter = router({
           };
           return await directLib.buildPayload(input.productId);
         } catch (error) {
+          if (error instanceof TRPCError) throw error;
           console.error("[Products] Error building ShadowCast payload:", error);
           throw new TRPCError({
             code: "INTERNAL_SERVER_ERROR",
