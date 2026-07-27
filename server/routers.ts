@@ -91,13 +91,11 @@ export const appRouter = router({
       .query(async ({ input, ctx }) => {
         try {
           const products = await db.getProductsByUser(ctx.user.id, input.platform, input.limit, input.offset);
-          const withStatus = await Promise.all(
-            products.map(async (product) => ({
-              ...product,
-              enrichmentStatus: await db.getProductEnrichmentStatus(product.id),
-            })),
-          );
-          return withStatus;
+          const statusById = await db.getProductEnrichmentStatuses(products.map((product) => product.id));
+          return products.map((product) => ({
+            ...product,
+            enrichmentStatus: statusById.get(product.id) || "pending",
+          }));
         } catch (error) {
           console.error("[Products] Error listing products:", error);
           throw new TRPCError({
@@ -150,7 +148,7 @@ export const appRouter = router({
       .query(async ({ input, ctx }) => {
         try {
           const product = await db.getProductById(input.productId);
-          if (!product || (ctx.user.id !== 0 && product.userId !== ctx.user.id)) {
+          if (!product || (ctx.user.role !== "admin" && product.userId !== ctx.user.id)) {
             throw new TRPCError({
               code: "NOT_FOUND",
               message: "Product not found",
@@ -354,7 +352,9 @@ export const appRouter = router({
       }).optional())
       .mutation(async ({ input, ctx }) => {
         try {
-          return await queueProductsForEnrichment(ctx.user.id, input?.productIds);
+          return await queueProductsForEnrichment(ctx.user.id, input?.productIds, {
+            isAdmin: ctx.user.role === "admin",
+          });
         } catch (error) {
           console.error("[Products] Error queueing enrichment:", error);
           throw new TRPCError({
@@ -371,7 +371,7 @@ export const appRouter = router({
       .query(async ({ input, ctx }) => {
         try {
           const product = await db.getProductById(input.productId);
-          if (!product || (ctx.user.id !== 0 && product.userId !== ctx.user.id)) {
+          if (!product || (ctx.user.role !== "admin" && product.userId !== ctx.user.id)) {
             throw new TRPCError({
               code: "NOT_FOUND",
               message: "Product not found",
@@ -428,7 +428,7 @@ export const appRouter = router({
         try {
           // Verify product exists and belongs to user
           const product = await db.getProductById(input.productId);
-          if (!product || (ctx.user.id !== 0 && product.userId !== ctx.user.id)) {
+          if (!product || (ctx.user.role !== "admin" && product.userId !== ctx.user.id)) {
             throw new TRPCError({
               code: "NOT_FOUND",
               message: "Product not found",

@@ -51,7 +51,7 @@ function unlovedSanitizeSqlValue(v) {
 
 function unlovedSanitizeSqlText(sql) {
   if (typeof sql !== "string") return sql;
-  return sql.replace(/NaN/g, "NULL");
+  return sql.replace(/\bNaN\b/g, "NULL");
 }
 
 function unlovedPatchMysqlNanGuard(mysqlModule) {
@@ -351,15 +351,12 @@ async function ensureReviewBriefSchema(conn) {
     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'product_review_briefs'
   `);
   const existing = new Set(rows.map(r => r.COLUMN_NAME));
-
-  for (const col of REVIEW_BRIEF_COLUMNS) {
-    if (existing.has(col.name)) continue;
-    await conn.query(`ALTER TABLE product_review_briefs ${col.ddl}`);
-    console.log(`Applied schema patch: product_review_briefs.${col.name}`);
-    existing.add(col.name);
+  const missing = REVIEW_BRIEF_COLUMNS.map(col => col.name).filter(name => !existing.has(name));
+  if (missing.length) {
+    throw new Error(
+      `product_review_briefs missing columns: ${missing.join(", ")}. Run: pnpm db:push`
+    );
   }
-
-  if (!REVIEW_BRIEF_COLUMNS.every(col => existing.has(col.name))) return;
 
   const [result] = await conn.query(`
     UPDATE review_enrichment_jobs
@@ -396,6 +393,7 @@ async function enqueueMissingProducts(conn) {
     INSERT INTO review_enrichment_jobs (product_id, status, next_run_at)
     SELECT id, 'queued', NOW()
     FROM products
+    WHERE deletedAt IS NULL
     ON DUPLICATE KEY UPDATE updated_at = updated_at
   `);
 
@@ -430,7 +428,7 @@ async function claimJob(conn) {
       ${scopeSql}
     ORDER BY next_run_at ASC, id ASC
     LIMIT 1
-    FOR UPDATE
+    FOR UPDATE SKIP LOCKED
   `, scopeParams);
 
   if (!rows.length) {
@@ -555,14 +553,23 @@ async function braveSearch(query) {
 
   const json = await res.json();
 
-  return (json.web?.results || []).map(r => ({
-    source_type: "web",
-    source_name: new URL(r.url).hostname.replace(/^www\./, ""),
-    title: r.title || "",
-    url: r.url,
-    snippet: r.description || "",
-    raw_json: r
-  }));
+  return (json.web?.results || []).flatMap(r => {
+    if (!r?.url) return [];
+    let source_name;
+    try {
+      source_name = new URL(r.url).hostname.replace(/^www\./, "");
+    } catch {
+      source_name = "brave";
+    }
+    return [{
+      source_type: "web",
+      source_name,
+      title: r.title || "",
+      url: r.url,
+      snippet: r.description || "",
+      raw_json: r
+    }];
+  });
 }
 
 async function searchReviews(query) {
@@ -873,7 +880,7 @@ function fallbackBrief(product, sources, vendorMaterials = [], options = {}) {
 
   const base = {
     review_summary: `${product.name} has ${sources.length} discovered public review/search signals. Present this as a trust-first review and avoid unsupported claims.`,
-    positive_signals: positives.length ? positives : ["Public sources mention the product by name.", "APF marketplace data suggests the product is worth reviewing."],
+    positive_signals: positives,
     negative_signals: negatives.length ? negatives : ["Some review sources may be affiliate-driven.", "Claims should be verified on the current offer page."],
     common_claims: [`Positioned as a ${category} product.`, "Viewers should verify current price, details, claims, and refund terms."],
     common_complaints: ["Results may vary.", "Public review quality may be mixed or promotional."],

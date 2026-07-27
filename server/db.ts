@@ -1,4 +1,4 @@
-import { eq, and, desc, asc, like, inArray, or, sql } from "drizzle-orm";
+import { eq, and, desc, asc, like, inArray, or, sql, isNull } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import { InsertUser, users, apiCredentials, products, bookmarks, dataRefreshLogs, productReviewBriefs } from "../drizzle/schema";
 import { ENV } from './_core/env';
@@ -195,7 +195,11 @@ export async function getProductsByUser(userId: number, platform: string, limit:
 
   return db.select()
     .from(products)
-    .where(and(eq(products.userId, userId), eq(products.platform, platform)))
+    .where(and(
+      eq(products.userId, userId),
+      eq(products.platform, platform),
+      isNull(products.deletedAt),
+    ))
     .orderBy(desc(products.hiddenGemScore))
     .limit(limit)
     .offset(offset);
@@ -210,6 +214,7 @@ export async function searchProducts(userId: number, platform: string, query: st
     .where(and(
       eq(products.userId, userId),
       eq(products.platform, platform),
+      isNull(products.deletedAt),
       // Search across name, vendor, and keywords
       or(
         like(products.name, `%${query}%`),
@@ -231,6 +236,7 @@ export async function getProductsByCategory(userId: number, platform: string, ca
     .where(and(
       eq(products.userId, userId),
       eq(products.platform, platform),
+      isNull(products.deletedAt),
       like(products.category, `%${category}%`)
     ))
     .orderBy(desc(products.hiddenGemScore))
@@ -257,6 +263,24 @@ export async function getProductEnrichmentStatus(productId: number) {
     .where(eq(productReviewBriefs.productId, productId))
     .limit(1);
   return rows[0]?.enrichmentStatus || "pending";
+}
+
+export async function getProductEnrichmentStatuses(productIds: number[]) {
+  const db = await getDb();
+  const statusById = new Map<number, string>();
+  if (!db || !productIds.length) return statusById;
+
+  const rows = await db.select({
+    productId: productReviewBriefs.productId,
+    enrichmentStatus: productReviewBriefs.enrichmentStatus,
+  })
+    .from(productReviewBriefs)
+    .where(inArray(productReviewBriefs.productId, productIds));
+
+  for (const row of rows) {
+    statusById.set(row.productId, row.enrichmentStatus || "pending");
+  }
+  return statusById;
 }
 
 // ============ Bookmarks ============

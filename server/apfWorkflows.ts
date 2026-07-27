@@ -304,11 +304,13 @@ function isEnrichmentFinished(status: string | null | undefined) {
 export async function queueProductsForEnrichment(
   userId: number,
   productIds?: number[],
+  options: { isAdmin?: boolean } = {},
 ) {
   if (!process.env.DATABASE_URL) {
     throw new Error("DATABASE_URL missing from APF .env");
   }
 
+  const isAdmin = options.isAdmin === true;
   const helpersUrl = pathToFileURL(path.resolve(repoRoot(), "scripts/apf-db-helpers.mjs")).href;
   const helpers = await import(helpersUrl) as {
     queueReview: (conn: mysql.Connection, productId: number) => Promise<void>;
@@ -331,9 +333,9 @@ export async function queueProductsForEnrichment(
          FROM products p
          LEFT JOIN product_review_briefs b ON b.product_id = p.id
          WHERE p.id IN (${placeholders})
-           AND (p.userId = ? OR ? = 0)
+           AND (p.userId = ? OR ? = 1)
            AND p.deletedAt IS NULL`,
-        [...requested, userId, userId],
+        [...requested, userId, isAdmin ? 1 : 0],
       ) as [Array<{ id: number; name: string; enrichmentStatus: string }>, unknown];
       rows = found;
       const foundIds = new Set(rows.map((r) => r.id));
@@ -349,11 +351,11 @@ export async function queueProductsForEnrichment(
            COALESCE(b.enrichment_status, 'pending') AS enrichmentStatus
          FROM products p
          LEFT JOIN product_review_briefs b ON b.product_id = p.id
-         WHERE (p.userId = ? OR ? = 0)
+         WHERE (p.userId = ? OR ? = 1)
            AND p.deletedAt IS NULL
          ORDER BY p.id
          LIMIT 500`,
-        [userId, userId],
+        [userId, isAdmin ? 1 : 0],
       ) as [Array<{ id: number; name: string; enrichmentStatus: string }>, unknown];
       rows = found;
     }
@@ -366,9 +368,12 @@ export async function queueProductsForEnrichment(
     }
 
     if (toQueue.length > 0) {
+      const workerArgs = isAdmin
+        ? ["--once"]
+        : ["--once", "--user-id", String(userId)];
       await runNodeScript(
         "scripts/review-enrichment-worker.mjs",
-        ["--once", "--user-id", String(userId)],
+        workerArgs,
         10 * 60 * 1000,
         userId,
       );
