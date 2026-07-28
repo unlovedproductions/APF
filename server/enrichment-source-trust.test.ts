@@ -17,6 +17,13 @@ describe("enrichment source trust", () => {
     expect(classifySourceHost("digistore24-app.com").trust_boost).toBeLessThanOrEqual(-30);
   });
 
+  it("classifies expanded affiliate network hosts as noise", () => {
+    expect(classifySourceHost("hop.clickbank.net").tier).toBe("affiliate_noise");
+    expect(classifySourceHost("jvzoo.com").tier).toBe("affiliate_noise");
+    expect(classifySourceHost("warriorplus.com").tier).toBe("affiliate_noise");
+    expect(classifySourceHost("buygoods.com").tier).toBe("affiliate_noise");
+  });
+
   it("shortens marketing titles for search queries", () => {
     expect(
       shortSearchProductName(

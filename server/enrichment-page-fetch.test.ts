@@ -3,6 +3,7 @@ import {
   assertSafeFetchUrl,
   extractMainText,
   isBlockedFetchIp,
+  isContentCacheFresh,
   isHighTrustFetchCandidate,
   youtubeVideoId,
 } from "../scripts/enrichment-page-fetch.mjs";
@@ -74,5 +75,21 @@ describe("enrichment page fetch", () => {
     expect(isHighTrustFetchCandidate({
       url: "https://www.youtube.com/watch?v=abc123",
     })).toBe(true);
+  });
+
+  it("expires content_text cache without fetched_at or when older than TTL", () => {
+    expect(isContentCacheFresh({
+      content_text: "x".repeat(100),
+    })).toBe(false);
+
+    expect(isContentCacheFresh({
+      content_text: "x".repeat(100),
+      fetched_at: new Date().toISOString(),
+    }, { maxAgeDays: 14 })).toBe(true);
+
+    expect(isContentCacheFresh({
+      content_text: "x".repeat(100),
+      fetched_at: new Date(Date.now() - 20 * 24 * 60 * 60 * 1000).toISOString(),
+    }, { maxAgeDays: 14 })).toBe(false);
   });
 });

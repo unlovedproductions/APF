@@ -190,10 +190,27 @@ export function finalizeBrief(product, brief, sources = [], options = {}) {
 }
 
 export function shouldForceDegraded(options = {}, coverage = {}) {
+  const noReviewSources = Array.isArray(options.reviewSources)
+    && options.reviewSources.length === 0;
   return Boolean(
     options.identityUnresolved
     || options.degraded
     || options.searchSuspended
+    || noReviewSources
     || (!coverage.has_independent_review && !coverage.has_vendor_material),
   );
+}
+
+/** Redact secrets and truncate provider bodies before persisting job errors. */
+export function sanitizeJobErrorMessage(err, limit = 500) {
+  let msg = String(err?.message || err || "unknown error").replace(/\s+/g, " ").trim();
+  msg = msg.replace(/Bearer\s+[A-Za-z0-9._\-]+/gi, "Bearer [redacted]");
+  msg = msg.replace(/api[_-]?key[=:\s]+\S+/gi, "api_key=[redacted]");
+  msg = msg.replace(/DATABASE_URL[=:\s]+\S+/gi, "DATABASE_URL=[redacted]");
+  msg = msg.replace(/sk-[A-Za-z0-9]{10,}/g, "[redacted]");
+  // Drop trailing JSON/HTML response bodies after status text.
+  msg = msg.replace(/:\s*\{.*$/u, "");
+  msg = msg.replace(/:\s*<[!a-zA-Z].*$/u, "");
+  if (msg.length > limit) return `${msg.slice(0, limit)}…`;
+  return msg || "unknown error";
 }

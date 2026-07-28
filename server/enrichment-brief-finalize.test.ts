@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   finalizeBrief,
+  sanitizeJobErrorMessage,
   sanitizeNarrativeString,
   serverEvidenceCoverage,
   shouldForceDegraded,
@@ -85,6 +86,38 @@ describe("enrichment brief finalize", () => {
       { hasVendorMaterial: true, reviewSources: [], searchSuspended: true },
     );
     expect(brief.confidence_score).toBeLessThanOrEqual(40);
+  });
+
+  it("forces degrade when independent reviewSources are empty", () => {
+    const coverage = serverEvidenceCoverage(
+      [{ url: "https://vendor.example/x", source_type: "vendor" }],
+      { hasVendorMaterial: true, resolvedProductName: "Genius Wave" },
+    );
+    expect(
+      shouldForceDegraded(
+        { reviewSources: [], hasVendorMaterial: true },
+        coverage,
+      ),
+    ).toBe(true);
+    expect(
+      shouldForceDegraded(
+        {
+          reviewSources: [{ url: "https://www.trustpilot.com/review/x" }],
+          hasVendorMaterial: true,
+        },
+        { has_independent_review: true, has_vendor_material: true },
+      ),
+    ).toBe(false);
+  });
+
+  it("sanitizes provider error bodies and secrets from job messages", () => {
+    expect(
+      sanitizeJobErrorMessage("Ollama failed 500: {\"error\":\"secret stack\"}"),
+    ).not.toContain("secret stack");
+    expect(
+      sanitizeJobErrorMessage("Brave 401: Bearer sk-abcdefghijklmnopqrstuv"),
+    ).toMatch(/redacted/i);
+    expect(sanitizeJobErrorMessage("plain timeout").length).toBeLessThanOrEqual(500);
   });
 
   it("sanitizeNarrativeString drops affiliate meta", () => {

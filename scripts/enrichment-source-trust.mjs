@@ -10,7 +10,17 @@ export const SERIES_NAMES = {
 const RETAILERS = new Set(["amazon.com", "walmart.com", "target.com", "bestbuy.com", "costco.com", "homedepot.com"]);
 const REVIEW_SITES = new Set(["trustpilot.com", "sitejabber.com", "reddit.com"]);
 const SCAM_ADVISORS = new Set(["scamadvisor.com", "scam-detector.com", "bbb.org"]);
-const AFFILIATE_NOISE_HOSTS = new Set(["digistore24-app.com"]);
+const AFFILIATE_NOISE_HOSTS = new Set([
+  "digistore24-app.com",
+  "digistore24-static.com",
+  "clickbank.com",
+  "hop.clickbank.net",
+  "jvzoo.com",
+  "warriorplus.com",
+  "paykickstart.com",
+  "buygoods.com",
+  "gurullc.com",
+]);
 
 const AFFILIATE_META_RE = /commission rate|earn commission|\d+%\s*commission|affiliates? are seeing|\bepc\b|average epcs?|promoting this|promote now|promote advanced|keyword.?bidding|keywords cannot include|compliance guidelines|dashboard\s+marketplace\s+analytics|skip to (?:main )?content|digistore24 promote|marketplace analytics sales|you will not get paid any commissions?|review legal (?:terms|notice)|privacy policy terms & conditions|jv\b|upsells? with \d+%\s*commission/i;
 const SYNTHETIC_COMPETITOR_RE = /^(top|popular|budget)\s+.+\s+(alternative|competitor|option)$/i;
@@ -70,7 +80,7 @@ export function classifySourceHost(host) {
   if (matchesDomain(normalized, new Set(["youtube.com", "youtu.be"]))) {
     return { source_type: "web", trust_boost: 10, tier: "video" };
   }
-  if (/clickbank|jvzoo|warriorplus|promolink|\bhop\.|affiliate/.test(normalized)) {
+  if (/clickbank|jvzoo|warriorplus|promolink|\bhop\.|affiliate|paykickstart|buygoods|cbengine|maxweb|everflow/.test(normalized)) {
     return { source_type: "web", trust_boost: -25, tier: "affiliate_noise" };
   }
   return { source_type: "web", trust_boost: 0, tier: "web" };

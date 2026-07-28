@@ -135,6 +135,23 @@ export function isHighTrustFetchCandidate(source, vendorDomains = new Set()) {
   return FETCHABLE_TIERS.has(tier) || vendorDomains.has(host);
 }
 
+/**
+ * True when cached page text is long enough and younger than maxAgeMs.
+ * Missing fetched_at → treat as stale so refresh jobs re-fetch.
+ */
+export function isContentCacheFresh(rawJson = {}, options = {}) {
+  if (options.forceRefresh) return false;
+  const text = cleanText(rawJson?.content_text, options.textLimit || 8000);
+  if (text.length < 80) return false;
+  const maxAgeMs = Number(
+    options.maxAgeMs
+    ?? (Number(options.maxAgeDays || 14) * 24 * 60 * 60 * 1000),
+  );
+  const fetchedAt = Date.parse(String(rawJson?.fetched_at || ""));
+  if (!Number.isFinite(fetchedAt)) return false;
+  return (Date.now() - fetchedAt) <= maxAgeMs;
+}
+
 export function extractMainText(html, limit = 8000) {
   const $ = cheerio.load(String(html || ""));
   $("script, style, noscript, svg, canvas, iframe, nav, footer, header, form, aside, .ads, .advertisement, [role='navigation'], [role='banner'], [role='contentinfo']").remove();
@@ -314,9 +331,8 @@ export async function enrichSourceContent(source, options = {}) {
   const rawJson = source?.raw_json && typeof source.raw_json === "object"
     ? source.raw_json
     : {};
-  const cachedText = cleanText(rawJson.content_text, options.textLimit || 8000);
-  const cacheUsable = cachedText.length >= 80 && !options.forceRefresh;
-  if (cacheUsable) {
+  if (isContentCacheFresh(rawJson, options)) {
+    const cachedText = cleanText(rawJson.content_text, options.textLimit || 8000);
     return { ...source, raw_json: { ...rawJson, content_text: cachedText } };
   }
 
