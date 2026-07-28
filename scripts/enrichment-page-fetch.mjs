@@ -3,15 +3,18 @@ import net from "node:net";
 import * as cheerio from "cheerio";
 import { classifySourceHost } from "./enrichment-source-trust.mjs";
 
-const FETCHABLE_TIERS = new Set(["review", "scam_advisor", "retailer"]);
+const FETCHABLE_TIERS = new Set(["review", "scam_advisor", "retailer", "video"]);
 const BINARY_CONTENT_RE = /(?:application\/pdf|image\/|audio\/|video\/|application\/zip|application\/octet-stream)/i;
 const BLOCKED_HOSTNAMES = new Set([
   "localhost",
   "metadata.google.internal",
   "metadata",
+  "metadata.azure.com",
   "kubernetes.default",
   "kubernetes.default.svc",
 ]);
+/** Azure Instance Metadata Service — not covered by RFC1918 checks alone. */
+const BLOCKED_EXPLICIT_IPS = new Set(["168.63.129.16"]);
 
 function cleanText(value, limit = 8000) {
   return String(value || "").replace(/\s+/g, " ").trim().slice(0, limit);
@@ -29,6 +32,7 @@ function hostnameFromUrl(value) {
 export function isBlockedFetchIp(ip) {
   const raw = String(ip || "").trim().toLowerCase();
   if (!raw || !net.isIP(raw)) return true;
+  if (BLOCKED_EXPLICIT_IPS.has(raw)) return true;
 
   if (net.isIP(raw) === 4) {
     const [a, b, c] = raw.split(".").map(Number);
@@ -61,7 +65,10 @@ export function isBlockedFetchHostname(hostname) {
   return false;
 }
 
-/** Reject non-http(s), credentials, blocked hosts, and private/link-local DNS answers. */
+/**
+ * Reject non-http(s), credentials, blocked hosts, and private/link-local DNS answers.
+ * Returns { url, addresses } so callers can re-check DNS immediately before connect (rebinding mitigation).
+ */
 export async function assertSafeFetchUrl(urlString) {
   let url;
   try {
@@ -84,17 +91,42 @@ export async function assertSafeFetchUrl(urlString) {
 
   if (net.isIP(host)) {
     if (isBlockedFetchIp(host)) throw new Error(`blocked IP: ${host}`);
-    return url;
+    return { url, addresses: [host] };
   }
 
   const records = await dns.lookup(host, { all: true, verbatim: true });
   if (!records.length) throw new Error(`DNS failed for ${host}`);
+  const addresses = [];
   for (const record of records) {
     if (isBlockedFetchIp(record.address)) {
       throw new Error(`blocked IP ${record.address} for ${host}`);
     }
+    addresses.push(record.address);
   }
-  return url;
+  return { url, addresses };
+}
+
+/** Second DNS pass immediately before connect; fails closed if answers diverge into a blocked IP. */
+export async function assertDnsStable(hostname, priorAddresses = []) {
+  const host = String(hostname || "").toLowerCase().replace(/^\[|\]$/g, "");
+  if (!host || net.isIP(host)) return priorAddresses;
+  const records = await dns.lookup(host, { all: true, verbatim: true });
+  if (!records.length) throw new Error(`DNS failed for ${host}`);
+  const addresses = [];
+  for (const record of records) {
+    if (isBlockedFetchIp(record.address)) {
+      throw new Error(`blocked IP ${record.address} for ${host} (rebinding check)`);
+    }
+    addresses.push(record.address);
+  }
+  if (priorAddresses.length) {
+    const prior = new Set(priorAddresses);
+    const overlap = addresses.some((ip) => prior.has(ip));
+    if (!overlap) {
+      throw new Error(`DNS answers changed for ${host} (possible rebinding)`);
+    }
+  }
+  return addresses;
 }
 
 export function isHighTrustFetchCandidate(source, vendorDomains = new Set()) {
@@ -139,7 +171,8 @@ async function fetchWithLimits(url, options = {}) {
   let current = String(url);
 
   for (let hop = 0; hop <= maxRedirects; hop++) {
-    await assertSafeFetchUrl(current);
+    const safe = await assertSafeFetchUrl(current);
+    await assertDnsStable(safe.url.hostname, safe.addresses);
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
@@ -282,7 +315,8 @@ export async function enrichSourceContent(source, options = {}) {
     ? source.raw_json
     : {};
   const cachedText = cleanText(rawJson.content_text, options.textLimit || 8000);
-  if (cachedText) {
+  const cacheUsable = cachedText.length >= 80 && !options.forceRefresh;
+  if (cacheUsable) {
     return { ...source, raw_json: { ...rawJson, content_text: cachedText } };
   }
 

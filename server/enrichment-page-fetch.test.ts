@@ -60,11 +60,19 @@ describe("enrichment page fetch", () => {
     expect(isBlockedFetchIp("10.0.0.5")).toBe(true);
     expect(isBlockedFetchIp("192.168.1.10")).toBe(true);
     expect(isBlockedFetchIp("169.254.169.254")).toBe(true);
+    expect(isBlockedFetchIp("168.63.129.16")).toBe(true);
     expect(isBlockedFetchIp("8.8.8.8")).toBe(false);
 
     await expect(assertSafeFetchUrl("http://127.0.0.1/")).rejects.toThrow(/blocked/i);
     await expect(assertSafeFetchUrl("http://192.168.0.1/x")).rejects.toThrow(/blocked/i);
+    await expect(assertSafeFetchUrl("http://168.63.129.16/")).rejects.toThrow(/blocked/i);
     await expect(assertSafeFetchUrl("file:///etc/passwd")).rejects.toThrow(/unsupported protocol/i);
     await expect(assertSafeFetchUrl("http://localhost/")).rejects.toThrow(/blocked/i);
+  });
+
+  it("treats youtube as a high-trust fetch candidate", () => {
+    expect(isHighTrustFetchCandidate({
+      url: "https://www.youtube.com/watch?v=abc123",
+    })).toBe(true);
   });
 });

@@ -12,7 +12,7 @@ const REVIEW_SITES = new Set(["trustpilot.com", "sitejabber.com", "reddit.com"])
 const SCAM_ADVISORS = new Set(["scamadvisor.com", "scam-detector.com", "bbb.org"]);
 const AFFILIATE_NOISE_HOSTS = new Set(["digistore24-app.com"]);
 
-const AFFILIATE_META_RE = /commission rate|earn commission|affiliates? are seeing|\bepc\b|promoting this|promote now|keyword.?bidding|compliance guidelines|dashboard\s+marketplace\s+analytics|skip to content digistore|marketplace analytics sales/i;
+const AFFILIATE_META_RE = /commission rate|earn commission|\d+%\s*commission|affiliates? are seeing|\bepc\b|average epcs?|promoting this|promote now|promote advanced|keyword.?bidding|keywords cannot include|compliance guidelines|dashboard\s+marketplace\s+analytics|skip to (?:main )?content|digistore24 promote|marketplace analytics sales|you will not get paid any commissions?|review legal (?:terms|notice)|privacy policy terms & conditions|jv\b|upsells? with \d+%\s*commission/i;
 const SYNTHETIC_COMPETITOR_RE = /^(top|popular|budget)\s+.+\s+(alternative|competitor|option)$/i;
 
 function matchesDomain(host, domains) {
