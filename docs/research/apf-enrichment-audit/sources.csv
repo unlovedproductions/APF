@@ -1,0 +1,12 @@
+id,slug,type,credibility,recency,bias,url_or_path,used_for
+01,live-mysql-dqs,primary,5,5,0,mysql://local product_review_*,H1-H4 DQS
+02,enrichment-improvements-doc,primary,5,5,1,docs/enrichment-improvements.md,baseline gaps
+03,review-enrichment-worker,primary,5,5,0,scripts/review-enrichment-worker.mjs,gates + override bug
+04,enrichment-page-fetch,primary,5,5,0,scripts/enrichment-page-fetch.mjs,SSRF + content fetch
+05,enrichment-source-trust,primary,5,5,0,scripts/enrichment-source-trust.mjs,trust tiers + split
+06,adversarial-review,primary,4,5,1,session adversarial personas,BLOCK findings
+07,rag-faithfulness-layers,industry,3,4,2,https://www.bestaiweb.ai/citation-generation-confidence-scoring-and-abstention-the-components-of-rag-faithfulness-systems/,H2 abstention
+08,boundev-rag-hallucinations,industry,3,4,2,https://www.boundev.ai/blog/reduce-llm-hallucinations-production-rag,server-side gates
+09,editorial-claim-separation,industry,3,4,1,https://clearhormones.com/methodology,vendor vs independent weight
+10,r3-editorial-independence,industry,3,4,1,https://www.r3recs.com/methodology/editorial-independence,score before monetize
+11,verified-misguidance,academic,4,5,1,https://www.alphaxiv.org/abs/2605.28565,citation theater
