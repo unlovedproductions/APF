@@ -38,6 +38,8 @@ APF dev server default: **http://localhost:3001** (`PORT=3001` in desktop launch
 REVIEW_ENRICHMENT_ENABLED=true
 REVIEW_ENRICHMENT_PROVIDER=searxng
 SEARXNG_BASE_URL=http://localhost:8088
+# If SearXNG engines stay CAPTCHA/rate-limited: docker restart unloved-searxng, wait,
+# or set REVIEW_ENRICHMENT_PROVIDER=brave + BRAVE_SEARCH_API_KEY
 OLLAMA_BASE_URL=http://localhost:11434
 SHADOWCAST_BASE_URL=http://localhost:8000
 INTERNAL_SERVICE_SECRET=change-me-local-secret

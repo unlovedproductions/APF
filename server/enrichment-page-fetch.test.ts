@@ -44,6 +44,17 @@ describe("enrichment page fetch", () => {
     expect(youtubeVideoId("https://example.com/video")).toBe("");
   });
 
+  it("prefers review-body selectors over chrome", () => {
+    const text = extractMainText(`
+      <html><body>
+        <aside class="ads">Buy now affiliate</aside>
+        <div itemprop="reviewBody"><p>Real user complaint about shipping.</p></div>
+      </body></html>
+    `);
+    expect(text).toContain("Real user complaint about shipping.");
+    expect(text).not.toContain("Buy now affiliate");
+  });
+
   it("blocks private and loopback fetch targets", async () => {
     expect(isBlockedFetchIp("127.0.0.1")).toBe(true);
     expect(isBlockedFetchIp("10.0.0.5")).toBe(true);

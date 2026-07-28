@@ -8,12 +8,27 @@ import {
   extractCompetitorNamesFromText,
   normalizeSuggestedCompetitors,
   looksPhysicalRetailCategory,
+  shortSearchProductName,
 } from "../scripts/enrichment-source-trust.mjs";
 
 describe("enrichment source trust", () => {
   it("classifies digistore24-app as affiliate noise", () => {
     expect(classifySourceHost("www.digistore24-app.com").tier).toBe("affiliate_noise");
     expect(classifySourceHost("digistore24-app.com").trust_boost).toBeLessThanOrEqual(-30);
+  });
+
+  it("shortens marketing titles for search queries", () => {
+    expect(
+      shortSearchProductName(
+        "Joseph's Well – Blockbuster Offer From Top Diamond Vendor Book (printed)",
+      ),
+    ).toBe("Joseph's Well");
+    expect(
+      shortSearchProductName("Primal Grow Pro - Top Male Enhancement Solution Supplements"),
+    ).toBe("Primal Grow Pro");
+    expect(shortSearchProductName("CircO2 Nitric Oxide Booster Supplements")).toBe(
+      "CircO2 Nitric Oxide Booster Supplements",
+    );
   });
 
   it("builds digistore queries from resolved product name, not marketplace brand", () => {
@@ -25,14 +40,30 @@ describe("enrichment source trust", () => {
     expect(queries.some((q) => q.includes('"Joseph\'s Well" review'))).toBe(true);
     expect(queries.every((q) => !/"Digistore24"/.test(q))).toBe(true);
     expect(queries.some((q) => q.includes("site:amazon.com"))).toBe(false);
+    expect(queries.length).toBeLessThanOrEqual(12);
+  });
+
+  it("caps digistore and competitor query counts", () => {
+    const evidence = digistoreEvidenceQueries(
+      { name: "CircO2", category: "Nitric Oxide Supplements", vendor: "vendor.example" },
+      { maxProduct: 8, maxVendor: 4 },
+    );
+    expect(evidence.length).toBeLessThanOrEqual(12);
+    expect(evidence.filter((q) => q.includes("vendor.example")).length).toBeLessThanOrEqual(4);
+
+    const competitors = competitorEvidenceQueries({ name: "CircO2", category: "Health" }, { max: 2 });
+    expect(competitors).toEqual(['"CircO2" vs', '"CircO2" alternative']);
   });
 
   it("includes retail site queries only for physical/retail categories", () => {
     expect(looksPhysicalRetailCategory("Nitric Oxide Supplements")).toBe(true);
-    const queries = digistoreEvidenceQueries({
-      name: "CircO2",
-      category: "Nitric Oxide Supplements",
-    });
+    const queries = digistoreEvidenceQueries(
+      {
+        name: "CircO2",
+        category: "Nitric Oxide Supplements",
+      },
+      { maxProduct: 16, maxVendor: 0 },
+    );
     expect(queries.some((q) => q.includes("site:amazon.com"))).toBe(true);
   });
 

@@ -23,6 +23,37 @@ function quoted(value) {
   return `"${String(value || "").replace(/"/g, "").trim()}"`;
 }
 
+/** Shorten marketing titles for search queries only (keep full name for briefs). */
+export function shortSearchProductName(name, maxLen = 40) {
+  const text = String(name || "").replace(/\s+/g, " ").trim();
+  if (!text) return "";
+  if (text.length <= maxLen) return text;
+
+  const beforeDelimiter = text.split(/\s+[–—|:]\s+|\s+-\s+/)[0].trim();
+  if (beforeDelimiter.length >= 3 && beforeDelimiter.length <= maxLen) {
+    return beforeDelimiter;
+  }
+  if (beforeDelimiter.length > maxLen) {
+    const tokens = beforeDelimiter.split(/\s+/).filter(Boolean);
+    let out = "";
+    for (let i = 0; i < Math.min(5, tokens.length); i++) {
+      const next = out ? `${out} ${tokens[i]}` : tokens[i];
+      if (i >= 2 && next.length > maxLen) break;
+      out = next;
+    }
+    return out.slice(0, maxLen).trim() || beforeDelimiter.slice(0, maxLen).trim();
+  }
+
+  const tokens = text.split(/\s+/).filter(Boolean);
+  let out = "";
+  for (let i = 0; i < Math.min(5, tokens.length); i++) {
+    const next = out ? `${out} ${tokens[i]}` : tokens[i];
+    if (i >= 2 && next.length > maxLen) break;
+    out = next;
+  }
+  return out.slice(0, maxLen).trim() || text.slice(0, maxLen).trim();
+}
+
 export function looksPhysicalRetailCategory(category) {
   return /\b(supplements?|vitamins?|capsules?|pills?|powder|cream|oil|device|gadget|apparel|clothing|shoes?|books?|print(?:ed)?|physical|retail|grocery|food|beauty|skincare|fitness.?gear)\b/i
     .test(String(category || ""));
@@ -85,24 +116,27 @@ export function seriesNameForStyle(style) {
   return SERIES_NAMES[String(style || "").toLowerCase()] || SERIES_NAMES.honest_review;
 }
 
-export function digistoreEvidenceQueries(product = {}) {
+export function digistoreEvidenceQueries(product = {}, options = {}) {
+  const maxProduct = Math.max(1, Number(options.maxProduct ?? 8));
+  const maxVendor = Math.max(0, Number(options.maxVendor ?? 4));
   const name = quoted(product.name);
   const vendor = product.vendor ? quoted(product.vendor) : "";
   const includeRetail = looksPhysicalRetailCategory(product.category);
+  // Prefer high-signal review hosts first; retail sites only when category looks physical.
   const productQueries = [
     `site:trustpilot.com ${name}`,
-    `site:sitejabber.com ${name}`,
     `site:reddit.com ${name}`,
-    `site:bbb.org ${name}`,
-    `site:scamadvisor.com ${name}`,
-    `site:scam-detector.com ${name}`,
     `site:youtube.com ${name} review`,
     `${name} review`,
-    `${name} worth it`,
     `${name} complaints`,
     `${name} scam`,
     `${name} refund`,
     `${name} price`,
+    `site:sitejabber.com ${name}`,
+    `site:bbb.org ${name}`,
+    `site:scamadvisor.com ${name}`,
+    `site:scam-detector.com ${name}`,
+    `${name} worth it`,
     product.category && !/digistore24?\s*marketplace/i.test(String(product.category))
       ? `${name} ${quoted(product.category)} review`
       : "",
@@ -121,11 +155,14 @@ export function digistoreEvidenceQueries(product = {}) {
     `${vendor} scam`,
     `${vendor} complaints`,
   ] : [];
-  const productRoom = Math.max(0, 16 - vendorQueries.length);
-  return [...productQueries.slice(0, productRoom), ...vendorQueries].slice(0, 16);
+  return [
+    ...productQueries.slice(0, maxProduct),
+    ...vendorQueries.slice(0, maxVendor),
+  ];
 }
 
-export function digistoreVendorQueries(vendor) {
+export function digistoreVendorQueries(vendor, options = {}) {
+  const max = Math.max(0, Number(options.max ?? 4));
   const raw = String(vendor || "").trim();
   if (!raw || /digistore24?/i.test(raw)) return [];
   const name = quoted(raw);
@@ -139,10 +176,11 @@ export function digistoreVendorQueries(vendor) {
     `${name} complaints`,
     `${name} scam`,
     `${name} reviews`,
-  ];
+  ].slice(0, max);
 }
 
-export function competitorEvidenceQueries(product = {}) {
+export function competitorEvidenceQueries(product = {}, options = {}) {
+  const max = Math.max(1, Number(options.max ?? 5));
   const name = quoted(product.name);
   if (name === '""') return [];
   const category = String(product.category || "").trim();
@@ -155,7 +193,7 @@ export function competitorEvidenceQueries(product = {}) {
   if (category && !/digistore24?\s*marketplace/i.test(category)) {
     queries.push(`${quoted(category)} alternatives`);
   }
-  return queries;
+  return queries.slice(0, max);
 }
 
 function cleanCompetitorName(value) {

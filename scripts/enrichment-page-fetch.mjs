@@ -105,9 +105,13 @@ export function isHighTrustFetchCandidate(source, vendorDomains = new Set()) {
 
 export function extractMainText(html, limit = 8000) {
   const $ = cheerio.load(String(html || ""));
-  $("script, style, noscript, svg, canvas, iframe, nav, footer, header, form").remove();
-  const root = $("main, article, [role='main']").first();
-  const content = root.length ? root : $("body");
+  $("script, style, noscript, svg, canvas, iframe, nav, footer, header, form, aside, .ads, .advertisement, [role='navigation'], [role='banner'], [role='contentinfo']").remove();
+
+  const preferred = $(
+    "[itemprop='reviewBody'], .review-content, .reviewText, .review-body, "
+    + "[data-service-review-text-typography], main article, article, main, [role='main']",
+  ).first();
+  const content = preferred.length ? preferred : ($("main, article").first().length ? $("main, article").first() : $("body"));
   content.find("h1, h2, h3, h4, h5, h6, p, li, blockquote, section, div, br").append(" ");
   return cleanText(content.text(), limit);
 }
@@ -195,6 +199,84 @@ async function fetchYouTubeMetadata(url, options = {}) {
   };
 }
 
+function parseTimedTextXml(xml) {
+  const $ = cheerio.load(String(xml || ""), { xmlMode: true });
+  const chunks = [];
+  $("text").each((_, el) => {
+    const piece = cleanText($(el).text(), 2000);
+    if (piece) chunks.push(piece);
+  });
+  return cleanText(chunks.join(" "), 8000);
+}
+
+/** Prefer TranscriptAPI when keyed; else YouTube timedtext (no new deps). */
+export async function fetchYouTubeTranscript(videoId, options = {}) {
+  const id = String(videoId || "").trim();
+  if (!id) return "";
+
+  const apiKey = process.env.TRANSCRIPT_API_KEY || "";
+  if (apiKey) {
+    try {
+      const endpoint = new URL("https://transcriptapi.com/api/v2/youtube/transcript");
+      endpoint.searchParams.set("video_url", `https://www.youtube.com/watch?v=${id}`);
+      endpoint.searchParams.set("format", "text");
+      endpoint.searchParams.set("include_timestamp", "false");
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), options.timeoutMs || 8000);
+      try {
+        const res = await fetch(endpoint, {
+          signal: controller.signal,
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            "User-Agent": "APF-Enrichment/1.0",
+          },
+        });
+        if (res.ok) {
+          const payload = await res.json().catch(() => null);
+          const text = cleanText(
+            payload?.transcript || payload?.text || payload?.data?.transcript || "",
+            options.textLimit || 8000,
+          );
+          if (text) return text;
+        }
+      } finally {
+        clearTimeout(timeout);
+      }
+    } catch {
+      // fall through to timedtext
+    }
+  }
+
+  try {
+    const listUrl = `https://www.youtube.com/api/timedtext?type=list&v=${encodeURIComponent(id)}`;
+    const list = await fetchWithLimits(listUrl, {
+      timeoutMs: options.timeoutMs,
+      maxBytes: 200_000,
+    });
+    const $ = cheerio.load(list.body, { xmlMode: true });
+    let lang = "";
+    $("track").each((_, el) => {
+      if (lang) return;
+      const code = String($(el).attr("lang_code") || "");
+      if (/^en/i.test(code) || $(el).attr("lang_default") === "true") lang = code;
+    });
+    if (!lang) {
+      const first = $("track").first().attr("lang_code");
+      if (first) lang = first;
+    }
+    if (!lang) return "";
+
+    const trackUrl = `https://www.youtube.com/api/timedtext?lang=${encodeURIComponent(lang)}&v=${encodeURIComponent(id)}`;
+    const track = await fetchWithLimits(trackUrl, {
+      timeoutMs: options.timeoutMs,
+      maxBytes: 1_000_000,
+    });
+    return parseTimedTextXml(track.body).slice(0, options.textLimit || 8000);
+  } catch {
+    return "";
+  }
+}
+
 export async function enrichSourceContent(source, options = {}) {
   const rawJson = source?.raw_json && typeof source.raw_json === "object"
     ? source.raw_json
@@ -208,6 +290,7 @@ export async function enrichSourceContent(source, options = {}) {
   try {
     if (videoId) {
       const metadata = await fetchYouTubeMetadata(source.url, options);
+      const transcript = await fetchYouTubeTranscript(videoId, options);
       return {
         ...source,
         title: metadata.video_title || source.title,
@@ -215,6 +298,13 @@ export async function enrichSourceContent(source, options = {}) {
           ...rawJson,
           ...metadata,
           youtube_video_id: videoId,
+          content_text: transcript || cleanText(
+            [metadata.video_title, metadata.channel_name, source.snippet]
+              .filter(Boolean)
+              .join(" — "),
+            options.textLimit || 8000,
+          ),
+          transcript_fetched: Boolean(transcript),
           fetched_at: new Date().toISOString(),
         },
       };

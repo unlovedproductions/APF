@@ -23,10 +23,14 @@ Rules:
 - Explicitly ban affiliate compliance text, keyword-bidding rules, Digistore nav chrome, commission/EPC language.
 - Do not invent facts.
 - Avoid affiliate-marketer language like "promote", "commission", "JV", or "hidden gem".
+- All of these fields MUST be plain JSON strings (not objects, not nested maps): review_summary, target_audience, who_it_may_help, who_should_skip_it, cta_guidance, price_display, price_comparison, series_name, coupon_code, recommended_content_style.
+- All of these fields MUST be JSON arrays of plain strings: positive_signals, negative_signals, common_claims, common_complaints, best_video_angles, suggested_competitors.
 - Return only JSON with:
 review_summary, positive_signals, negative_signals, common_claims, common_complaints, target_audience, who_it_may_help, who_should_skip_it, best_video_angles, cta_guidance, confidence_score, recommended_content_style, suggested_competitors, price_display, price_comparison, series_name, coupon_code, evidence_coverage
 - recommended_content_style must be one of: honest_review, elimination, worth_it_or_waste, budget_challenge, vs_battle, standard
 - suggested_competitors must be chosen only from COMPETITOR_CANDIDATES_JSON (use [] if none are real). Never invent brand names. Never use placeholder strings like "Top X alternative".
-- price_display must describe what a buyer would pay, not affiliate payouts
+- If COMPETITOR_CANDIDATES_JSON is empty or has fewer than 2 names, prefer honest_review or worth_it_or_waste — never vs_battle or elimination.
+- price_display must describe what a buyer would pay, not affiliate payouts (examples: "$67", "Free", "See official offer page")
 - price_comparison must compare the buyer offer against category alternatives without inventing prices
 - series_name must match the selected content style, coupon_code must be an empty string when no verified coupon exists, and evidence_coverage must be a JSON object summarizing the supplied sources
+- confidence_score must be a number 0-100; keep it ≤55 when independent review sources are empty

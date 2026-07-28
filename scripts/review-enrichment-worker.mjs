@@ -27,6 +27,7 @@ import {
   normalizeSuggestedCompetitors,
   productNameTokenMatch,
   seriesNameForStyle,
+  shortSearchProductName,
   splitClaimAndReviewSources,
   stripAffiliateMetaLines,
 } from "./enrichment-source-trust.mjs";
@@ -34,6 +35,7 @@ import {
   ensureVendorProfilesTable,
   upsertVendorProfile,
 } from "./vendor-profiles.mjs";
+import { coerceLlmBriefPayload, flattenBriefValue } from "./enrichment-brief-coerce.mjs";
 import { enrichHighTrustSources } from "./enrichment-page-fetch.mjs";
 import { reapExhaustedJobs, reapStaleRunningJobs } from "./apf-db-helpers.mjs";
 
@@ -122,16 +124,28 @@ const CLAIM_USER_ID = cliArg("--user-id") || Number(process.env.APF_USER_ID || "
 
 const DATABASE_URL = process.env.DATABASE_URL;
 const REVIEW_ENRICHMENT_PROVIDER = process.env.REVIEW_ENRICHMENT_PROVIDER || "searxng";
-/** Canonical host URL — keep SearXNG on :8088 (docker maps 8088:8080). */
+/** Canonical host URL — keep SearXNG on :8088 (docker maps 8088:8080). After engine CAPTCHA/rate-limits: `docker restart unloved-searxng` and wait before bulk re-enrich. */
 const SEARXNG_BASE_URL = process.env.SEARXNG_BASE_URL || "http://localhost:8088";
 const BRAVE_SEARCH_API_KEY = process.env.BRAVE_SEARCH_API_KEY || "";
 const MAX_SOURCES = Number(process.env.REVIEW_ENRICHMENT_MAX_SOURCES || "25");
 const FULL_PAGE_SOURCE_LIMIT = Number(process.env.REVIEW_ENRICHMENT_FULL_PAGE_LIMIT || "4");
 const FULL_PAGE_FETCH_TIMEOUT_MS = Number(process.env.REVIEW_ENRICHMENT_FETCH_TIMEOUT_MS || "8000");
 const FULL_PAGE_FETCH_DELAY_MS = Number(process.env.REVIEW_ENRICHMENT_FETCH_DELAY_MS || "250");
+const SEARCH_DELAY_MS = Number(process.env.REVIEW_ENRICHMENT_SEARCH_DELAY_MS || "1500");
+const SEARCH_MAX_RETRIES = Number(process.env.REVIEW_ENRICHMENT_SEARCH_MAX_RETRIES || "2");
+const MAX_PRODUCT_QUERIES = Number(process.env.REVIEW_ENRICHMENT_MAX_QUERIES || "8");
+const MAX_VENDOR_QUERIES = Number(process.env.REVIEW_ENRICHMENT_MAX_VENDOR_QUERIES || "4");
+const MAX_COMPETITOR_QUERIES = Number(process.env.REVIEW_ENRICHMENT_MAX_COMPETITOR_QUERIES || "2");
 const REFRESH_DAYS = Number(process.env.REVIEW_ENRICHMENT_REFRESH_DAYS || "14");
 const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || "http://localhost:11434";
 const LLM_MODEL = process.env.LLM_MODEL || "qwen2.5:14b-instruct-q5_K_M";
+
+let lastSearchAt = 0;
+let searchSuspensionSeen = false;
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, Math.max(0, ms)));
+}
 
 if (!DATABASE_URL) {
   console.error("DATABASE_URL missing.");
@@ -200,10 +214,13 @@ Rules:
 - Explicitly ban affiliate compliance text, keyword-bidding rules, Digistore nav chrome, commission/EPC language.
 - Do not invent facts.
 - Avoid affiliate-marketer language like "promote", "commission", "JV", or "hidden gem".
+- All string fields (target_audience, who_it_may_help, who_should_skip_it, etc.) MUST be plain strings, not objects.
+- Array fields MUST be arrays of plain strings.
 - Return only JSON with:
 review_summary, positive_signals, negative_signals, common_claims, common_complaints, target_audience, who_it_may_help, who_should_skip_it, best_video_angles, cta_guidance, confidence_score, recommended_content_style, suggested_competitors, price_display, price_comparison, series_name, coupon_code, evidence_coverage
 - recommended_content_style must be one of: honest_review, elimination, worth_it_or_waste, budget_challenge, vs_battle, standard
 - suggested_competitors must be chosen only from COMPETITOR_CANDIDATES_JSON (use [] if none are real). Never invent brand names.
+- If fewer than 2 competitor candidates, prefer worth_it_or_waste or honest_review (not vs_battle/elimination).
 - price_display must describe what a buyer would pay, not affiliate payouts
 - price_comparison must compare the buyer offer against category alternatives without inventing prices
 - series_name must match the selected content style, coupon_code must be an empty string when no verified coupon exists, and evidence_coverage must be a JSON object summarizing the supplied sources`,
@@ -222,10 +239,12 @@ Rules:
 - Do not invent facts.
 - Use "sources suggest" or "product claims" when evidence is weak.
 - Avoid medical, financial, or guaranteed-result claims.
+- String fields MUST be plain strings; array fields MUST be arrays of plain strings.
 - Return only JSON with:
 review_summary, positive_signals, negative_signals, common_claims, common_complaints, target_audience, who_it_may_help, who_should_skip_it, best_video_angles, cta_guidance, confidence_score, recommended_content_style, suggested_competitors, price_display
 - recommended_content_style must be one of: honest_review, elimination, worth_it_or_waste, budget_challenge, vs_battle, standard
 - suggested_competitors must be chosen only from COMPETITOR_CANDIDATES_JSON (use [] if none are real). Never invent brand names.
+- If fewer than 2 competitor candidates, prefer honest_review (not vs_battle/elimination).
 - price_display must be a short human-readable price string; use APV/aggregateSales when no retail price is known, otherwise "Varies"`,
 };
 
@@ -283,7 +302,11 @@ function buildEnrichmentPrompt(isDigistore, product, sources, vendorMaterials, o
   return renderPromptTemplate(template, vars);
 }
 
-const briefString = z.union([z.string(), z.number()]).transform(v => String(v));
+const briefString = z.preprocess((value) => {
+  if (value == null) return value;
+  if (typeof value === "string" || typeof value === "number") return String(value);
+  return flattenBriefValue(value);
+}, z.string());
 const briefStringArray = z.array(briefString).optional();
 const contentStyleSchema = z.enum([
   "honest_review",
@@ -324,7 +347,8 @@ const genericBriefSchema = digistoreBriefSchema.omit({
 
 function parseAndValidateLlmBrief(raw, isDigistore) {
   const schema = isDigistore ? digistoreBriefSchema : genericBriefSchema;
-  const parsed = schema.safeParse(raw);
+  const coerced = coerceLlmBriefPayload(raw);
+  const parsed = schema.safeParse(coerced);
   if (parsed.success) return parsed.data;
 
   const issues = parsed.error.issues
@@ -512,9 +536,7 @@ async function searxngSearch(query) {
   }
 
   const json = await res.json();
-  const results = json.results || [];
-
-  return results.map(r => ({
+  const results = (json.results || []).map(r => ({
     source_type: "web",
     source_name: (() => {
       try {
@@ -528,6 +550,11 @@ async function searxngSearch(query) {
     snippet: r.content || r.description || "",
     raw_json: r
   }));
+
+  return {
+    results,
+    unresponsive_engines: json.unresponsive_engines || [],
+  };
 }
 
 async function braveSearch(query) {
@@ -572,12 +599,47 @@ async function braveSearch(query) {
   });
 }
 
-async function searchReviews(query) {
-  if (REVIEW_ENRICHMENT_PROVIDER === "searxng") {
-    return searxngSearch(query);
+async function throttleSearchGap() {
+  if (!SEARCH_DELAY_MS || !lastSearchAt) return;
+  const elapsed = Date.now() - lastSearchAt;
+  if (elapsed < SEARCH_DELAY_MS) {
+    await sleep(SEARCH_DELAY_MS - elapsed);
   }
+}
 
-  return braveSearch(query);
+async function searchReviews(query) {
+  let attempt = 0;
+  while (true) {
+    await throttleSearchGap();
+    lastSearchAt = Date.now();
+
+    let results = [];
+    let unresponsive = [];
+
+    if (REVIEW_ENRICHMENT_PROVIDER === "searxng") {
+      const packed = await searxngSearch(query);
+      results = packed.results || [];
+      unresponsive = packed.unresponsive_engines || [];
+    } else {
+      results = await braveSearch(query);
+    }
+
+    if (results.length > 0) return results;
+
+    if (unresponsive.length) {
+      searchSuspensionSeen = true;
+      console.warn(`[search] 0 hits for ${query}; unresponsive_engines=${JSON.stringify(unresponsive)}`);
+    } else {
+      console.warn(`[search] 0 hits for ${query}`);
+    }
+
+    if (attempt >= SEARCH_MAX_RETRIES) return [];
+
+    const backoffMs = attempt === 0 ? 5000 : 15000;
+    console.warn(`[search] retry ${attempt + 1}/${SEARCH_MAX_RETRIES} after ${backoffMs}ms`);
+    await sleep(backoffMs);
+    attempt += 1;
+  }
 }
 
 function scoreSource(product, source, vendorDomains = new Set()) {
@@ -1140,6 +1202,7 @@ async function markPendingApiKey(conn, job, product) {
 }
 
 async function processJob(conn, job) {
+  searchSuspensionSeen = false;
   const product = await getProduct(conn, job.product_id);
   if (!product || !product.name) throw new Error(`Product ${job.product_id} missing or has no name.`);
 
@@ -1164,6 +1227,26 @@ async function processJob(conn, job) {
     console.log(`[${product.id}] ${product.name} → ${resolvedName}`);
   }
 
+  if (
+    isDigistore
+    && resolvedName
+    && !isMarketplaceBrandName(resolvedName)
+    && !/^Digistore24 Product\b/i.test(String(resolvedName))
+    && String(product.name || "") !== String(resolvedName)
+  ) {
+    await conn.query(
+      `UPDATE products SET name=?, lastUpdatedAt=NOW() WHERE id=? AND platform='digistore24'`,
+      [String(resolvedName).slice(0, 255), product.id],
+    );
+    console.log(`[${product.id}] persisted products.name=${resolvedName}`);
+  }
+
+  const searchName = shortSearchProductName(resolvedName);
+  const searchProduct = { ...enrichProduct, name: searchName };
+  if (searchName && searchName !== String(resolvedName || "").trim()) {
+    console.log(`[${product.id}] search-name: ${searchName}`);
+  }
+
   const identityUnresolved = isDigistore && (
     isMarketplaceBrandName(resolvedName)
     || /^Digistore24 Product\b/i.test(String(resolvedName || ""))
@@ -1173,16 +1256,20 @@ async function processJob(conn, job) {
   }
 
   const collected = [];
-  const evidenceQueries = queriesFor(enrichProduct);
-  const secondaryQueryLimit = isDigistore ? digistoreEvidenceQueries(enrichProduct).length : evidenceQueries.length;
+  const evidenceQueries = isDigistore
+    ? digistoreEvidenceQueries(searchProduct, {
+      maxProduct: MAX_PRODUCT_QUERIES,
+      maxVendor: 0,
+    })
+    : queriesFor(searchProduct).slice(0, MAX_PRODUCT_QUERIES);
 
-  for (const q of evidenceQueries.slice(0, secondaryQueryLimit)) {
+  for (const q of evidenceQueries) {
     console.log(`[${enrichProduct.name}] ${q}`);
     collected.push(...await searchReviews(q));
   }
 
   const competitorHits = [];
-  for (const q of competitorEvidenceQueries(enrichProduct)) {
+  for (const q of competitorEvidenceQueries(searchProduct, { max: MAX_COMPETITOR_QUERIES })) {
     console.log(`[${enrichProduct.name}] competitor: ${q}`);
     const hits = await searchReviews(q);
     for (const hit of hits) {
@@ -1203,7 +1290,7 @@ async function processJob(conn, job) {
     : String(product.vendor || "").trim();
   if (isDigistore && creatorVendor) {
     const vendorHits = [];
-    for (const q of digistoreVendorQueries(creatorVendor)) {
+    for (const q of digistoreVendorQueries(creatorVendor, { max: MAX_VENDOR_QUERIES })) {
       console.log(`[${enrichProduct.name}] vendor: ${q}`);
       vendorHits.push(...await searchReviews(q));
     }
@@ -1273,7 +1360,8 @@ async function processJob(conn, job) {
     WHERE id=?
   `, [REFRESH_DAYS, job.id]);
 
-  console.log(`[${enrichProduct.name}] ${enrichmentStatus}: ${sources.length} web sources, ${vendorMaterials.length} vendor materials, ${competitorCandidates.length} competitor candidates`);
+  const suspensionNote = searchSuspensionSeen ? ", search_engines_suspended=true" : "";
+  console.log(`[${enrichProduct.name}] ${enrichmentStatus}: ${sources.length} web sources, ${vendorMaterials.length} vendor materials, ${competitorCandidates.length} competitor candidates${suspensionNote}`);
 }
 
 async function main() {
