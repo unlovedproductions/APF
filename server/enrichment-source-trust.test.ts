@@ -3,12 +3,14 @@ import {
   classifySourceHost,
   competitorEvidenceQueries,
   digistoreEvidenceQueries,
+  directReviewSiteCandidates,
   evidenceCoverageFromSources,
   extractCompetitorCandidatesFromHits,
   extractCompetitorNamesFromText,
   normalizeSuggestedCompetitors,
   looksPhysicalRetailCategory,
   shortSearchProductName,
+  slugifyForReviewUrl,
 } from "../scripts/enrichment-source-trust.mjs";
 
 describe("enrichment source trust", () => {
@@ -48,6 +50,20 @@ describe("enrichment source trust", () => {
     expect(queries.every((q) => !/"Digistore24"/.test(q))).toBe(true);
     expect(queries.some((q) => q.includes("site:amazon.com"))).toBe(false);
     expect(queries.length).toBeLessThanOrEqual(12);
+  });
+
+  it("builds direct review-site URL probes from product/vendor slugs", () => {
+    const probes = directReviewSiteCandidates({
+      name: "Joseph's Well",
+      vendor: "Acme Labs",
+    });
+    expect(probes.length).toBeGreaterThan(0);
+    expect(probes.length).toBeLessThanOrEqual(8);
+    expect(probes.every((p) => p.raw_json?.direct_probe === true)).toBe(true);
+    expect(probes.some((p) => /trustpilot\.com/.test(p.url))).toBe(true);
+    expect(probes.some((p) => /sitejabber\.com/.test(p.url))).toBe(true);
+    expect(probes.some((p) => /reddit\.com/.test(p.url))).toBe(true);
+    expect(slugifyForReviewUrl("Joseph's Well")).toBe("josephs-well");
   });
 
   it("caps digistore and competitor query counts", () => {

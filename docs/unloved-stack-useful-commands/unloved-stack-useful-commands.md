@@ -38,8 +38,10 @@ APF dev server default: **http://localhost:3001** (`PORT=3001` in desktop launch
 REVIEW_ENRICHMENT_ENABLED=true
 REVIEW_ENRICHMENT_PROVIDER=searxng
 SEARXNG_BASE_URL=http://localhost:8088
-# If SearXNG engines stay CAPTCHA/rate-limited: docker restart unloved-searxng, wait,
-# or set REVIEW_ENRICHMENT_PROVIDER=brave + BRAVE_SEARCH_API_KEY
+REVIEW_ENRICHMENT_SEARCH_DELAY_MS=3000
+# Free recovery after CAPTCHA/rate-limits: docker restart unloved-searxng, wait,
+# probe until hits return, then re-enrich slowly (DELAY_MS>=3000, MAX_RETRIES=1).
+# Brave Search API is optional/paid-adjacent — not required for free-only.
 OLLAMA_BASE_URL=http://localhost:11434
 SHADOWCAST_BASE_URL=http://localhost:8000
 INTERNAL_SERVICE_SECRET=change-me-local-secret
@@ -62,6 +64,9 @@ cd ~/searxng
 docker compose up -d            # starts unloved-searxng on :8088
 docker compose down             # stop
 docker restart unloved-searxng  # restart existing container
+# After restart, wait then probe before bulk re-enrich:
+# curl -fsS 'http://localhost:8088/search?q=test&format=json' | python3 -c 'import sys,json;d=json.load(sys.stdin);print(len(d.get("results")or[]),d.get("unresponsive_engines"))'
+# Slow re-enrich: REVIEW_ENRICHMENT_SEARCH_DELAY_MS=4000 REVIEW_ENRICHMENT_SEARCH_MAX_RETRIES=1
 
 # Ollama (enrichment + ShadowCast LLM)
 ollama serve &                  # skip if already running

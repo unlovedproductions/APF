@@ -392,3 +392,68 @@ export function productNameTokenMatch(haystack, productName) {
   const hits = tokens.filter((t) => hay.includes(t)).length;
   return hits >= Math.min(2, tokens.length);
 }
+
+/** URL-safe slug for review-site path guesses (free SERP-less discovery). */
+export function slugifyForReviewUrl(value, maxLen = 64) {
+  return String(value || "")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/['']/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, maxLen);
+}
+
+/**
+ * Synthesize high-trust review/scam-check URL candidates when SERP is empty or suspended.
+ * Page-fetch + trust scoring decide which are usable; invalid paths simply fail closed.
+ */
+export function directReviewSiteCandidates(product = {}, options = {}) {
+  const name = String(product.name || "").trim();
+  const vendor = String(product.vendor || "").trim();
+  const label = name || vendor;
+  if (!label) return [];
+
+  const max = Math.max(1, Number(options.max || 8));
+  const slug = slugifyForReviewUrl(name || vendor);
+  const vendorSlug = slugifyForReviewUrl(vendor || name);
+  const q = encodeURIComponent(label);
+  const seen = new Set();
+  const out = [];
+
+  const push = (url, title) => {
+    if (!url || seen.has(url) || out.length >= max) return;
+    let host = "";
+    try {
+      host = new URL(url).hostname.replace(/^www\./, "");
+    } catch {
+      return;
+    }
+    seen.add(url);
+    out.push({
+      source_type: "web",
+      source_name: host,
+      title: title || `${label} — ${host}`,
+      url,
+      snippet: "",
+      raw_json: { direct_probe: true },
+    });
+  };
+
+  if (slug) {
+    push(`https://www.trustpilot.com/review/${slug}`, `${label} on Trustpilot`);
+    push(`https://www.sitejabber.com/reviews/${slug}`, `${label} on Sitejabber`);
+    push(`https://www.scamadvisor.com/check-website/${slug}`, `${label} on ScamAdviser`);
+    push(`https://www.scam-detector.com/scanner/${slug}`, `${label} on Scam Detector`);
+  }
+  if (vendorSlug && vendorSlug !== slug) {
+    push(`https://www.trustpilot.com/review/${vendorSlug}`, `${vendor} on Trustpilot`);
+    push(`https://www.bbb.org/search?find_text=${encodeURIComponent(vendor)}`, `${vendor} BBB search`);
+  }
+  push(`https://www.bbb.org/search?find_text=${q}`, `${label} BBB search`);
+  push(`https://old.reddit.com/search?q=${q}&sort=relevance&t=all`, `${label} on Reddit`);
+  push(`https://www.trustpilot.com/search?query=${q}`, `${label} Trustpilot search`);
+
+  return out.slice(0, max);
+}

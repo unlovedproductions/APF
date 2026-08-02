@@ -21,6 +21,7 @@ import {
   competitorEvidenceQueries,
   digistoreEvidenceQueries,
   digistoreVendorQueries,
+  directReviewSiteCandidates,
   extractCompetitorCandidatesFromHits,
   productNameTokenMatch,
   shortSearchProductName,
@@ -138,7 +139,7 @@ const MAX_SOURCES = Number(process.env.REVIEW_ENRICHMENT_MAX_SOURCES || "25");
 const FULL_PAGE_SOURCE_LIMIT = Number(process.env.REVIEW_ENRICHMENT_FULL_PAGE_LIMIT || "4");
 const FULL_PAGE_FETCH_TIMEOUT_MS = Number(process.env.REVIEW_ENRICHMENT_FETCH_TIMEOUT_MS || "8000");
 const FULL_PAGE_FETCH_DELAY_MS = Number(process.env.REVIEW_ENRICHMENT_FETCH_DELAY_MS || "250");
-const SEARCH_DELAY_MS = Number(process.env.REVIEW_ENRICHMENT_SEARCH_DELAY_MS || "1500");
+const SEARCH_DELAY_MS = Number(process.env.REVIEW_ENRICHMENT_SEARCH_DELAY_MS || "3000");
 const SEARCH_MAX_RETRIES = Number(process.env.REVIEW_ENRICHMENT_SEARCH_MAX_RETRIES || "2");
 const MAX_PRODUCT_QUERIES = Number(process.env.REVIEW_ENRICHMENT_MAX_QUERIES || "8");
 const MAX_VENDOR_QUERIES = Number(process.env.REVIEW_ENRICHMENT_MAX_VENDOR_QUERIES || "4");
@@ -565,6 +566,11 @@ async function throttleSearchGap() {
 }
 
 async function searchReviews(query) {
+  if (searchSuspensionSeen) {
+    console.warn(`[search] circuit-open; skip ${query}`);
+    return [];
+  }
+
   let attempt = 0;
   while (true) {
     await throttleSearchGap();
@@ -583,13 +589,30 @@ async function searchReviews(query) {
 
     if (results.length > 0) return results;
 
+    // Optional Brave API fallback (not free-only; only if key already configured).
+    if (
+      REVIEW_ENRICHMENT_PROVIDER === "searxng"
+      && unresponsive.length
+      && BRAVE_SEARCH_API_KEY
+    ) {
+      try {
+        await throttleSearchGap();
+        lastSearchAt = Date.now();
+        const braveResults = await braveSearch(query);
+        if (braveResults.length > 0) return braveResults;
+      } catch (err) {
+        console.warn(`[search] brave fallback failed: ${String(err?.message || err).slice(0, 200)}`);
+      }
+    }
+
     if (unresponsive.length) {
       searchSuspensionSeen = true;
       console.warn(`[search] 0 hits for ${query}; unresponsive_engines=${JSON.stringify(unresponsive)}`);
-    } else {
-      console.warn(`[search] 0 hits for ${query}`);
+      console.warn("[search] circuit-open for remaining queries this job");
+      return [];
     }
 
+    console.warn(`[search] 0 hits for ${query}`);
     if (attempt >= SEARCH_MAX_RETRIES) return [];
 
     const backoffMs = attempt === 0 ? 5000 : 15000;
@@ -597,6 +620,14 @@ async function searchReviews(query) {
     await sleep(backoffMs);
     attempt += 1;
   }
+}
+
+function collectedHasReviewTier(sources = []) {
+  return sources.some((source) => {
+    const host = hostnameFromUrl(source?.url);
+    const tier = classifySourceHost(host).tier;
+    return tier === "review" || tier === "scam_advisor" || tier === "video";
+  });
 }
 
 function scoreSource(product, source, vendorDomains = new Set()) {
@@ -1137,12 +1168,14 @@ async function processJob(conn, job) {
     : queriesFor(searchProduct).slice(0, MAX_PRODUCT_QUERIES);
 
   for (const q of evidenceQueries) {
+    if (searchSuspensionSeen) break;
     console.log(`[${enrichProduct.name}] ${q}`);
     collected.push(...await searchReviews(q));
   }
 
   const competitorHits = [];
   for (const q of competitorEvidenceQueries(searchProduct, { max: MAX_COMPETITOR_QUERIES })) {
+    if (searchSuspensionSeen) break;
     console.log(`[${enrichProduct.name}] competitor: ${q}`);
     const hits = await searchReviews(q);
     for (const hit of hits) {
@@ -1155,15 +1188,24 @@ async function processJob(conn, job) {
   }
   collected.push(...competitorHits);
 
+  if (!collected.length || !collectedHasReviewTier(collected)) {
+    const probes = directReviewSiteCandidates(searchProduct, { max: 8 });
+    if (probes.length) {
+      console.log(`[${enrichProduct.name}] direct review-site probes: ${probes.length}`);
+      collected.push(...probes);
+    }
+  }
+
   const vendorDomains = vendorDomainSet(vendorMaterials);
   const sources = await saveSources(conn, enrichProduct, collected, vendorDomains);
   let vendorProfile = null;
   const creatorVendor = isDigistore
     ? resolveCreatorVendor(product.vendor, vendorMaterials)
     : String(product.vendor || "").trim();
-  if (isDigistore && creatorVendor) {
+  if (isDigistore && creatorVendor && !searchSuspensionSeen) {
     const vendorHits = [];
     for (const q of digistoreVendorQueries(creatorVendor, { max: MAX_VENDOR_QUERIES })) {
+      if (searchSuspensionSeen) break;
       console.log(`[${enrichProduct.name}] vendor: ${q}`);
       vendorHits.push(...await searchReviews(q));
     }
@@ -1172,6 +1214,20 @@ async function processJob(conn, job) {
       vendorName: creatorVendor,
       hits: vendorHits,
     });
+  }
+
+  if (searchSuspensionSeen && sources.length === 0 && vendorMaterials.length === 0) {
+    const errMsg = sanitizeJobErrorMessage(
+      "search engines suspended; no web sources or vendor materials",
+    );
+    await conn.query(`
+      UPDATE review_enrichment_jobs
+      SET status='failed', error_message=?,
+          next_run_at=DATE_ADD(NOW(), INTERVAL 2 HOUR), updated_at=NOW()
+      WHERE id=?
+    `, [errMsg, job.id]);
+    console.log(`[${enrichProduct.name}] failed: search_engines_suspended, retry in 2h`);
+    return;
   }
 
   let catalogMatches = [];
