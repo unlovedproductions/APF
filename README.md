@@ -36,9 +36,11 @@ APF is the primary "source engine" for the **ShadowCast** video generator:
 
 ## 📚 Operational Documentation
 
+- `CHANGELOG.md` — notable changes (Keep a Changelog)
 - `docs/RECOVERY.md` — disaster-recovery playbook (new machine, tree corruption, DB loss)
 - `docs/RUNBOOK.md` — startup/shutdown and day-to-day operations
 - `docs/ARCHITECTURE.md` — system map and data flow
+- `docs/enrichment-improvements.md` — review-enrichment action plan and progress
 - `docs/unloved-stack-useful-commands/unloved-stack-useful-commands.md` — APF enrichment/Digistore24/ShadowCast handoff commands (PDF in same folder)
 - `docs/unloved-stack-useful-commands/unloved-full-stack-commands.md` — full stack + desktop launchers (PDF in same folder)
 

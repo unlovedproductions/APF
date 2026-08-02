@@ -1,5 +1,7 @@
 # APF - Project Improvement Proposal
 
+> **Stale (May 2025).** Several proposals here (e.g. `.env.example`, CONTRIBUTING, ARCHITECTURE) already shipped. For current work see [`docs/enrichment-improvements.md`](docs/enrichment-improvements.md), [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), and [`CHANGELOG.md`](CHANGELOG.md). Kept for historical context only.
+
 After reviewing the current codebase, environment configuration, and project structure of the Affiliate Product Finder (APF), I have identified several key areas for improvement. These suggestions aim to enhance the project's security, scalability, and overall developer experience.
 
 ## 1. Environment and Configuration Management

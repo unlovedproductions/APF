@@ -39,6 +39,10 @@ REVIEW_ENRICHMENT_ENABLED=true
 REVIEW_ENRICHMENT_PROVIDER=searxng
 SEARXNG_BASE_URL=http://localhost:8088
 REVIEW_ENRICHMENT_SEARCH_DELAY_MS=3000
+# Rich full-page successes to collect (default 6)
+REVIEW_ENRICHMENT_FULL_PAGE_LIMIT=6
+# Max fetch attempts while filling that quota (default 18)
+REVIEW_ENRICHMENT_FULL_PAGE_MAX_ATTEMPTS=18
 # Free recovery after CAPTCHA/rate-limits: docker restart unloved-searxng, wait,
 # probe until hits return, then re-enrich slowly (DELAY_MS>=3000, MAX_RETRIES=1).
 # Brave Search API is optional/paid-adjacent — not required for free-only.

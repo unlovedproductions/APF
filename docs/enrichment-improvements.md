@@ -7,6 +7,8 @@ Action plan for better review briefs and competitor data flowing from APF → Sh
 | Area | File |
 |------|------|
 | Enrichment worker | [`scripts/review-enrichment-worker.mjs`](../scripts/review-enrichment-worker.mjs) |
+| Brief finalize / scrubbing | [`scripts/enrichment-brief-finalize.mjs`](../scripts/enrichment-brief-finalize.mjs) |
+| Full-page fetch | [`scripts/enrichment-page-fetch.mjs`](../scripts/enrichment-page-fetch.mjs) |
 | Query + trust helpers | [`scripts/enrichment-source-trust.mjs`](../scripts/enrichment-source-trust.mjs) |
 | Digistore name/price helpers | [`scripts/digistore24-detail-extractor.mjs`](../scripts/digistore24-detail-extractor.mjs) |
 | ShadowCast export | [`scripts/shadowcast-direct-lib.mjs`](../scripts/shadowcast-direct-lib.mjs) |
@@ -218,6 +220,8 @@ In `digistoreEvidenceQueries`:
 
 ## 5. Split claims vs independent reviews
 
+**Status (partial):** affiliate/Digistore chrome stripping and vendor sales-copy scrubbing shipped in finalize; claim vs review source split before prompt still open.
+
 ### Problem
 
 Digistore prompt says: prioritize vendor materials; use third-party only for risk. The model then fills `positive_signals` / `common_claims` from sales and compliance pages (keyword bidding warnings, “trust us” copy).
@@ -241,6 +245,7 @@ Digistore prompt says: prioritize vendor materials; use third-party only for ris
 
    - Strip lines matching ShadowCast-style affiliate meta markers (`commission rate`, `epc`, `promoting this`, etc.).
    - Strip Digistore chrome (`Dashboard Marketplace Analytics…`).
+   - **Shipped:** `isVendorSalesCopy` in `enrichment-source-trust.mjs` scrubbed via `sanitizeNarrativeString` / video angles; Digistore thin-evidence path forces an honest “limited independent…” summary instead of offer-page pitch.
 
 4. If `reviewSources.length === 0`:
 
@@ -251,10 +256,13 @@ Digistore prompt says: prioritize vendor materials; use third-party only for ris
 
 - Joseph’s Well–style fixture: `positive_signals` do not contain “Don’t bid on keywords…”.
 - `common_claims` may still reflect sales promises, labeled as claims.
+- Unit: `server/enrichment-source-trust.test.ts`, `server/enrichment-brief-finalize.test.ts`.
 
 ---
 
 ## 6. Fetch full pages for high-trust hosts
+
+**Status (partial):** fetch pipeline, SSRF controls, cache TTL, and candidate selection/attempt budget shipped; transcript-depth / broader host coverage still incremental.
 
 ### Problem
 
@@ -268,6 +276,8 @@ Only search snippets are stored. The LLM cannot extract real review themes from 
 4. Store truncated text (e.g. 4–8k chars) on the source row or in `raw_json.content_text`.
 5. Pass `excerpt` (longer than snippet) into `sourcePayload` for the LLM.
 6. Rate-limit and cache by URL hash to avoid refetching on refresh jobs.
+7. **Shipped:** `selectPageFetchCandidates` tier-ranks (YouTube → review/scam → video → retailer → vendor), skips permanent errors (404/410/SSRF/etc.), retries until N rich pages (`content_text` ≥ 80 chars) or attempt budget exhausted.
+8. **Env:** `REVIEW_ENRICHMENT_FULL_PAGE_LIMIT` (default `6`), `REVIEW_ENRICHMENT_FULL_PAGE_MAX_ATTEMPTS` (default `18`). Worker logs success/attempt counts per product.
 
 Start small: Trustpilot + Reddit + BBB + one vendor order page.
 
@@ -275,6 +285,7 @@ Start small: Trustpilot + Reddit + BBB + one vendor order page.
 
 - Sources with fetched content produce complaints that quote real user themes.
 - Jobs still complete under timeout; failures fall back to snippet-only without crashing.
+- Unit: `server/enrichment-page-fetch.test.ts`.
 
 ---
 
@@ -370,13 +381,13 @@ In `shadowcast-/backend/apf_import.py`:
 
 ## Suggested implementation slices
 
-| Slice | Scope | Outcome |
-|-------|--------|---------|
-| **A** | §1 + §2 + §10 | Correct name/price in export and ShadowCast form |
-| **B** | §3 | Real or empty competitors; no fake VS targets |
-| **C** | §4 + §5 + §8 | Briefs stop treating affiliate chrome as reviews |
-| **D** | §6 + §7 | Deeper review text from Trustpilot/Reddit/YouTube |
-| **E** | §9 | Re-enrich Digistore catalog |
+| Slice | Scope | Outcome | Progress |
+|-------|--------|---------|----------|
+| **A** | §1 + §2 + §10 | Correct name/price in export and ShadowCast form | Largely shipped |
+| **B** | §3 | Real or empty competitors; no fake VS targets | Largely shipped |
+| **C** | §4 + §5 + §8 | Briefs stop treating affiliate chrome as reviews | Partial — chrome/sales scrub + degrade gates in; claim/review source split still open |
+| **D** | §6 + §7 | Deeper review text from Trustpilot/Reddit/YouTube | Partial — full-page fetch + candidate budget in; YouTube transcripts optional later |
+| **E** | §9 | Re-enrich Digistore catalog | Pending broad re-run after C/D solid |
 
 Ship A → B before broad re-enrich (E). C can land with A/B. D is incremental.
 
@@ -384,10 +395,12 @@ Ship A → B before broad re-enrich (E). C can land with A/B. D is incremental.
 
 ## Test checklist
 
-- [ ] `resolveExportProductName(Digistore24, materials)` → Joseph’s Well / CircO2 / etc.
-- [ ] `sanitizeBuyerPrice(EPC headline)` → `See official offer page`
-- [ ] `normalizeSuggestedCompetitors([])` → `[]` (not Top/Popular/Budget placeholders)
-- [ ] Enrichment job logs resolved name and queries using it
+- [x] `resolveExportProductName(Digistore24, materials)` → Joseph’s Well / CircO2 / etc. (unit coverage in digistore extractor tests)
+- [x] `sanitizeBuyerPrice(EPC headline)` → `See official offer page`
+- [x] `normalizeSuggestedCompetitors([])` → `[]` (not Top/Popular/Budget placeholders)
+- [x] Vendor sales-copy detection / narrative scrub (`enrichment-source-trust` + brief-finalize tests)
+- [x] Page-fetch candidate selection + attempt budget (`enrichment-page-fetch` tests)
+- [ ] Enrichment job logs resolved name and queries using it (spot-check)
 - [ ] Digistore prompt fixture: no commission/EPC in `positive_signals`
 - [ ] APF → ShadowCast send: form shows real name + buyer price
 - [ ] Re-enriched sample of 5 Digistore products audited manually
