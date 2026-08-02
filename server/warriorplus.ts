@@ -55,44 +55,88 @@ interface ProcessedProduct {
 }
 
 /**
- * Fetch offers from WarriorPlus API
+ * Fetch offers from WarriorPlus API.
+ *
+ * Official V2 auth accepts apiKey as query, header, or Bearer token.
+ * /offers only returns offers owned by the authenticated *vendor* account —
+ * there is no affiliate marketplace discovery endpoint in V2.
  */
 export async function fetchWarriorPlusOffers(apiKey: string, limit: number = 100): Promise<WarriorPlusOffer[]> {
+  const trimmedKey = String(apiKey || "").trim();
+  if (!trimmedKey || trimmedKey === "PUBLIC_FEED") {
+    throw new Error("WarriorPlus API key is missing. Save a key from https://warriorplus.com/account/api");
+  }
+
   const allOffers: WarriorPlusOffer[] = [];
   let startingAfter: string | undefined;
   let hasMore = true;
+  let pages = 0;
 
   while (hasMore) {
+    pages += 1;
+    if (pages > 50) {
+      throw new Error("WarriorPlus pagination exceeded 50 pages; aborting to avoid an infinite loop.");
+    }
+
     try {
       const url = new URL(`${WARRIORPLUS_API_BASE}/offers`);
       url.searchParams.set("limit", Math.min(limit, 100).toString());
+      // Official docs accept apiKey as query and/or header.
+      url.searchParams.set("apiKey", trimmedKey);
       if (startingAfter) {
         url.searchParams.set("starting_after", startingAfter);
       }
 
       const response = await fetch(url.toString(), {
         headers: {
-          apiKey,
+          apiKey: trimmedKey,
+          Authorization: `Bearer ${trimmedKey}`,
+          Accept: "application/json",
           "Content-Type": "application/json",
         },
       });
 
-      if (!response.ok) {
-        throw new Error(`WarriorPlus API error: ${response.status} ${response.statusText}`);
+      const bodyText = await response.text();
+      let data: any = null;
+      try {
+        data = bodyText ? JSON.parse(bodyText) : null;
+      } catch {
+        data = null;
       }
 
-      const data = await response.json();
+      if (response.status === 401) {
+        throw new Error(
+          "WarriorPlus rejected the API key (401). Generate a new key at https://warriorplus.com/account/api and save it again in APF."
+        );
+      }
 
-      if (!data.success || !data.data) {
+      if (response.status === 402) {
+        throw new Error(
+          "WarriorPlus authenticated the key, but returned no vendor offers (402). The V2 /offers endpoint only lists offers you own as a vendor — it is not an affiliate marketplace feed."
+        );
+      }
+
+      if (!response.ok) {
+        const detail = typeof data?.message === "string"
+          ? data.message
+          : typeof data?.error === "string"
+            ? data.error
+            : bodyText.slice(0, 200);
+        throw new Error(`WarriorPlus API error: ${response.status} ${response.statusText}${detail ? ` — ${detail}` : ""}`);
+      }
+
+      if (!data || data.success === false || data.success === 0 || !Array.isArray(data.data)) {
         throw new Error("Invalid WarriorPlus API response");
       }
 
       allOffers.push(...data.data);
 
-      // Check if there are more results
+      // Official contract: top-level has_more is the string "true"/"false".
       hasMore = data.has_more === "true" || data.has_more === true;
       if (hasMore && data.data.length > 0) {
         startingAfter = data.data[data.data.length - 1].id;
+      } else {
+        hasMore = false;
       }
     } catch (error) {
       console.error("[WarriorPlus] Error fetching offers:", error);
@@ -254,6 +298,11 @@ export function processOffers(offers: WarriorPlusOffer[]): ProcessedProduct[] {
 export async function fetchAndProcessWarriorPlusOffers(apiKey: string): Promise<ProcessedProduct[]> {
   try {
     const offers = await fetchWarriorPlusOffers(apiKey);
+    if (offers.length === 0) {
+      throw new Error(
+        "WarriorPlus API key works, but returned 0 vendor offers. V2 /offers only returns offers owned by your vendor account — not marketplace products for affiliates. Use Digistore24/ClickBank/CJ/Awin for affiliate product discovery, or refresh from a WarriorPlus vendor account that has live offers."
+      );
+    }
     const processed = processOffers(offers);
     return processed;
   } catch (error) {

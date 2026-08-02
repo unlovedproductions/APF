@@ -45,7 +45,7 @@ const MARKETPLACES = {
   warriorplus: {
     label: "WarriorPlus",
     requiresApiKey: true,
-    helper: "Requires WarriorPlus API key",
+    helper: "Vendor offers only (not affiliate marketplace). Requires API key from warriorplus.com/account/api",
   },
   digistore24: {
     label: "Digistore24",
@@ -366,13 +366,14 @@ export default function Home() {
                 <p className="text-xs text-slate-500 mt-2">
                   Get your API key from{" "}
                   <a
-                    href="https://warriorplus.com/user/api-access.php"
+                    href="https://warriorplus.com/account/api"
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-blue-600 hover:underline"
                   >
-                    WarriorPlus Account Settings
+                    My Account → API Key
                   </a>
+                  . Refresh only imports offers you own as a vendor — WarriorPlus V2 has no affiliate marketplace feed.
                 </p>
               </div>
             )}
