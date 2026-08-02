@@ -7,6 +7,7 @@ import {
   evidenceCoverageFromSources,
   extractCompetitorCandidatesFromHits,
   extractCompetitorNamesFromText,
+  isVendorSalesCopy,
   normalizeSuggestedCompetitors,
   looksPhysicalRetailCategory,
   shortSearchProductName,
@@ -24,6 +25,17 @@ describe("enrichment source trust", () => {
     expect(classifySourceHost("jvzoo.com").tier).toBe("affiliate_noise");
     expect(classifySourceHost("warriorplus.com").tier).toBe("affiliate_noise");
     expect(classifySourceHost("buygoods.com").tier).toBe("affiliate_noise");
+  });
+
+  it("detects vendor sales copy for narrative scrubbing", () => {
+    expect(
+      isVendorSalesCopy(
+        "They've had decades to perfect the methods they will share with you inside their new book.",
+      ),
+    ).toBe(true);
+    expect(
+      isVendorSalesCopy("Buyers report mixed results and want clearer refund terms."),
+    ).toBe(false);
   });
 
   it("shortens marketing titles for search queries", () => {

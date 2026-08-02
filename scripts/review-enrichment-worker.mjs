@@ -42,8 +42,7 @@ import {
 } from "./enrichment-brief-finalize.mjs";
 import {
   enrichSourceContent,
-  isHighTrustFetchCandidate,
-  youtubeVideoId,
+  selectPageFetchCandidates,
 } from "./enrichment-page-fetch.mjs";
 import { reapExhaustedJobs, reapStaleRunningJobs } from "./apf-db-helpers.mjs";
 
@@ -136,9 +135,12 @@ const REVIEW_ENRICHMENT_PROVIDER = process.env.REVIEW_ENRICHMENT_PROVIDER || "se
 const SEARXNG_BASE_URL = process.env.SEARXNG_BASE_URL || "http://localhost:8088";
 const BRAVE_SEARCH_API_KEY = process.env.BRAVE_SEARCH_API_KEY || "";
 const MAX_SOURCES = Number(process.env.REVIEW_ENRICHMENT_MAX_SOURCES || "25");
-const FULL_PAGE_SOURCE_LIMIT = Number(process.env.REVIEW_ENRICHMENT_FULL_PAGE_LIMIT || "4");
+const FULL_PAGE_SOURCE_LIMIT = Number(process.env.REVIEW_ENRICHMENT_FULL_PAGE_LIMIT || "6");
 const FULL_PAGE_FETCH_TIMEOUT_MS = Number(process.env.REVIEW_ENRICHMENT_FETCH_TIMEOUT_MS || "8000");
 const FULL_PAGE_FETCH_DELAY_MS = Number(process.env.REVIEW_ENRICHMENT_FETCH_DELAY_MS || "250");
+const FULL_PAGE_FETCH_MAX_ATTEMPTS = Number(
+  process.env.REVIEW_ENRICHMENT_FULL_PAGE_MAX_ATTEMPTS || String(FULL_PAGE_SOURCE_LIMIT * 3),
+);
 const SEARCH_DELAY_MS = Number(process.env.REVIEW_ENRICHMENT_SEARCH_DELAY_MS || "3000");
 const SEARCH_MAX_RETRIES = Number(process.env.REVIEW_ENRICHMENT_SEARCH_MAX_RETRIES || "2");
 const MAX_PRODUCT_QUERIES = Number(process.env.REVIEW_ENRICHMENT_MAX_QUERIES || "8");
@@ -759,30 +761,41 @@ async function saveSources(conn, product, sources, vendorDomains = new Set()) {
     textLimit: 8000,
     maxAgeDays: REFRESH_DAYS,
   };
-  // Pick high-trust URLs from the full ranked list (not only top MAX_SOURCES),
-  // so independent reviews still get fetched when affiliate pages outrank them.
-  const fetchCandidates = final
-    .filter((source) => (
-      isHighTrustFetchCandidate(source, vendorDomains)
-      || Boolean(youtubeVideoId(source?.url))
-    ))
-    .slice(0, FULL_PAGE_SOURCE_LIMIT);
+  // Prefer review/scam/video URLs; keep trying until successLimit rich pages or attempts exhausted.
+  const { candidates, successLimit } = selectPageFetchCandidates(final, {
+    vendorDomains,
+    limit: FULL_PAGE_SOURCE_LIMIT,
+    maxAttempts: FULL_PAGE_FETCH_MAX_ATTEMPTS,
+  });
 
   const enrichedByUrl = new Map();
-  for (const source of fetchCandidates) {
+  let successes = 0;
+  for (const source of candidates) {
+    if (successes >= successLimit) break;
     const enriched = await enrichSourceContent(source, fetchOpts);
     enrichedByUrl.set(source.url, enriched);
+    const text = String(enriched?.raw_json?.content_text || "").trim();
+    if (text.length >= 80) successes += 1;
     if (FULL_PAGE_FETCH_DELAY_MS) {
       await new Promise((resolve) => setTimeout(resolve, FULL_PAGE_FETCH_DELAY_MS));
     }
   }
+  if (candidates.length) {
+    console.log(
+      `[${product.name}] page-fetch: ${successes}/${successLimit} rich pages `
+      + `(attempted ${enrichedByUrl.size} of ${candidates.length} candidates)`,
+    );
+  }
 
   const top = [];
   const topUrls = new Set();
-  for (const source of fetchCandidates) {
-    const row = enrichedByUrl.get(source.url) || source;
+  for (const source of candidates) {
+    const row = enrichedByUrl.get(source.url);
+    if (!row) continue;
+    if (topUrls.has(source.url)) continue;
     top.push(row);
     topUrls.add(source.url);
+    if (top.length >= MAX_SOURCES) break;
   }
   for (const source of final) {
     if (top.length >= MAX_SOURCES) break;

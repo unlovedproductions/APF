@@ -135,6 +135,51 @@ export function isHighTrustFetchCandidate(source, vendorDomains = new Set()) {
   return FETCHABLE_TIERS.has(tier) || vendorDomains.has(host);
 }
 
+function fetchTierRank(source, vendorDomains = new Set()) {
+  const host = hostnameFromUrl(source?.url);
+  const tier = classifySourceHost(host).tier;
+  if (youtubeVideoId(source?.url)) return 0;
+  if (tier === "review" || tier === "scam_advisor") return 1;
+  if (tier === "video") return 2;
+  if (tier === "retailer") return 3;
+  if (vendorDomains.has(host)) return 4;
+  return 5;
+}
+
+function isPermanentFetchError(message) {
+  const msg = String(message || "").toLowerCase();
+  return /http 404|http 410|unsupported content type|invalid url|blocked (host|ip)|unsupported protocol/.test(msg);
+}
+
+/**
+ * Prefer review/scam/video URLs, skip permanent fetch failures, try extras until
+ * we fill `limit` successful content_text captures (or exhaust candidates).
+ */
+export function selectPageFetchCandidates(sources = [], options = {}) {
+  const vendorDomains = options.vendorDomains || new Set();
+  const limit = Math.max(0, Number(options.limit ?? 6));
+  const maxAttempts = Math.max(limit, Number(options.maxAttempts ?? limit * 3));
+
+  const eligible = sources
+    .filter((source) => (
+      isHighTrustFetchCandidate(source, vendorDomains)
+      || Boolean(youtubeVideoId(source?.url))
+    ))
+    .filter((source) => !isPermanentFetchError(source?.raw_json?.fetch_error))
+    .sort((a, b) => {
+      const tierDelta = fetchTierRank(a, vendorDomains) - fetchTierRank(b, vendorDomains);
+      if (tierDelta !== 0) return tierDelta;
+      const scoreA = Number(a.relevance_score || 0) + Number(a.trust_score || 0);
+      const scoreB = Number(b.relevance_score || 0) + Number(b.trust_score || 0);
+      return scoreB - scoreA;
+    });
+
+  return {
+    candidates: eligible.slice(0, maxAttempts),
+    successLimit: limit,
+  };
+}
+
 /**
  * True when cached page text is long enough and younger than maxAgeMs.
  * Missing fetched_at → treat as stale so refresh jobs re-fetch.
@@ -371,6 +416,7 @@ export async function enrichSourceContent(source, options = {}) {
         content_type: response.contentType,
         final_url: response.finalUrl,
         fetched_at: new Date().toISOString(),
+        fetch_error: undefined,
       },
     };
   } catch (error) {
@@ -387,25 +433,28 @@ export async function enrichSourceContent(source, options = {}) {
 
 export async function enrichHighTrustSources(sources, options = {}) {
   const vendorDomains = options.vendorDomains || new Set();
-  const limit = Math.max(0, Number(options.limit ?? 4));
+  const limit = Math.max(0, Number(options.limit ?? 6));
   const delayMs = Math.max(0, Number(options.delayMs ?? 250));
-  const selected = new Set(
-    sources
-      .filter((source) => (
-        isHighTrustFetchCandidate(source, vendorDomains)
-        || Boolean(youtubeVideoId(source?.url))
-      ))
-      .slice(0, limit),
-  );
-  const enriched = [];
+  const { candidates, successLimit } = selectPageFetchCandidates(sources, {
+    vendorDomains,
+    limit,
+    maxAttempts: options.maxAttempts,
+  });
+  const selectedUrls = new Set(candidates.map((s) => s.url));
+  const enrichedByUrl = new Map();
+  let successes = 0;
 
-  for (const source of sources) {
-    if (!selected.has(source)) {
-      enriched.push(source);
-      continue;
-    }
-    enriched.push(await enrichSourceContent(source, options));
+  for (const source of candidates) {
+    if (successes >= successLimit) break;
+    const enriched = await enrichSourceContent(source, options);
+    enrichedByUrl.set(source.url, enriched);
+    const textLen = cleanText(enriched?.raw_json?.content_text, options.textLimit || 8000).length;
+    if (textLen >= 80) successes += 1;
     if (delayMs) await new Promise((resolve) => setTimeout(resolve, delayMs));
   }
-  return enriched;
+
+  return sources.map((source) => {
+    if (!selectedUrls.has(source.url)) return source;
+    return enrichedByUrl.get(source.url) || source;
+  });
 }

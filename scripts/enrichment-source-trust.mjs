@@ -352,6 +352,19 @@ export function isAffiliateMetaSignal(value) {
   return AFFILIATE_META_RE.test(String(value || ""));
 }
 
+/** Vendor/offer-page sales prose that must not land in buyer review_summary. */
+const VENDOR_SALES_COPY_RE = /inside (their|our|his|her) new book|money-?back guarantee|order now|add to cart|what you.?ll (learn|get|discover)|decades to perfect|during the troubleshooting section|click (here|below) to|limited.?time offer|act now|bonuses? included|risk-?free|completely risk-free|secure order|core promise|watch the video|scroll down to|as seen on|special (bonus|offer)/i;
+
+export function isVendorSalesCopy(value) {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  if (!text) return false;
+  if (VENDOR_SALES_COPY_RE.test(text)) return true;
+  // First-person pitch without buyer/reviewer framing.
+  const firstPersonPitch = /\b(we|our|i)\b.{0,60}\b(guarantee|offer|book|course|formula|program)\b/i.test(text);
+  const hasBuyerFrame = /\b(reviewers?|customers?|users?|buyers?|complaints?|independent)\b/i.test(text);
+  return firstPersonPitch && !hasBuyerFrame;
+}
+
 export function stripAffiliateMetaLines(values = []) {
   return (Array.isArray(values) ? values : [])
     .map((x) => String(x || "").replace(/\s+/g, " ").trim())

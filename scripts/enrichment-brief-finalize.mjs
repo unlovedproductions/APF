@@ -1,6 +1,7 @@
 import {
   evidenceCoverageFromSources,
   isAffiliateMetaSignal,
+  isVendorSalesCopy,
   normalizeSuggestedCompetitors,
   seriesNameForStyle,
   stripAffiliateMetaLines,
@@ -31,11 +32,18 @@ export function briefText(value, fallback = "") {
   return fallback;
 }
 
-/** Drop affiliate/compliance chrome from a single narrative string. */
-export function sanitizeNarrativeString(value, fallback = "") {
+/** Drop affiliate/compliance chrome and vendor sales prose from a narrative string. */
+export function sanitizeNarrativeString(value, fallback = "", options = {}) {
   const text = briefText(value, "");
   if (!text) return fallback;
-  if (isAffiliateMetaSignal(text)) return fallback;
+  if (isAffiliateMetaSignal(text) || isVendorSalesCopy(text)) return fallback;
+  if (
+    options.noIndependentReviews
+    && options.strictThinEvidence
+    && !/limited independent|verify (claims|the (current )?offer)|thin (public )?review|few public review/i.test(text)
+  ) {
+    return fallback;
+  }
   return text;
 }
 
@@ -146,9 +154,14 @@ export function finalizeBrief(product, brief, sources = [], options = {}) {
     ? `${product.name} has limited independent public review evidence. Verify claims on the official offer page before buying.`
     : `${product.name} has ${sources.length} discovered public review/search signals. Present this as a trust-first review and avoid unsupported claims.`;
 
+  const review_summary = sanitizeNarrativeString(brief.review_summary, defaultSummary, {
+    noIndependentReviews,
+    strictThinEvidence: isDigistore && noIndependentReviews,
+  });
+
   return {
     ...brief,
-    review_summary: sanitizeNarrativeString(brief.review_summary, defaultSummary),
+    review_summary,
     positive_signals,
     negative_signals,
     common_claims,
@@ -166,7 +179,7 @@ export function finalizeBrief(product, brief, sources = [], options = {}) {
       "People expecting guaranteed results or anyone who should consult a professional before using the product.",
     ),
     best_video_angles: angles.length
-      ? angles.filter((a) => !isAffiliateMetaSignal(a))
+      ? angles.filter((a) => !isAffiliateMetaSignal(a) && !isVendorSalesCopy(a))
       : ["What problem does this solve for buyers?", "What to verify before buying"],
     cta_guidance: sanitizeNarrativeString(
       brief.cta_guidance,

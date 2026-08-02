@@ -5,6 +5,7 @@ import {
   isBlockedFetchIp,
   isContentCacheFresh,
   isHighTrustFetchCandidate,
+  selectPageFetchCandidates,
   youtubeVideoId,
 } from "../scripts/enrichment-page-fetch.mjs";
 
@@ -91,5 +92,43 @@ describe("enrichment page fetch", () => {
       content_text: "x".repeat(100),
       fetched_at: new Date(Date.now() - 20 * 24 * 60 * 60 * 1000).toISOString(),
     }, { maxAgeDays: 14 })).toBe(false);
+  });
+
+  it("selects review tiers first and skips permanent fetch failures", () => {
+    const { candidates, successLimit } = selectPageFetchCandidates([
+      {
+        url: "https://vendor.example/offer",
+        relevance_score: 90,
+        trust_score: 90,
+        raw_json: {},
+      },
+      {
+        url: "https://www.trustpilot.com/review/example",
+        relevance_score: 50,
+        trust_score: 50,
+        raw_json: {},
+      },
+      {
+        url: "https://www.scamadvisor.com/check-website/x",
+        relevance_score: 40,
+        trust_score: 40,
+        raw_json: { fetch_error: "HTTP 404" },
+      },
+      {
+        url: "https://www.amazon.com/dp/x",
+        relevance_score: 80,
+        trust_score: 80,
+        raw_json: {},
+      },
+    ], {
+      vendorDomains: new Set(["vendor.example"]),
+      limit: 2,
+      maxAttempts: 4,
+    });
+
+    expect(successLimit).toBe(2);
+    expect(candidates[0].url).toContain("trustpilot.com");
+    expect(candidates.some((c) => c.url.includes("scamadvisor.com"))).toBe(false);
+    expect(candidates.length).toBeLessThanOrEqual(4);
   });
 });

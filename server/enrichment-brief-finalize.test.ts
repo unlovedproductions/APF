@@ -71,6 +71,26 @@ describe("enrichment brief finalize", () => {
     expect(brief.common_complaints).toEqual([]);
   });
 
+  it("replaces vendor sales-copy summaries when independent reviews are missing", () => {
+    const brief = finalizeBrief(
+      digistoreProduct,
+      {
+        review_summary:
+          "They are self-sufficient, and they've had decades to perfect the methods they will share with you inside their new book.",
+        positive_signals: ["Great book"],
+        common_complaints: ["During the troubleshooting section, you'll learn how to sew"],
+        best_video_angles: ["Worth it?"],
+        confidence_score: 70,
+      },
+      [],
+      { hasVendorMaterial: true, reviewSources: [] },
+    );
+
+    expect(brief.review_summary).toMatch(/limited independent/i);
+    expect(brief.positive_signals).toEqual([]);
+    expect(brief.common_complaints).toEqual([]);
+  });
+
   it("caps confidence and forces degrade when search is suspended", () => {
     const coverage = serverEvidenceCoverage([], { hasVendorMaterial: true, resolvedProductName: "CircO2" });
     expect(shouldForceDegraded({ searchSuspended: true, hasVendorMaterial: true }, coverage)).toBe(true);
