@@ -82,6 +82,11 @@ const MARKETPLACES = {
     requiresApiKey: true,
     helper: "Requires partnerTag:clientId:clientSecret[:credentialVersion[:marketplace]]",
   },
+  rakuten: {
+    label: "Rakuten Advertising",
+    requiresApiKey: true,
+    helper: "Requires clientId:clientSecret:siteId (Developer Portal app + publisher SID)",
+  },
 } as const;
 
 type Marketplace = keyof typeof MARKETPLACES;
@@ -350,6 +355,7 @@ export default function Home() {
                   <SelectItem value="awin">Awin</SelectItem>
                   <SelectItem value="impact">Impact.com</SelectItem>
                   <SelectItem value="amazon">Amazon Creators</SelectItem>
+                  <SelectItem value="rakuten">Rakuten Advertising</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -453,6 +459,30 @@ export default function Home() {
               </div>
             )}
 
+            {selectedMarketplace === "rakuten" && (
+              <div>
+                <label className="text-sm font-medium mb-2 block">Rakuten Advertising Credentials</label>
+                <Input
+                  type="password"
+                  placeholder="clientId:clientSecret:siteId"
+                  value={apiKey}
+                  onChange={(e) => setApiKey(e.target.value)}
+                />
+                <p className="text-xs text-slate-500 mt-2">
+                  Format: <strong>clientId:clientSecret:siteId</strong>. Client ID/Secret from{" "}
+                  <a
+                    href="https://developers.rakutenadvertising.com/default/dashboard/"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-blue-600 hover:underline"
+                  >
+                    Applications → Edit
+                  </a>
+                  ; SID from the publisher dashboard (e.g. 4733638). Product Search only returns SKUs from joined advertisers.
+                </p>
+              </div>
+            )}
+
             {(selectedMarketplace === "digistore24" || selectedMarketplace === "clickbank") && (
               <div className="bg-blue-50 border border-blue-200 rounded p-3">
                 <p className="text-sm text-blue-900">
@@ -514,6 +544,7 @@ export default function Home() {
                     <SelectItem value="awin">Awin</SelectItem>
                     <SelectItem value="impact">Impact.com</SelectItem>
                     <SelectItem value="amazon">Amazon Creators</SelectItem>
+                    <SelectItem value="rakuten">Rakuten Advertising</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

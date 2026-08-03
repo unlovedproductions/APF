@@ -13,6 +13,7 @@ import { fetchAndProcessCjProducts } from "./cj";
 import { fetchAndProcessAwinProducts } from "./awin";
 import { fetchAndProcessImpactCatalogItems } from "./impact";
 import { fetchAndProcessAmazonCreatorsProducts } from "./amazon";
+import { fetchAndProcessRakutenProducts, parseRakutenCredentials } from "./rakuten";
 import { TRPCError } from "@trpc/server";
 import { exportProductsToShadowCast, queueProductsForEnrichment, runDigistore24RefreshWorkflow, runPostRefreshWorkflow } from "./apfWorkflows";
 
@@ -25,6 +26,7 @@ const PLATFORM_VALUES = [
   "awin",
   "impact",
   "amazon",
+  "rakuten",
 ] as const;
 const PLATFORM_SCHEMA = z.enum(PLATFORM_VALUES);
 
@@ -273,6 +275,19 @@ export const appRouter = router({
               credentialVersion,
               marketplace,
             });
+          } else if (input.platform === "rakuten") {
+            let clientId: string;
+            let clientSecret: string;
+            let siteId: string;
+            try {
+              ({ clientId, clientSecret, siteId } = parseRakutenCredentials(credential!.apiKey));
+            } catch (error) {
+              throw new TRPCError({
+                code: "BAD_REQUEST",
+                message: error instanceof Error ? error.message : "Rakuten credentials must be in format clientId:clientSecret:siteId",
+              });
+            }
+            processedProducts = await fetchAndProcessRakutenProducts(clientId, clientSecret, siteId);
           } else {
             throw new TRPCError({
               code: "BAD_REQUEST",

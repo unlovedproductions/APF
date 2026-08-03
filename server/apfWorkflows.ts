@@ -11,7 +11,8 @@ type Marketplace =
   | "cj"
   | "awin"
   | "impact"
-  | "amazon";
+  | "amazon"
+  | "rakuten";
 
 type ScriptResult = {
   code: number;
