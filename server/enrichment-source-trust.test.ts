@@ -65,6 +65,9 @@ describe("enrichment source trust", () => {
     expect(queries.every((q) => !/"Digistore24"/.test(q))).toBe(true);
     expect(queries.some((q) => q.includes("site:amazon.com"))).toBe(false);
     expect(queries.length).toBeLessThanOrEqual(12);
+    // Open-web queries first — site: filters burn Brave scrape budget faster.
+    expect(queries[0]).toContain("review");
+    expect(queries[0].startsWith("site:")).toBe(false);
   });
 
   it("builds direct review-site URL probes from product/vendor slugs", () => {

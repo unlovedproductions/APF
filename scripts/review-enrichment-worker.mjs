@@ -167,6 +167,7 @@ const LLM_MODEL = process.env.LLM_MODEL || "qwen2.5:14b-instruct-q5_K_M";
 
 let lastSearchAt = 0;
 let searchSuspensionSeen = false;
+let searchRateLimitStrikes = 0;
 
 function openSearchCircuit(reason = "rate_limited") {
   searchSuspensionSeen = true;
@@ -309,7 +310,7 @@ const digistoreBriefSchema = z.object({
   target_audience: briefString.optional(),
   who_it_may_help: briefString.optional(),
   who_should_skip_it: briefString.optional(),
-  best_video_angles: z.array(briefString).min(1),
+  best_video_angles: z.array(briefString).default([]),
   cta_guidance: briefString.optional(),
   confidence_score: z.coerce.number().min(0).max(100).optional(),
   recommended_content_style: contentStyleSchema.optional(),
@@ -608,7 +609,10 @@ async function searchReviews(query) {
       results = await braveSearch(query);
     }
 
-    if (results.length > 0) return results;
+    if (results.length > 0) {
+      searchRateLimitStrikes = 0;
+      return results;
+    }
 
     // Optional Brave API fallback (not free-only; only if key already configured).
     if (
@@ -620,16 +624,25 @@ async function searchReviews(query) {
         await throttleSearchGap();
         lastSearchAt = Date.now();
         const braveResults = await braveSearch(query);
-        if (braveResults.length > 0) return braveResults;
+        if (braveResults.length > 0) {
+          searchRateLimitStrikes = 0;
+          return braveResults;
+        }
       } catch (err) {
         console.warn(`[search] brave fallback failed: ${String(err?.message || err).slice(0, 200)}`);
       }
     }
 
     if (shouldOpenSearchCircuit({ results, unresponsive })) {
-      openSearchCircuit("rate_limited");
+      searchRateLimitStrikes += 1;
       console.warn(`[search] 0 hits for ${query}; rate-limit signal in unresponsive_engines=${JSON.stringify(unresponsive)}`);
-      console.warn("[search] circuit-open for remaining queries this job (+ cross-job cooldown)");
+      // Brave scrape flakes; require 2 strikes before cross-job cooldown so one bad site: query does not kill the catalog.
+      if (searchRateLimitStrikes >= 2) {
+        openSearchCircuit("rate_limited");
+        console.warn("[search] circuit-open for remaining queries this job (+ cross-job cooldown)");
+      } else {
+        console.warn(`[search] rate-limit strike ${searchRateLimitStrikes}/2; continuing other queries`);
+      }
       return [];
     }
 
@@ -1147,6 +1160,7 @@ async function markPendingApiKey(conn, job, product) {
 
 async function processJob(conn, job) {
   searchSuspensionSeen = false;
+  searchRateLimitStrikes = 0;
   const cooldown = readSearchCooldown(SEARCH_COOLDOWN_PATH);
   if (isSearchCooldownActive(cooldown)) {
     searchSuspensionSeen = true;

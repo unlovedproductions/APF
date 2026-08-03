@@ -216,4 +216,22 @@ describe("enrichment brief finalize", () => {
     expect(brief.positive_signals).toContain("Solid packaging quality");
     expect(brief.common_complaints).toContain("Mixed shipping times");
   });
+
+  it("restores default video angles when scrub removes every LLM angle", () => {
+    const brief = finalizeBrief(
+      digistoreProduct,
+      {
+        review_summary: "Limited independent public reviews; verify the offer page.",
+        best_video_angles: [
+          "Earn commission promoting this offer now",
+          "They've had decades to perfect the methods they will share with you inside their new book.",
+        ],
+        confidence_score: 40,
+      },
+      [],
+      { hasVendorMaterial: true, reviewSources: [] },
+    );
+    expect(brief.best_video_angles.length).toBeGreaterThan(0);
+    expect(brief.best_video_angles.every((a) => !/commission/i.test(a))).toBe(true);
+  });
 });

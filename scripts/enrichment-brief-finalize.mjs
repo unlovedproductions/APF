@@ -184,9 +184,12 @@ export function finalizeBrief(product, brief, sources = [], options = {}) {
       brief.who_should_skip_it,
       "People expecting guaranteed results or anyone who should consult a professional before using the product.",
     ),
-    best_video_angles: angles.length
-      ? angles.filter((a) => !isAffiliateMetaSignal(a) && !isVendorSalesCopy(a))
-      : ["What problem does this solve for buyers?", "What to verify before buying"],
+    best_video_angles: (() => {
+      const cleaned = angles.filter((a) => !isAffiliateMetaSignal(a) && !isVendorSalesCopy(a));
+      return cleaned.length
+        ? cleaned
+        : ["What problem does this solve for buyers?", "What to verify before buying"];
+    })(),
     cta_guidance: sanitizeNarrativeString(
       brief.cta_guidance,
       "Check the official offer page for current price and refund terms.",

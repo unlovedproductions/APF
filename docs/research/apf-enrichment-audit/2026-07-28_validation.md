@@ -142,3 +142,10 @@ Do **not** broad re-enrich (§9) until P0–P1 land — you will mint more junk 
 **Blocker:** SearXNG Brave scrape returns `too many requests` / connection errors. Catalog re-enrich (§9) and adversarial **BLOCK → re-score** wait on healthy `engines=brave` probe.
 
 **Deferred (optional):** tighter review-body extraction so probe HTML chrome cannot dominate claims.
+
+### R3.9 follow-up (same day)
+
+- Cross-job cooldown now requires **2** consecutive rate-limit strikes (one flaky `site:` miss no longer freezes the catalog).
+- Digistore evidence queries lead with open-web (`"{name} review"` …) before `site:` filters (Brave scrape burns less on first call).
+- `finalizeBrief` restores default `best_video_angles` when scrub empties the array; Zod accepts empty LLM angles.
+- Live re-enrich attempts still degraded: Brave returns hits on idle probe, then `too many requests` within the first 1–2 worker queries.

@@ -134,13 +134,13 @@ export function digistoreEvidenceQueries(product = {}, options = {}) {
   const includeRetail = looksPhysicalRetailCategory(product.category);
   // Prefer high-signal review hosts first; retail sites only when category looks physical.
   const productQueries = [
-    `site:trustpilot.com ${name}`,
-    `site:reddit.com ${name}`,
-    `site:youtube.com ${name} review`,
     `${name} review`,
     `${name} complaints`,
     `${name} scam`,
     `${name} refund`,
+    `site:trustpilot.com ${name}`,
+    `site:reddit.com ${name}`,
+    `site:youtube.com ${name} review`,
     `${name} price`,
     `site:sitejabber.com ${name}`,
     `site:bbb.org ${name}`,
