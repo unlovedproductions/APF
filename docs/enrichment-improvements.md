@@ -220,7 +220,7 @@ In `digistoreEvidenceQueries`:
 
 ## 5. Split claims vs independent reviews
 
-**Status (partial):** affiliate/Digistore chrome stripping and vendor sales-copy scrubbing shipped in finalize; claim vs review source split before prompt still open.
+**Status (shipped):** worker splits claim vs review sources before prompt (`splitClaimAndReviewSources`); Digistore prompt fences claim/review blocks; finalize strips affiliate chrome + vendor sales copy and clears probe-title junk when review text is unusable.
 
 ### Problem
 
@@ -396,9 +396,9 @@ In `scripts/shadowcast-direct-lib.mjs` / Digistore extractors:
 |-------|--------|---------|----------|
 | **A** | §1 + §2 + §10 | Correct name/price in export and ShadowCast form | Largely shipped |
 | **B** | §3 | Real or empty competitors; no fake VS targets | Largely shipped |
-| **C** | §4 + §5 + §8 | Briefs stop treating affiliate chrome as reviews | Partial — chrome/sales scrub + degrade gates in; claim/review source split still open |
+| **C** | §4 + §5 + §8 | Briefs stop treating affiliate chrome as reviews | Shipped — split before prompt, chrome/sales scrub, degrade gates, probe-title clear |
 | **D** | §6 + §7 | Deeper review text from Trustpilot/Reddit/YouTube | Partial — full-page fetch + candidate budget in; YouTube transcripts optional later |
-| **E** | §9 | Re-enrich Digistore catalog | Pending broad re-run after C/D solid |
+| **E** | §9 | Re-enrich Digistore catalog | Pending — blocked on Brave/SearXNG health (2026-08-03); slow one-at-a-time when `engines=brave` returns hits |
 
 Ship A → B before broad re-enrich (E). C can land with A/B. D is incremental.
 
@@ -411,10 +411,10 @@ Ship A → B before broad re-enrich (E). C can land with A/B. D is incremental.
 - [x] `normalizeSuggestedCompetitors([])` → `[]` (not Top/Popular/Budget placeholders)
 - [x] Vendor sales-copy detection / narrative scrub (`enrichment-source-trust` + brief-finalize tests)
 - [x] Page-fetch candidate selection + attempt budget (`enrichment-page-fetch` tests)
-- [ ] Enrichment job logs resolved name and queries using it (spot-check)
+- [x] Enrichment job logs resolved name and queries using it (spot-check)
 - [ ] Digistore prompt fixture: no commission/EPC in `positive_signals`
 - [ ] APF → ShadowCast send: form shows real name + buyer price
-- [ ] Re-enriched sample of 5 Digistore products audited manually
+- [ ] Re-enriched sample of 5 Digistore products audited manually (blocked on Brave health 2026-08-03)
 
 ---
 

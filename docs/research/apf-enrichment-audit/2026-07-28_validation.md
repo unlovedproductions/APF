@@ -130,3 +130,15 @@ Live N=10 Digistore products only. Rates are directional for this catalog slice,
 4. content_text persist investigation  
 
 Do **not** broad re-enrich (§9) until P0–P1 land — you will mint more junk at scale.
+
+---
+
+## Post-fix status (2026-08-03)
+
+**Code:** Audit P0–P2 + R3.8 search pin/circuit/cooldown/probes-first shipped (`0ad7927`). Claim/review split before prompt is live; slice C docs corrected.
+
+**Live Digistore (n=10):** `0 complete` / `10 complete_degraded` / avg confidence **40**. Rich `content_text≥80` still present on several products via probes+fetch.
+
+**Blocker:** SearXNG Brave scrape returns `too many requests` / connection errors. Catalog re-enrich (§9) and adversarial **BLOCK → re-score** wait on healthy `engines=brave` probe.
+
+**Deferred (optional):** tighter review-body extraction so probe HTML chrome cannot dominate claims.
