@@ -38,9 +38,11 @@ export function buildSearxngSearchUrl(baseUrl, query, engines = "brave") {
   return url;
 }
 
-export function countReviewTierHosts(sources = [], classifyHost) {
+export function countReviewTierHosts(sources = [], classifyHost, options = {}) {
+  const excludeDirectProbes = Boolean(options.excludeDirectProbes);
   const hosts = new Set();
   for (const source of sources) {
+    if (excludeDirectProbes && source?.raw_json?.direct_probe) continue;
     let host = "";
     try {
       host = new URL(String(source?.url || "")).hostname.replace(/^www\./, "").toLowerCase();
@@ -54,8 +56,8 @@ export function countReviewTierHosts(sources = [], classifyHost) {
   return hosts.size;
 }
 
-export function hasEnoughReviewEvidence(sources = [], classifyHost, minHosts = 3) {
-  return countReviewTierHosts(sources, classifyHost) >= Math.max(1, Number(minHosts) || 3);
+export function hasEnoughReviewEvidence(sources = [], classifyHost, minHosts = 3, options = {}) {
+  return countReviewTierHosts(sources, classifyHost, options) >= Math.max(1, Number(minHosts) || 3);
 }
 
 export function defaultSearchCooldownPath(cwd = process.cwd()) {

@@ -1226,7 +1226,9 @@ async function processJob(conn, job) {
 
   for (const q of evidenceQueries) {
     if (searchSuspensionSeen) break;
-    if (hasEnoughReviewEvidence(collected, classifySourceHost, MIN_REVIEW_EVIDENCE_HOSTS)) {
+    if (hasEnoughReviewEvidence(collected, classifySourceHost, MIN_REVIEW_EVIDENCE_HOSTS, {
+      excludeDirectProbes: true,
+    })) {
       console.log(`[${enrichProduct.name}] early-stop product SERP (enough review-tier hosts)`);
       break;
     }
@@ -1267,7 +1269,9 @@ async function processJob(conn, job) {
     const vendorHits = [];
     for (const q of digistoreVendorQueries(creatorVendor, { max: MAX_VENDOR_QUERIES })) {
       if (searchSuspensionSeen) break;
-      if (hasEnoughReviewEvidence([...collected, ...vendorHits], classifySourceHost, MIN_REVIEW_EVIDENCE_HOSTS)) {
+      if (hasEnoughReviewEvidence([...collected, ...vendorHits], classifySourceHost, MIN_REVIEW_EVIDENCE_HOSTS, {
+        excludeDirectProbes: true,
+      })) {
         console.log(`[${enrichProduct.name}] early-stop vendor SERP (enough review-tier hosts)`);
         break;
       }

@@ -71,6 +71,23 @@ describe("enrichment search policy", () => {
     expect(hasEnoughReviewEvidence(sources.slice(0, 2), classifySourceHost, 3)).toBe(false);
   });
 
+  it("ignores direct probes when excludeDirectProbes is set", () => {
+    const probes = [
+      { url: "https://www.trustpilot.com/review/a", raw_json: { direct_probe: true } },
+      { url: "https://www.reddit.com/r/x", raw_json: { direct_probe: true } },
+      { url: "https://www.youtube.com/watch?v=1", raw_json: { direct_probe: true } },
+    ];
+    expect(hasEnoughReviewEvidence(probes, classifySourceHost, 3, { excludeDirectProbes: true })).toBe(false);
+    expect(
+      hasEnoughReviewEvidence(
+        [...probes, { url: "https://www.trustpilot.com/review/real" }, { url: "https://www.reddit.com/r/real" }, { url: "https://www.sitejabber.com/reviews/real" }],
+        classifySourceHost,
+        3,
+        { excludeDirectProbes: true },
+      ),
+    ).toBe(true);
+  });
+
   it("persists and reads cross-job search cooldown", () => {
     const filePath = path.join(os.tmpdir(), `apf-search-cooldown-${Date.now()}.json`);
     const untilMs = Date.now() + 15 * 60 * 1000;

@@ -38,6 +38,7 @@ lerna-debug.log*
 pids
 *.pid
 *.seed
+.data/
 *.pid.lock
 *.bak
 # Coverage directory used by tools like istanbul
