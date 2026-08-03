@@ -149,3 +149,9 @@ Do **not** broad re-enrich (§9) until P0–P1 land — you will mint more junk 
 - Digistore evidence queries lead with open-web (`"{name} review"` …) before `site:` filters (Brave scrape burns less on first call).
 - `finalizeBrief` restores default `best_video_angles` when scrub empties the array; Zod accepts empty LLM angles.
 - Live re-enrich attempts still degraded: Brave returns hits on idle probe, then `too many requests` within the first 1–2 worker queries.
+
+### Current (2026-08-03 later)
+
+- **Repo:** R3.9 on `main` (`596ae63`). Working tree clean.
+- **Joseph’s Well:** open-web `"… review"` returned SERP hits; praises=4 / complaints=3 / rich=8; still `complete_degraded@40` after strike 2 cooldown mid-job.
+- **Open:** finish Digistore §9 for remaining products when Brave stays green; optional paid Brave API if scrape stays unusable.
