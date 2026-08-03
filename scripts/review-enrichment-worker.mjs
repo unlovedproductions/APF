@@ -44,6 +44,15 @@ import {
   enrichSourceContent,
   selectPageFetchCandidates,
 } from "./enrichment-page-fetch.mjs";
+import {
+  buildSearxngSearchUrl,
+  defaultSearchCooldownPath,
+  hasEnoughReviewEvidence,
+  isSearchCooldownActive,
+  readSearchCooldown,
+  shouldOpenSearchCircuit,
+  writeSearchCooldown,
+} from "./enrichment-search-policy.mjs";
 import { reapExhaustedJobs, reapStaleRunningJobs } from "./apf-db-helpers.mjs";
 
 // BEGIN UNLOVED_MYSQL_NAN_GUARD
@@ -133,6 +142,8 @@ const DATABASE_URL = process.env.DATABASE_URL;
 const REVIEW_ENRICHMENT_PROVIDER = process.env.REVIEW_ENRICHMENT_PROVIDER || "searxng";
 /** Canonical host URL — keep SearXNG on :8088 (docker maps 8088:8080). After engine CAPTCHA/rate-limits: `docker restart unloved-searxng` and wait before bulk re-enrich. */
 const SEARXNG_BASE_URL = process.env.SEARXNG_BASE_URL || "http://localhost:8088";
+/** Pin SearXNG to engines that tolerate local meta-search (default brave). Avoids fan-out to ~276 engines. */
+const SEARXNG_ENGINES = String(process.env.SEARXNG_ENGINES || "brave").trim() || "brave";
 const BRAVE_SEARCH_API_KEY = process.env.BRAVE_SEARCH_API_KEY || "";
 const MAX_SOURCES = Number(process.env.REVIEW_ENRICHMENT_MAX_SOURCES || "25");
 const FULL_PAGE_SOURCE_LIMIT = Number(process.env.REVIEW_ENRICHMENT_FULL_PAGE_LIMIT || "6");
@@ -141,17 +152,29 @@ const FULL_PAGE_FETCH_DELAY_MS = Number(process.env.REVIEW_ENRICHMENT_FETCH_DELA
 const FULL_PAGE_FETCH_MAX_ATTEMPTS = Number(
   process.env.REVIEW_ENRICHMENT_FULL_PAGE_MAX_ATTEMPTS || String(FULL_PAGE_SOURCE_LIMIT * 3),
 );
-const SEARCH_DELAY_MS = Number(process.env.REVIEW_ENRICHMENT_SEARCH_DELAY_MS || "3000");
+const SEARCH_DELAY_MS = Number(process.env.REVIEW_ENRICHMENT_SEARCH_DELAY_MS || "5000");
 const SEARCH_MAX_RETRIES = Number(process.env.REVIEW_ENRICHMENT_SEARCH_MAX_RETRIES || "2");
-const MAX_PRODUCT_QUERIES = Number(process.env.REVIEW_ENRICHMENT_MAX_QUERIES || "8");
-const MAX_VENDOR_QUERIES = Number(process.env.REVIEW_ENRICHMENT_MAX_VENDOR_QUERIES || "4");
+const MAX_PRODUCT_QUERIES = Number(process.env.REVIEW_ENRICHMENT_MAX_QUERIES || "4");
+const MAX_VENDOR_QUERIES = Number(process.env.REVIEW_ENRICHMENT_MAX_VENDOR_QUERIES || "2");
 const MAX_COMPETITOR_QUERIES = Number(process.env.REVIEW_ENRICHMENT_MAX_COMPETITOR_QUERIES || "2");
+const MIN_REVIEW_EVIDENCE_HOSTS = Number(process.env.REVIEW_ENRICHMENT_MIN_REVIEW_HOSTS || "3");
+const SEARCH_COOLDOWN_MS = Number(process.env.REVIEW_ENRICHMENT_SEARCH_COOLDOWN_MS || String(20 * 60 * 1000));
+const SEARCH_COOLDOWN_PATH = process.env.REVIEW_ENRICHMENT_SEARCH_COOLDOWN_PATH
+  || defaultSearchCooldownPath();
 const REFRESH_DAYS = Number(process.env.REVIEW_ENRICHMENT_REFRESH_DAYS || "14");
 const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || "http://localhost:11434";
 const LLM_MODEL = process.env.LLM_MODEL || "qwen2.5:14b-instruct-q5_K_M";
 
 let lastSearchAt = 0;
 let searchSuspensionSeen = false;
+
+function openSearchCircuit(reason = "rate_limited") {
+  searchSuspensionSeen = true;
+  writeSearchCooldown(SEARCH_COOLDOWN_PATH, {
+    untilMs: Date.now() + Math.max(60_000, SEARCH_COOLDOWN_MS),
+    reason,
+  });
+}
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, Math.max(0, ms)));
@@ -483,11 +506,7 @@ function queriesForDigistore24Consumer(p) {
 }
 
 async function searxngSearch(query) {
-  const url = new URL("/search", SEARXNG_BASE_URL);
-  url.searchParams.set("q", query);
-  url.searchParams.set("format", "json");
-  url.searchParams.set("language", "en");
-  url.searchParams.set("safesearch", "1");
+  const url = buildSearxngSearchUrl(SEARXNG_BASE_URL, query, SEARXNG_ENGINES);
 
   const res = await fetch(url);
 
@@ -607,14 +626,14 @@ async function searchReviews(query) {
       }
     }
 
-    if (unresponsive.length) {
-      searchSuspensionSeen = true;
-      console.warn(`[search] 0 hits for ${query}; unresponsive_engines=${JSON.stringify(unresponsive)}`);
-      console.warn("[search] circuit-open for remaining queries this job");
+    if (shouldOpenSearchCircuit({ results, unresponsive })) {
+      openSearchCircuit("rate_limited");
+      console.warn(`[search] 0 hits for ${query}; rate-limit signal in unresponsive_engines=${JSON.stringify(unresponsive)}`);
+      console.warn("[search] circuit-open for remaining queries this job (+ cross-job cooldown)");
       return [];
     }
 
-    console.warn(`[search] 0 hits for ${query}`);
+    console.warn(`[search] 0 hits for ${query}${unresponsive.length ? ` (soft miss; unresponsive=${JSON.stringify(unresponsive).slice(0, 200)})` : ""}`);
     if (attempt >= SEARCH_MAX_RETRIES) return [];
 
     const backoffMs = attempt === 0 ? 5000 : 15000;
@@ -1128,6 +1147,13 @@ async function markPendingApiKey(conn, job, product) {
 
 async function processJob(conn, job) {
   searchSuspensionSeen = false;
+  const cooldown = readSearchCooldown(SEARCH_COOLDOWN_PATH);
+  if (isSearchCooldownActive(cooldown)) {
+    searchSuspensionSeen = true;
+    console.warn(
+      `[search] cross-job cooldown active until ${new Date(cooldown.untilMs).toISOString()} (${cooldown.reason}); SERP skipped, probes still run`,
+    );
+  }
   const product = await getProduct(conn, job.product_id);
   if (!product || !product.name) throw new Error(`Product ${job.product_id} missing or has no name.`);
 
@@ -1181,6 +1207,16 @@ async function processJob(conn, job) {
   }
 
   const collected = [];
+
+  // Digistore: lead with direct review-site probes so SERP suspensions cannot hollow the job.
+  if (isDigistore) {
+    const probes = directReviewSiteCandidates(searchProduct, { max: 8 });
+    if (probes.length) {
+      console.log(`[${enrichProduct.name}] direct review-site probes (first): ${probes.length}`);
+      collected.push(...probes);
+    }
+  }
+
   const evidenceQueries = isDigistore
     ? digistoreEvidenceQueries(searchProduct, {
       maxProduct: MAX_PRODUCT_QUERIES,
@@ -1190,6 +1226,10 @@ async function processJob(conn, job) {
 
   for (const q of evidenceQueries) {
     if (searchSuspensionSeen) break;
+    if (hasEnoughReviewEvidence(collected, classifySourceHost, MIN_REVIEW_EVIDENCE_HOSTS)) {
+      console.log(`[${enrichProduct.name}] early-stop product SERP (enough review-tier hosts)`);
+      break;
+    }
     console.log(`[${enrichProduct.name}] ${q}`);
     collected.push(...await searchReviews(q));
   }
@@ -1209,7 +1249,7 @@ async function processJob(conn, job) {
   }
   collected.push(...competitorHits);
 
-  if (!collected.length || !collectedHasReviewTier(collected)) {
+  if (!isDigistore && (!collected.length || !collectedHasReviewTier(collected))) {
     const probes = directReviewSiteCandidates(searchProduct, { max: 8 });
     if (probes.length) {
       console.log(`[${enrichProduct.name}] direct review-site probes: ${probes.length}`);
@@ -1227,6 +1267,10 @@ async function processJob(conn, job) {
     const vendorHits = [];
     for (const q of digistoreVendorQueries(creatorVendor, { max: MAX_VENDOR_QUERIES })) {
       if (searchSuspensionSeen) break;
+      if (hasEnoughReviewEvidence([...collected, ...vendorHits], classifySourceHost, MIN_REVIEW_EVIDENCE_HOSTS)) {
+        console.log(`[${enrichProduct.name}] early-stop vendor SERP (enough review-tier hosts)`);
+        break;
+      }
       console.log(`[${enrichProduct.name}] vendor: ${q}`);
       vendorHits.push(...await searchReviews(q));
     }
