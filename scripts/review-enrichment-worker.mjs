@@ -1383,6 +1383,9 @@ async function processJob(conn, job) {
 async function main() {
   console.log(`Review enrichment provider: ${REVIEW_ENRICHMENT_PROVIDER}`);
   console.log(`SearXNG base URL: ${SEARXNG_BASE_URL}`);
+  if (REVIEW_ENRICHMENT_PROVIDER === "searxng") {
+    console.log(`SearXNG engines: ${SEARXNG_ENGINES}; search delay ${SEARCH_DELAY_MS}ms; max product queries ${MAX_PRODUCT_QUERIES}`);
+  }
   try {
     const searxPort = new URL(SEARXNG_BASE_URL).port || "80";
     if (searxPort !== "8088") {

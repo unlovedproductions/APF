@@ -127,8 +127,8 @@ export function seriesNameForStyle(style) {
 }
 
 export function digistoreEvidenceQueries(product = {}, options = {}) {
-  const maxProduct = Math.max(1, Number(options.maxProduct ?? 8));
-  const maxVendor = Math.max(0, Number(options.maxVendor ?? 4));
+  const maxProduct = Math.max(1, Number(options.maxProduct ?? 4));
+  const maxVendor = Math.max(0, Number(options.maxVendor ?? 2));
   const name = quoted(product.name);
   const vendor = product.vendor ? quoted(product.vendor) : "";
   const includeRetail = looksPhysicalRetailCategory(product.category);

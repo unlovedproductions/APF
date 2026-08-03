@@ -38,13 +38,16 @@ APF dev server default: **http://localhost:3001** (`PORT=3001` in desktop launch
 REVIEW_ENRICHMENT_ENABLED=true
 REVIEW_ENRICHMENT_PROVIDER=searxng
 SEARXNG_BASE_URL=http://localhost:8088
-REVIEW_ENRICHMENT_SEARCH_DELAY_MS=3000
+SEARXNG_ENGINES=brave
+REVIEW_ENRICHMENT_SEARCH_DELAY_MS=5000
+REVIEW_ENRICHMENT_MAX_QUERIES=4
+REVIEW_ENRICHMENT_MAX_VENDOR_QUERIES=2
 # Rich full-page successes to collect (default 6)
 REVIEW_ENRICHMENT_FULL_PAGE_LIMIT=6
 # Max fetch attempts while filling that quota (default 18)
 REVIEW_ENRICHMENT_FULL_PAGE_MAX_ATTEMPTS=18
 # Free recovery after CAPTCHA/rate-limits: docker restart unloved-searxng, wait,
-# probe until hits return, then re-enrich slowly (DELAY_MS>=3000, MAX_RETRIES=1).
+# probe until hits return (`&engines=brave`), then re-enrich slowly (DELAY_MS>=5000, MAX_RETRIES=1).
 # Brave Search API is optional/paid-adjacent — not required for free-only.
 OLLAMA_BASE_URL=http://localhost:11434
 SHADOWCAST_BASE_URL=http://localhost:8000
@@ -69,8 +72,8 @@ docker compose up -d            # starts unloved-searxng on :8088
 docker compose down             # stop
 docker restart unloved-searxng  # restart existing container
 # After restart, wait then probe before bulk re-enrich:
-# curl -fsS 'http://localhost:8088/search?q=test&format=json' | python3 -c 'import sys,json;d=json.load(sys.stdin);print(len(d.get("results")or[]),d.get("unresponsive_engines"))'
-# Slow re-enrich: REVIEW_ENRICHMENT_SEARCH_DELAY_MS=4000 REVIEW_ENRICHMENT_SEARCH_MAX_RETRIES=1
+# curl -fsS 'http://localhost:8088/search?q=test&format=json&engines=brave' | python3 -c 'import sys,json;d=json.load(sys.stdin);print(len(d.get("results")or[]),d.get("unresponsive_engines"))'
+# Slow re-enrich: REVIEW_ENRICHMENT_SEARCH_DELAY_MS=5000 REVIEW_ENRICHMENT_SEARCH_MAX_RETRIES=1 SEARXNG_ENGINES=brave
 
 # Ollama (enrichment + ShadowCast LLM)
 ollama serve &                  # skip if already running
