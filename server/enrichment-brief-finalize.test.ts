@@ -122,7 +122,11 @@ describe("enrichment brief finalize", () => {
     expect(
       shouldForceDegraded(
         {
-          reviewSources: [{ url: "https://www.trustpilot.com/review/x" }],
+          reviewSources: [{
+            url: "https://www.trustpilot.com/review/x",
+            snippet: "Customers report mixed shipping times after purchase.",
+            raw_json: { content_text: "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" },
+          }],
           hasVendorMaterial: true,
         },
         { has_independent_review: true, has_vendor_material: true },
@@ -150,5 +154,66 @@ describe("enrichment brief finalize", () => {
     expect(sanitizeNarrativeString("Buyers report better sleep.", "fallback")).toBe(
       "Buyers report better sleep.",
     );
+  });
+
+  it("clears praises/complaints for probe-only empty-content review sources", () => {
+    const probes = [
+      {
+        url: "https://www.scamadvisor.com/check-website/circ-o2",
+        source_type: "web",
+        title: "CircO2 on ScamAdviser",
+        snippet: "",
+        raw_json: { direct_probe: true },
+      },
+      {
+        url: "https://www.trustpilot.com/review/circ-o2",
+        source_type: "web",
+        title: "CircO2 on Trustpilot",
+        snippet: "",
+        raw_json: { direct_probe: true, content_text: "" },
+      },
+    ];
+    const brief = finalizeBrief(
+      digistoreProduct,
+      {
+        review_summary: "Users love CircO2 based on ScamAdviser.",
+        positive_signals: ["CircO2 on Trustpilot", "Great reviews"],
+        common_complaints: ["CircO2 on ScamAdviser", "Shipping delays"],
+        best_video_angles: ["Worth it?"],
+        confidence_score: 70,
+      },
+      probes,
+      { hasVendorMaterial: true, reviewSources: probes },
+    );
+    expect(brief.positive_signals).toEqual([]);
+    expect(brief.common_complaints).toEqual([]);
+    expect(brief.review_summary).toMatch(/limited independent/i);
+    expect(shouldForceDegraded({ reviewSources: probes, hasVendorMaterial: true }, brief.evidence_coverage)).toBe(true);
+  });
+
+  it("keeps praises when independent sources have real content_text", () => {
+    const reviews = [
+      {
+        url: "https://www.trustpilot.com/review/example",
+        source_type: "web",
+        title: "Buyer reviews",
+        snippet: "Customers report mixed shipping times and solid packaging quality overall.",
+        raw_json: { content_text: "x".repeat(120) },
+      },
+    ];
+    const brief = finalizeBrief(
+      digistoreProduct,
+      {
+        review_summary: "Independent buyers mention packaging quality and mixed shipping times.",
+        positive_signals: ["Solid packaging quality"],
+        common_complaints: ["Mixed shipping times"],
+        best_video_angles: ["Worth it?"],
+        confidence_score: 70,
+      },
+      reviews,
+      { hasVendorMaterial: true, reviewSources: reviews },
+    );
+    expect(brief.positive_signals).toContain("Solid packaging quality");
+    expect(brief.common_complaints).toContain("Mixed shipping times");
   });
 });

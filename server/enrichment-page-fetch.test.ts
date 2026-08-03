@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
   assertSafeFetchUrl,
+  createPinnedLookup,
   extractMainText,
   isBlockedFetchIp,
   isContentCacheFresh,
   isHighTrustFetchCandidate,
+  loadUndici,
   selectPageFetchCandidates,
   youtubeVideoId,
 } from "../scripts/enrichment-page-fetch.mjs";
@@ -131,4 +133,29 @@ describe("enrichment page fetch", () => {
     expect(candidates.some((c) => c.url.includes("scamadvisor.com"))).toBe(false);
     expect(candidates.length).toBeLessThanOrEqual(4);
   });
+
+  it("loads transitive undici and pins DNS lookup to validated IPs", () => {
+    const undici = loadUndici();
+    expect(undici).toBeTruthy();
+    expect(typeof undici.fetch).toBe("function");
+    expect(typeof undici.Agent).toBe("function");
+
+    const lookup = createPinnedLookup(["8.8.8.8", "127.0.0.1"]);
+    lookup("example.com", { all: true }, (err, records) => {
+      expect(err).toBeNull();
+      expect(records).toEqual([
+        { address: "8.8.8.8", family: 4 },
+        { address: "127.0.0.1", family: 4 },
+      ]);
+    });
+    lookup("example.com", {}, (err, address, family) => {
+      expect(err).toBeNull();
+      expect(address).toBe("8.8.8.8");
+      expect(family).toBe(4);
+    });
+    createPinnedLookup([])("x", {}, (err) => {
+      expect(err).toBeInstanceOf(Error);
+    });
+  });
 });
+

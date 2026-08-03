@@ -870,15 +870,23 @@ function fallbackConsumerBrief(product, sources, vendorMaterials, options = {}) 
   const problems = summary.flatMap(s => s.problems || []).slice(0, 4);
   const objections = stripAffiliateMetaLines(summary.flatMap(s => s.objections || []).slice(0, 4));
   const { reviewSources = [] } = options;
-  const independent = reviewSources.length
+  const independent = (reviewSources.length
     ? reviewSources
-    : sources.filter(s => s.source_type !== "vendor");
+    : sources.filter(s => s.source_type !== "vendor")
+  ).filter((s) => {
+    const raw = s?.raw_json && typeof s.raw_json === "object" ? s.raw_json : {};
+    const content = String(raw.content_text || "").trim();
+    const snippet = String(s.snippet || "").trim();
+    if (raw.direct_probe && content.length < 80 && snippet.length < 40) return false;
+    return true;
+  });
   const riskSignals = stripAffiliateMetaLines(
     independent
       .filter(s => s.sentiment === "negative" || s.sentiment === "mixed")
       .slice(0, 4)
-      .map(s => s.title || s.snippet)
-      .filter(Boolean),
+      .map(s => s.snippet || s.title)
+      .filter(Boolean)
+      .filter((t) => !/\bon\s+(Trustpilot|Sitejabber|ScamAdviser|Scam\s*Detector|Reddit|BBB)\b/i.test(t)),
   );
   const pricing = summary.flatMap(s => s.pricing || []).slice(0, 2);
 

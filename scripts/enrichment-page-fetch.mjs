@@ -1,7 +1,56 @@
 import dns from "node:dns/promises";
+import { createRequire } from "node:module";
 import net from "node:net";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import * as cheerio from "cheerio";
 import { classifySourceHost } from "./enrichment-source-trust.mjs";
+
+const require = createRequire(import.meta.url);
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+/** Load transitive undici (pnpm hoisted) without adding a package dependency. */
+export function loadUndici() {
+  const candidates = [
+    "undici",
+    path.join(__dirname, "../node_modules/undici"),
+    path.join(__dirname, "../node_modules/.pnpm/node_modules/undici"),
+  ];
+  for (const candidate of candidates) {
+    try {
+      return require(candidate);
+    } catch {
+      // try next
+    }
+  }
+  return null;
+}
+
+/**
+ * DNS lookup override that returns only pre-validated addresses (true IP pin).
+ * Host/SNI still come from the request URL hostname.
+ */
+export function createPinnedLookup(pinnedAddresses = []) {
+  const records = (Array.isArray(pinnedAddresses) ? pinnedAddresses : [])
+    .map((address) => {
+      const ip = String(address || "").trim();
+      const family = net.isIP(ip);
+      return family ? { address: ip, family } : null;
+    })
+    .filter(Boolean);
+  return function pinnedLookup(hostname, options, callback) {
+    if (!records.length) {
+      callback(new Error(`no pinned addresses for ${hostname}`));
+      return;
+    }
+    if (options?.all) {
+      callback(null, records.map((r) => ({ address: r.address, family: r.family })));
+      return;
+    }
+    callback(null, records[0].address, records[0].family);
+  };
+}
 
 const FETCHABLE_TIERS = new Set(["review", "scam_advisor", "retailer", "video"]);
 const BINARY_CONTENT_RE = /(?:application\/pdf|image\/|audio\/|video\/|application\/zip|application\/octet-stream)/i;
@@ -231,23 +280,46 @@ async function fetchWithLimits(url, options = {}) {
   const maxBytes = options.maxBytes || 1_000_000;
   const maxRedirects = Math.max(0, Number(options.maxRedirects ?? 5));
   let current = String(url);
+  const undici = options.undici || loadUndici();
 
   for (let hop = 0; hop <= maxRedirects; hop++) {
     const safe = await assertSafeFetchUrl(current);
-    await assertDnsStable(safe.url.hostname, safe.addresses);
+    const addresses = await assertDnsStable(safe.url.hostname, safe.addresses);
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
-      const response = await fetch(current, {
-        redirect: "manual",
-        signal: controller.signal,
-        headers: {
-          "User-Agent": "APF-Enrichment/1.0 (+https://github.com/)",
-          "Accept": "text/html,application/xhtml+xml,application/json;q=0.8",
-        },
-      });
+      const headers = {
+        "User-Agent": "APF-Enrichment/1.0 (+https://github.com/)",
+        "Accept": "text/html,application/xhtml+xml,application/json;q=0.8",
+      };
+
+      let response;
+      let dispatcher;
+      if (undici?.Agent && undici?.fetch && addresses.length && !net.isIP(safe.url.hostname.replace(/^\[|\]$/g, ""))) {
+        dispatcher = new undici.Agent({
+          connect: {
+            lookup: createPinnedLookup(addresses),
+          },
+        });
+        try {
+          response = await undici.fetch(current, {
+            redirect: "manual",
+            signal: controller.signal,
+            headers,
+            dispatcher,
+          });
+        } finally {
+          try { await dispatcher.close(); } catch { /* ignore */ }
+        }
+      } else {
+        response = await fetch(current, {
+          redirect: "manual",
+          signal: controller.signal,
+          headers,
+        });
+      }
 
       if ([301, 302, 303, 307, 308].includes(response.status)) {
         const location = response.headers.get("location");
@@ -349,24 +421,54 @@ export async function fetchYouTubeTranscript(videoId, options = {}) {
       maxBytes: 200_000,
     });
     const $ = cheerio.load(list.body, { xmlMode: true });
-    let lang = "";
+    const tracks = [];
     $("track").each((_, el) => {
-      if (lang) return;
-      const code = String($(el).attr("lang_code") || "");
-      if (/^en/i.test(code) || $(el).attr("lang_default") === "true") lang = code;
+      tracks.push({
+        lang: String($(el).attr("lang_code") || "").trim(),
+        name: String($(el).attr("name") || ""),
+        kind: String($(el).attr("kind") || "").toLowerCase(),
+        isDefault: $(el).attr("lang_default") === "true",
+      });
     });
-    if (!lang) {
-      const first = $("track").first().attr("lang_code");
-      if (first) lang = first;
-    }
-    if (!lang) return "";
+    if (!tracks.length) return "";
 
-    const trackUrl = `https://www.youtube.com/api/timedtext?lang=${encodeURIComponent(lang)}&v=${encodeURIComponent(id)}`;
-    const track = await fetchWithLimits(trackUrl, {
-      timeoutMs: options.timeoutMs,
-      maxBytes: 1_000_000,
-    });
-    return parseTimedTextXml(track.body).slice(0, options.textLimit || 8000);
+    const scoreTrack = (t) => {
+      let score = 0;
+      if (/^en([_-]|$)/i.test(t.lang)) score += 100;
+      if (t.isDefault) score += 40;
+      if (t.kind !== "asr" && !/auto[- ]?generat/i.test(t.name)) score += 25;
+      if (/^en/i.test(t.lang)) score += 10;
+      return score;
+    };
+    tracks.sort((a, b) => scoreTrack(b) - scoreTrack(a));
+
+    const textLimit = options.textLimit || 8000;
+    for (const track of tracks.slice(0, 6)) {
+      if (!track.lang) continue;
+      const variants = [
+        `https://www.youtube.com/api/timedtext?lang=${encodeURIComponent(track.lang)}&v=${encodeURIComponent(id)}`,
+        `https://www.youtube.com/api/timedtext?lang=${encodeURIComponent(track.lang)}&v=${encodeURIComponent(id)}&fmt=srv1`,
+        `https://www.youtube.com/api/timedtext?lang=${encodeURIComponent(track.lang)}&v=${encodeURIComponent(id)}&fmt=srv3`,
+      ];
+      if (track.kind === "asr" || /auto[- ]?generat/i.test(track.name)) {
+        variants.push(
+          `https://www.youtube.com/api/timedtext?lang=${encodeURIComponent(track.lang)}&v=${encodeURIComponent(id)}&kind=asr`,
+        );
+      }
+      for (const trackUrl of variants) {
+        try {
+          const body = await fetchWithLimits(trackUrl, {
+            timeoutMs: options.timeoutMs,
+            maxBytes: 1_000_000,
+          });
+          const text = parseTimedTextXml(body.body).slice(0, textLimit);
+          if (text.length >= 40) return text;
+        } catch {
+          // try next variant / language
+        }
+      }
+    }
+    return "";
   } catch {
     return "";
   }

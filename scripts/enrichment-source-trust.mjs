@@ -372,6 +372,36 @@ export function stripAffiliateMetaLines(values = []) {
     .filter((x) => !isAffiliateMetaSignal(x));
 }
 
+/** Titles/snippets like "CircO2 on ScamAdviser" are probe labels, not buyer signals. */
+const PROBE_TITLE_SIGNAL_RE = /\bon\s+(Trustpilot|Sitejabber|ScamAdviser|Scam\s*Adviser|Scam\s*Detector|Reddit|BBB)\b/i;
+
+export function isProbeTitleSignal(text) {
+  return PROBE_TITLE_SIGNAL_RE.test(String(text || ""));
+}
+
+/**
+ * True when an independent source has real review text — not a direct_probe stub
+ * with empty snippet/content_text (titles alone must not invent praises/complaints).
+ */
+export function sourceHasUsableReviewText(source = {}, options = {}) {
+  const minContent = Math.max(1, Number(options.minContent ?? 80));
+  const minSnippet = Math.max(1, Number(options.minSnippet ?? 40));
+  const raw = source?.raw_json && typeof source.raw_json === "object" ? source.raw_json : {};
+  const content = String(raw.content_text || "").replace(/\s+/g, " ").trim();
+  if (content.length >= minContent) return true;
+  if (raw.direct_probe) return false;
+  const snippet = String(source.snippet || "").replace(/\s+/g, " ").trim();
+  if (!snippet || snippet.length < minSnippet) return false;
+  if (isProbeTitleSignal(snippet) || isProbeTitleSignal(source.title)) return false;
+  return true;
+}
+
+/** Review sources that can justify praises/complaints (empty → thin-evidence path). */
+export function substantiveReviewSources(reviewSources = [], options = {}) {
+  return (Array.isArray(reviewSources) ? reviewSources : [])
+    .filter((s) => sourceHasUsableReviewText(s, options));
+}
+
 export function splitClaimAndReviewSources(sources = [], vendorDomains = new Set()) {
   const claimSources = [];
   const reviewSources = [];

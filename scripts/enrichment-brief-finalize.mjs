@@ -1,10 +1,12 @@
 import {
   evidenceCoverageFromSources,
   isAffiliateMetaSignal,
+  isProbeTitleSignal,
   isVendorSalesCopy,
   normalizeSuggestedCompetitors,
   seriesNameForStyle,
   stripAffiliateMetaLines,
+  substantiveReviewSources,
 } from "./enrichment-source-trust.mjs";
 import { sanitizeBuyerPrice } from "./digistore24-detail-extractor.mjs";
 
@@ -131,21 +133,25 @@ export function finalizeBrief(product, brief, sources = [], options = {}) {
 
   const reviewSources = options.reviewSources;
   const noIndependentReviews = Array.isArray(reviewSources) && reviewSources.length === 0;
+  // Probe-only / empty-content review URLs must not invent praises/complaints from titles.
+  const thinIndependentEvidence = Array.isArray(reviewSources)
+    && substantiveReviewSources(reviewSources).length === 0;
+  const blockPraiseComplaint = noIndependentReviews || thinIndependentEvidence;
 
   let positive_signals = stripAffiliateMetaLines(
     (brief.positive_signals || []).map((x) => briefText(x)).filter(Boolean),
-  );
+  ).filter((x) => !isProbeTitleSignal(x));
   let common_complaints = stripAffiliateMetaLines(
     (brief.common_complaints || []).map((x) => briefText(x)).filter(Boolean),
-  );
+  ).filter((x) => !isProbeTitleSignal(x));
   const common_claims = stripAffiliateMetaLines(
     (brief.common_claims || []).map((x) => briefText(x)).filter(Boolean),
   );
   const negative_signals = stripAffiliateMetaLines(
     (brief.negative_signals || []).map((x) => briefText(x)).filter(Boolean),
-  );
+  ).filter((x) => !isProbeTitleSignal(x));
 
-  if (noIndependentReviews) {
+  if (blockPraiseComplaint) {
     positive_signals = [];
     common_complaints = [];
   }
@@ -155,8 +161,8 @@ export function finalizeBrief(product, brief, sources = [], options = {}) {
     : `${product.name} has ${sources.length} discovered public review/search signals. Present this as a trust-first review and avoid unsupported claims.`;
 
   const review_summary = sanitizeNarrativeString(brief.review_summary, defaultSummary, {
-    noIndependentReviews,
-    strictThinEvidence: isDigistore && noIndependentReviews,
+    noIndependentReviews: blockPraiseComplaint,
+    strictThinEvidence: isDigistore && blockPraiseComplaint,
   });
 
   return {
@@ -205,11 +211,14 @@ export function finalizeBrief(product, brief, sources = [], options = {}) {
 export function shouldForceDegraded(options = {}, coverage = {}) {
   const noReviewSources = Array.isArray(options.reviewSources)
     && options.reviewSources.length === 0;
+  const thinIndependentEvidence = Array.isArray(options.reviewSources)
+    && substantiveReviewSources(options.reviewSources).length === 0;
   return Boolean(
     options.identityUnresolved
     || options.degraded
     || options.searchSuspended
     || noReviewSources
+    || thinIndependentEvidence
     || (!coverage.has_independent_review && !coverage.has_vendor_material),
   );
 }

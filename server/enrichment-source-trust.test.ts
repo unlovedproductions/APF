@@ -7,11 +7,14 @@ import {
   evidenceCoverageFromSources,
   extractCompetitorCandidatesFromHits,
   extractCompetitorNamesFromText,
+  isProbeTitleSignal,
   isVendorSalesCopy,
   normalizeSuggestedCompetitors,
   looksPhysicalRetailCategory,
   shortSearchProductName,
   slugifyForReviewUrl,
+  sourceHasUsableReviewText,
+  substantiveReviewSources,
 } from "../scripts/enrichment-source-trust.mjs";
 
 describe("enrichment source trust", () => {
@@ -161,5 +164,23 @@ describe("enrichment source trust", () => {
     expect(coverage.has_independent_review).toBe(true);
     expect(coverage.has_vendor_material).toBe(true);
     expect(coverage.resolved_product_name).toBe("Joseph's Well");
+  });
+
+  it("sourceHasUsableReviewText rejects empty direct probes", () => {
+    expect(isProbeTitleSignal("CircO2 on ScamAdviser")).toBe(true);
+    expect(sourceHasUsableReviewText({
+      title: "CircO2 on ScamAdviser",
+      snippet: "",
+      raw_json: { direct_probe: true },
+    })).toBe(false);
+    expect(sourceHasUsableReviewText({
+      title: "Buyer thread",
+      snippet: "Customers report refund friction after two weeks of use.",
+      raw_json: {},
+    })).toBe(true);
+    expect(substantiveReviewSources([
+      { title: "X on Trustpilot", raw_json: { direct_probe: true } },
+      { snippet: "Customers report refund friction after two weeks of use.", raw_json: {} },
+    ])).toHaveLength(1);
   });
 });

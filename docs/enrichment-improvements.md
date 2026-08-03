@@ -365,15 +365,26 @@ Existing `product_review_briefs` were generated under wrong names. Export fixes 
 
 Even with perfect APF export, harden import so bad payloads cannot refill the form.
 
-### How
+### Status (2026-08-02)
 
-In `shadowcast-/backend/apf_import.py`:
+**Shipped outside this repo** in `/home/unloved/shadowcast-/backend/apf_import.py` (+ frontend `mapBackendNormalized` in `shadowcast-/frontend/index.html`). Do not invent a ShadowCast tree inside APF.
 
+Verified present:
 1. Prefer `shadowcast_import` fields when present.
 2. If name is marketplace brand, recover from `vendor_materials` (same rules as APF).
 3. Sanitize price; reject EPC/commission strings.
 4. Emit cleaned features into both `keyFeatures` and `key_features`.
 5. Frontend `mapBackendNormalized`: prefer cleaned `key_features` list over raw `keyFeatures`.
+
+### APF-side export defenses (this repo)
+
+In `scripts/shadowcast-direct-lib.mjs` / Digistore extractors:
+- `resolveExportProductName` / marketplace brand rejection
+- `sanitizeBuyerPrice` (EPC/commission → offer-page fallback)
+- affiliate chrome stripped from discount/USP/features before export
+- probe-title praises/complaints cleared server-side in brief finalize before export
+
+**Blocked without ShadowCast tree edits from APF:** changing ShadowCast UI field wiring beyond the already-shipped `mapBackendNormalized` preference. Further import hardening belongs in the ShadowCast repo.
 
 (See plan: Digistore product info fill.)
 
