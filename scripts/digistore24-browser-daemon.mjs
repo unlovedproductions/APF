@@ -903,7 +903,10 @@ async function collectProducts(options) {
         platformCreatedAt: detail.platformCreatedAt,
         affiliateLink: promote.affiliateLink || "",
         detailUrl,
-        detectedMeta: detail.detectedMeta,
+        detectedMeta: {
+          ...detail.detectedMeta,
+          detected_refund_rate: detail.refundRate ?? detail.detectedMeta?.detected_refund_rate ?? null,
+        },
       };
 
       const saved = await upsertProduct(conn, product);

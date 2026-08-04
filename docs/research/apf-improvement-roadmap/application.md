@@ -2,23 +2,27 @@
 
 **Investigation:** `apf-improvement-roadmap`  
 **Report:** `2026-08-04_decision.md`  
-**Status:** round 1 engineering applied; remaining forks deferred
-
-Research recommends default path: **Fork A=yes, C=yes, D=yes; B=decide on spend**.
+**Status:** rounds 1–2 engineering applied; remaining forks deferred
 
 | Fork | Prompt | Research default | Your call | Status |
 |------|--------|------------------|-----------|--------|
-| A | Is APF primarily ShadowCast fuel? | **Yes** — README + workflow [s05] | _pending_ | deferred |
-| B | Allow paid Brave API if scrape stays unusable? | Prefer self-host first; paid only if P0.1 blocked >1 week | _pending_ | deferred |
-| C | Block auto-export of `complete_degraded`? | **Yes** — quarantine / manual override [s01][s17] | **yes (code)** | applied |
-| D | Scoring (refunds/EPC) before more discovery UI? | **Yes** [s03][s09] | _pending_ | deferred |
+| A | Is APF primarily ShadowCast fuel? | **Yes** | _pending_ | deferred |
+| B | Allow paid Brave API if scrape stays unusable? | Prefer self-host / fallbacks first | _pending_ | deferred |
+| C | Block auto-export of `complete_degraded`? | **Yes** | **yes (code)** | applied |
+| D | Scoring (refunds/EPC) before more discovery UI? | **Yes** | **yes (code v2)** | applied |
 
-## Round 1 engineering (2026-08-04)
+## Round 1 (2026-08-04)
 
-- **P0.2 shipped:** UI + `apfWorkflows` require enrichment `complete`; `APF_ALLOW_DEGRADED_EXPORT` / CLI `--force` opt-in for degraded.
-- **P0.3 shipped:** Digistore daemon refreshes `products.name` from vendor materials after capture (worker persist already existed).
-- **Still open:** P0.1 search health, P0.4 live DQS / adversarial re-score, then P1 scoring.
+- **P0.2:** Export requires `complete`; degraded quarantined.
+- **P0.3:** Daemon refreshes Digistore names from vendor materials.
 
-## Next
+## Round 2 (2026-08-04)
 
-Execute **P0.1 + P0.4** before catalog §9 re-enrich.
+- **P0.1:** SearXNG engine fallbacks + HTTP 429/403 handling; optional Firecrawl BYOK; default search delay 8s.
+- **P1.1 / P1.2:** `digistore24_native_v2` — refund/cancel rate in quality; enrichment confidence excluded from score.
+
+## Still open
+
+- **P0.4** live DQS / adversarial re-score after Brave is green
+- **P1.3** promote→outcome log
+- Catalog §9 re-enrich when search stays healthy

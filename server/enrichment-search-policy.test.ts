@@ -7,7 +7,9 @@ import {
   buildSearxngSearchUrl,
   hasEnoughReviewEvidence,
   isSearchCooldownActive,
+  isSearchHttpRateLimitStatus,
   isSearchRateLimitSignal,
+  listSearchEngineAttempts,
   readSearchCooldown,
   shouldOpenSearchCircuit,
   writeSearchCooldown,
@@ -24,6 +26,22 @@ describe("enrichment search policy", () => {
   it("allows custom engine list", () => {
     const url = buildSearxngSearchUrl("http://localhost:8088", "test", "brave,wikipedia");
     expect(url.searchParams.get("engines")).toBe("brave,wikipedia");
+  });
+
+  it("orders primary then fallback engines without duplicates", () => {
+    expect(listSearchEngineAttempts("brave", "duckduckgo")).toEqual(["brave", "duckduckgo"]);
+    expect(listSearchEngineAttempts("brave,duckduckgo", "duckduckgo,bing")).toEqual([
+      "brave",
+      "duckduckgo",
+      "bing",
+    ]);
+    expect(listSearchEngineAttempts("", "")).toEqual(["brave"]);
+  });
+
+  it("treats HTTP 429 and 403 as rate-limit statuses", () => {
+    expect(isSearchHttpRateLimitStatus(429)).toBe(true);
+    expect(isSearchHttpRateLimitStatus(403)).toBe(true);
+    expect(isSearchHttpRateLimitStatus(500)).toBe(false);
   });
 
   it("detects rate-limit signatures in unresponsive_engines", () => {

@@ -262,7 +262,7 @@ Digistore prompt says: prioritize vendor materials; use third-party only for ris
 
 ## 6. Fetch full pages for high-trust hosts
 
-**Status (partial):** fetch pipeline, SSRF controls, cache TTL, and candidate selection/attempt budget shipped; transcript-depth / broader host coverage still incremental.
+**Status (partial):** fetch pipeline, SSRF controls, cache TTL, and candidate selection/attempt budget shipped; transcript-depth / broader host coverage still incremental. Optional Firecrawl scrape fallback (`FIRECRAWL_API_KEY`, capped by `REVIEW_ENRICHMENT_FIRECRAWL_MAX_SCRAPE_PER_JOB`) when local fetch is thin/blocked — SSRF-checked first; YouTube stays on the dedicated path.
 
 ### Problem
 
@@ -398,7 +398,7 @@ In `scripts/shadowcast-direct-lib.mjs` / Digistore extractors:
 | **B** | §3 | Real or empty competitors; no fake VS targets | Largely shipped |
 | **C** | §4 + §5 + §8 | Briefs stop treating affiliate chrome as reviews | Shipped — split before prompt, chrome/sales scrub, degrade gates, probe-title clear |
 | **D** | §6 + §7 | Deeper review text from Trustpilot/Reddit/YouTube | Partial — full-page fetch + candidate budget in; YouTube transcripts optional later |
-| **E** | §9 | Re-enrich Digistore catalog | Blocked on flaky Brave scrape (2026-08-03). R3.9: open-web queries first + 2-strike cooldown. Re-run one-at-a-time with DELAY≥10s after a stable `engines=brave` probe. |
+| **E** | §9 | Re-enrich Digistore catalog | Blocked on flaky Brave scrape (2026-08-03). R3.9: open-web queries first + 2-strike cooldown. Engine fallbacks (`SEARXNG_FALLBACK_ENGINES`) + optional Firecrawl search (`FIRECRAWL_API_KEY`, max 2/job) when primary dies. Re-run one-at-a-time with DELAY≥10s after a stable probe. |
 
 Ship A → B before broad re-enrich (E). C can land with A/B. D is incremental.
 

@@ -10,6 +10,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - `APF_ALLOW_DEGRADED_EXPORT` opt-in for ShadowCast auto-export of `complete_degraded` briefs (default off)
 - Digistore daemon refreshes `products.name` from vendor materials after capture when listing title was weak
+- SearXNG engine fallbacks (`SEARXNG_FALLBACK_ENGINES`, default duckduckgo) + HTTP 429/403 rate-limit handling
+- Optional Firecrawl BYOK search/scrape fallback when SearXNG is rate-limited
+- Digistore listing refund/cancellation rate parsing into `detected_refund_rate`
 - `REVIEW_ENRICHMENT_FULL_PAGE_LIMIT` and `REVIEW_ENRICHMENT_FULL_PAGE_MAX_ATTEMPTS` for full-page fetch success target and attempt budget
 - Vendor sales-copy detector (`isVendorSalesCopy`) used when sanitizing narrative fields and video angles
 - Page-fetch candidate ranking: tier preference (YouTube → review/scam → video → retailer → vendor), skip permanent fetch errors, retry until rich-page quota or attempt budget exhausted
@@ -19,6 +22,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Changed
 
 - ShadowCast UI/workflow export requires enrichment `complete` only; `complete_degraded` is quarantined (CLI `--force` / env opt-in still available)
+- Default enrichment search delay raised from 5s to 8s
+- Digistore scorer `digistore24_native_v2`: refund/cancel rate in quality; enrichment confidence excluded from score
 - Default full-page rich success target raised from 4 to 6
 - Digistore thin-evidence path prefers an honest limited-independent summary over offer-page sales pitch
 - Enrichment worker logs page-fetch success/attempt counts per product

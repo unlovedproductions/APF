@@ -211,7 +211,7 @@ export function extractDigistore24Detail(raw) {
   const body = clean(bodySource, 12000);
   const lines = bodySource.split(/\n+/).map((line) => clean(line, 500)).filter(Boolean);
   const importantSections = lines
-    .filter((line) => /vendor|seller|creator|category|niche|topic|commission|price|cart value|conversion|created|listed/i.test(line))
+    .filter((line) => /vendor|seller|creator|category|niche|topic|commission|price|cart value|conversion|refund|cancel|created|listed/i.test(line))
     .join(" | ");
   const description = clean((raw.descriptionSection || bodySource).slice(0, 3500), 3500);
   const parsedVendor = parseFieldByLabel(bodySource.length ? bodySource : body, [
@@ -226,6 +226,13 @@ export function extractDigistore24Detail(raw) {
     || "Digistore24 Marketplace";
   const commissionRate = parsePercent(`${importantSections} ${body}`, ["commission", "affiliate"]);
   const conversionRate = parsePercent(`${importantSections} ${body}`, ["conversion", "cart conversion"]);
+  const refundRate = parsePercent(`${importantSections} ${body}`, [
+    "refund",
+    "refund rate",
+    "cancellation",
+    "cancellation rate",
+    "cancel rate",
+  ]);
   const cartValue = parseCurrency(`${importantSections} ${body}`, ["cart value", "price", "payout", "earnings", "epc"]);
   const platformCreatedAt = parseDate(`${importantSections} ${body}`, ["created", "listed", "published"]);
   const buyerBlocks = extractBuyerFacingBlocks(description || body);
@@ -237,6 +244,7 @@ export function extractDigistore24Detail(raw) {
     description,
     commissionRate,
     conversionRate,
+    refundRate,
     cartValue,
     platformCreatedAt,
     buyerBlocks,
@@ -245,6 +253,7 @@ export function extractDigistore24Detail(raw) {
       detected_category: category || null,
       detected_commission_rate: commissionRate,
       detected_conversion_rate: conversionRate,
+      detected_refund_rate: refundRate,
       detected_cart_value: cartValue,
       detected_platform_created_at: platformCreatedAt,
       buyer_headline: buyerBlocks.headline || null,

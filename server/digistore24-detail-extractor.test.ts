@@ -66,6 +66,16 @@ describe("digistore24 detail extractor", () => {
     ).toBe("CircO2 Nitric Oxide Booster Supplements");
   });
 
+  it("parses refund/cancellation rate from listing body", () => {
+    const detail = extractDigistore24Detail({
+      title: "Alpha Lean Formula",
+      body: "Vendor: Acme Labs\nCategory: Health\nRefund rate: 8%\nCart conversion: 4%",
+    });
+    expect(detail.refundRate).toBe(8);
+    expect(detail.conversionRate).toBe(4);
+    expect(detail.detectedMeta.detected_refund_rate).toBe(8);
+  });
+
   it("sanitizes buyer prices and rejects affiliate copy", () => {
     expect(sanitizeBuyerPrice("$67.00")).toBe("$67.00");
     expect(sanitizeBuyerPrice("Varies")).toBe("Varies");

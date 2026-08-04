@@ -157,6 +157,18 @@ export function scoreDigistore24(product) {
     /average\s*payout[^0-9$€]{0,20}[$€]?(\d+(?:\.\d+)?)/i
         ]));
 
+  const refundRateRaw =
+    Number(product.refundRate) > 0
+      ? Number(product.refundRate)
+      : (Number(meta.detected_refund_rate) > 0
+        ? Number(meta.detected_refund_rate)
+        : numberFromText(fallbackText, [
+          /refund(?:\s*rate)?[^0-9]{0,20}(\d+(?:\.\d+)?)\s*%/i,
+          /cancellation(?:\s*rate)?[^0-9]{0,20}(\d+(?:\.\d+)?)\s*%/i,
+          /cancel(?:lation)?\s*rate[^0-9]{0,20}(\d+(?:\.\d+)?)\s*%/i,
+        ]));
+  const refundRate = Number.isFinite(Number(refundRateRaw)) ? Number(refundRateRaw) : null;
+
   const sourceCount = Number(product.source_count || 0);
   const confidence = Number(product.confidence_score || 0);
 
@@ -198,14 +210,17 @@ export function scoreDigistore24(product) {
     3;
 
   // APF-native component 4: quality, max 40.
-  // Affiliate readiness + usable product details + review confidence.
+  // Affiliate readiness + product details + evidence presence + refund risk.
+  // Do NOT use enrichment confidence_score (circular / confidence theater).
+  const nameOk = Boolean(clean(product.name)) && !/^(digistore24?|marketplace)$/i.test(clean(product.name));
   let quality = clamp(
     (hasAffiliateLink(product) ? 14 : 4) +
     (clean(product.platformProductId).match(/^\d+$/) ? 5 : 2) +
-    (clean(product.name) ? 4 : 0) +
+    (nameOk ? 4 : 0) +
     (clean(product.category) ? 3 : 0) +
     (clean(product.description).length > 300 ? 7 : clean(product.description).length > 80 ? 5 : 2) +
-    (confidence >= 80 ? 7 : confidence >= 60 ? 5 : confidence >= 40 ? 3 : sourceCount > 0 ? 2 : 0),
+    (sourceCount >= 5 ? 5 : sourceCount > 0 ? 3 : 0) +
+    (refundRate === null ? 0 : refundRate < 5 ? 4 : refundRate < 10 ? 2 : refundRate < 20 ? -3 : -8),
     0,
     40
   );
@@ -221,19 +236,21 @@ export function scoreDigistore24(product) {
 
   return {
     score: sumComponents(components),
-    strategy: "digistore24_native_v1",
+    strategy: "digistore24_native_v2",
     marketplace: "digistore24",
     components,
     meta: {
       detected_commission_percent: commissionPercent,
       detected_conversion_percent: conversionPercent,
       detected_earnings_value: earningsValue,
+      detected_refund_rate: refundRate,
       review_source_count: sourceCount,
-      review_confidence: confidence,
+      review_confidence: Number.isFinite(confidence) ? confidence : null,
+      review_confidence_in_score: false,
       vendor_trust_score: Number.isFinite(vendorTrustScore) ? vendorTrustScore : null,
       vendor_rank_band: vendorRankBand,
       affiliate_ready: hasAffiliateLink(product),
-      note: "Digistore24 scorer emits APF-native recency/growth/competition/quality components."
+      note: "digistore24_native_v2: refund/cancel rate in quality; enrichment confidence excluded from score.",
     }
   };
 }

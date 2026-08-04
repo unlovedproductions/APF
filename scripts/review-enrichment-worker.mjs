@@ -45,10 +45,17 @@ import {
   selectPageFetchCandidates,
 } from "./enrichment-page-fetch.mjs";
 import {
+  canFirecrawlSearch,
+  firecrawlSearch,
+  resetFirecrawlBudget,
+} from "./enrichment-firecrawl.mjs";
+import {
   buildSearxngSearchUrl,
   defaultSearchCooldownPath,
   hasEnoughReviewEvidence,
   isSearchCooldownActive,
+  isSearchHttpRateLimitStatus,
+  listSearchEngineAttempts,
   readSearchCooldown,
   shouldOpenSearchCircuit,
   writeSearchCooldown,
@@ -144,6 +151,8 @@ const REVIEW_ENRICHMENT_PROVIDER = process.env.REVIEW_ENRICHMENT_PROVIDER || "se
 const SEARXNG_BASE_URL = process.env.SEARXNG_BASE_URL || "http://localhost:8088";
 /** Pin SearXNG to engines that tolerate local meta-search (default brave). Avoids fan-out to ~276 engines. */
 const SEARXNG_ENGINES = String(process.env.SEARXNG_ENGINES || "brave").trim() || "brave";
+/** Tried after primary engine returns rate-limit + 0 hits (default duckduckgo). */
+const SEARXNG_FALLBACK_ENGINES = String(process.env.SEARXNG_FALLBACK_ENGINES || "duckduckgo").trim();
 const BRAVE_SEARCH_API_KEY = process.env.BRAVE_SEARCH_API_KEY || "";
 const MAX_SOURCES = Number(process.env.REVIEW_ENRICHMENT_MAX_SOURCES || "25");
 const FULL_PAGE_SOURCE_LIMIT = Number(process.env.REVIEW_ENRICHMENT_FULL_PAGE_LIMIT || "6");
@@ -152,7 +161,8 @@ const FULL_PAGE_FETCH_DELAY_MS = Number(process.env.REVIEW_ENRICHMENT_FETCH_DELA
 const FULL_PAGE_FETCH_MAX_ATTEMPTS = Number(
   process.env.REVIEW_ENRICHMENT_FULL_PAGE_MAX_ATTEMPTS || String(FULL_PAGE_SOURCE_LIMIT * 3),
 );
-const SEARCH_DELAY_MS = Number(process.env.REVIEW_ENRICHMENT_SEARCH_DELAY_MS || "5000");
+/** Default raised to 8s to reduce Brave scrape thrash between queries. */
+const SEARCH_DELAY_MS = Number(process.env.REVIEW_ENRICHMENT_SEARCH_DELAY_MS || "8000");
 const SEARCH_MAX_RETRIES = Number(process.env.REVIEW_ENRICHMENT_SEARCH_MAX_RETRIES || "2");
 const MAX_PRODUCT_QUERIES = Number(process.env.REVIEW_ENRICHMENT_MAX_QUERIES || "4");
 const MAX_VENDOR_QUERIES = Number(process.env.REVIEW_ENRICHMENT_MAX_VENDOR_QUERIES || "2");
@@ -506,12 +516,18 @@ function queriesForDigistore24Consumer(p) {
   return digistoreEvidenceQueries(p);
 }
 
-async function searxngSearch(query) {
-  const url = buildSearxngSearchUrl(SEARXNG_BASE_URL, query, SEARXNG_ENGINES);
+async function searxngSearch(query, engines = SEARXNG_ENGINES) {
+  const url = buildSearxngSearchUrl(SEARXNG_BASE_URL, query, engines);
 
   const res = await fetch(url);
 
   if (!res.ok) {
+    if (isSearchHttpRateLimitStatus(res.status)) {
+      return {
+        results: [],
+        unresponsive_engines: [[String(engines || "searxng"), `HTTP ${res.status}`]],
+      };
+    }
     throw new Error(`SearXNG failed ${res.status}: ${(await res.text()).slice(0, 300)}`);
   }
 
@@ -600,24 +616,46 @@ async function searchReviews(query) {
 
     let results = [];
     let unresponsive = [];
+    let sawRateLimit = false;
 
     if (REVIEW_ENRICHMENT_PROVIDER === "searxng") {
-      const packed = await searxngSearch(query);
-      results = packed.results || [];
-      unresponsive = packed.unresponsive_engines || [];
+      const engines = listSearchEngineAttempts(SEARXNG_ENGINES, SEARXNG_FALLBACK_ENGINES);
+      for (let i = 0; i < engines.length; i++) {
+        const eng = engines[i];
+        if (i > 0) {
+          await throttleSearchGap();
+          lastSearchAt = Date.now();
+        }
+        const packed = await searxngSearch(query, eng);
+        results = packed.results || [];
+        unresponsive = packed.unresponsive_engines || [];
+        if (results.length > 0) {
+          searchRateLimitStrikes = 0;
+          return results;
+        }
+        const rateLimited = shouldOpenSearchCircuit({ results, unresponsive });
+        if (rateLimited) {
+          sawRateLimit = true;
+          if (i + 1 < engines.length) {
+            console.warn(`[search] ${eng} rate-limited; trying fallback engine ${engines[i + 1]}`);
+            continue;
+          }
+        }
+        // Soft miss: do not burn remaining fallback engines.
+        break;
+      }
     } else {
       results = await braveSearch(query);
-    }
-
-    if (results.length > 0) {
-      searchRateLimitStrikes = 0;
-      return results;
+      if (results.length > 0) {
+        searchRateLimitStrikes = 0;
+        return results;
+      }
     }
 
     // Optional Brave API fallback (not free-only; only if key already configured).
     if (
       REVIEW_ENRICHMENT_PROVIDER === "searxng"
-      && unresponsive.length
+      && (sawRateLimit || unresponsive.length)
       && BRAVE_SEARCH_API_KEY
     ) {
       try {
@@ -633,7 +671,29 @@ async function searchReviews(query) {
       }
     }
 
-    if (shouldOpenSearchCircuit({ results, unresponsive })) {
+    // Optional Firecrawl search fallback (BYOK; capped per job).
+    // Only on rate-limit death or final miss — soft misses must not burn credits.
+    if (
+      REVIEW_ENRICHMENT_PROVIDER === "searxng"
+      && results.length === 0
+      && canFirecrawlSearch()
+      && (sawRateLimit || attempt >= SEARCH_MAX_RETRIES)
+    ) {
+      try {
+        await throttleSearchGap();
+        lastSearchAt = Date.now();
+        const fcResults = await firecrawlSearch(query, { limit: 10 });
+        if (fcResults.length > 0) {
+          searchRateLimitStrikes = 0;
+          console.warn(`[search] firecrawl fallback returned ${fcResults.length} hits for ${query}`);
+          return fcResults;
+        }
+      } catch (err) {
+        console.warn(`[search] firecrawl fallback failed: ${String(err?.message || err).slice(0, 200)}`);
+      }
+    }
+
+    if (sawRateLimit || shouldOpenSearchCircuit({ results, unresponsive })) {
       searchRateLimitStrikes += 1;
       console.warn(`[search] 0 hits for ${query}; rate-limit signal in unresponsive_engines=${JSON.stringify(unresponsive)}`);
       // Brave scrape flakes; require 2 strikes before cross-job cooldown so one bad site: query does not kill the catalog.
@@ -1161,6 +1221,7 @@ async function markPendingApiKey(conn, job, product) {
 async function processJob(conn, job) {
   searchSuspensionSeen = false;
   searchRateLimitStrikes = 0;
+  resetFirecrawlBudget();
   const cooldown = readSearchCooldown(SEARCH_COOLDOWN_PATH);
   if (isSearchCooldownActive(cooldown)) {
     searchSuspensionSeen = true;
@@ -1402,7 +1463,17 @@ async function main() {
   console.log(`Review enrichment provider: ${REVIEW_ENRICHMENT_PROVIDER}`);
   console.log(`SearXNG base URL: ${SEARXNG_BASE_URL}`);
   if (REVIEW_ENRICHMENT_PROVIDER === "searxng") {
-    console.log(`SearXNG engines: ${SEARXNG_ENGINES}; search delay ${SEARCH_DELAY_MS}ms; max product queries ${MAX_PRODUCT_QUERIES}`);
+    console.log(
+      `SearXNG engines: ${SEARXNG_ENGINES}`
+      + (SEARXNG_FALLBACK_ENGINES ? ` (fallback: ${SEARXNG_FALLBACK_ENGINES})` : "")
+      + `; search delay ${SEARCH_DELAY_MS}ms; max product queries ${MAX_PRODUCT_QUERIES}`,
+    );
+  }
+  if (String(process.env.FIRECRAWL_API_KEY || "").trim()) {
+    const { maxSearch, maxScrape } = resetFirecrawlBudget();
+    console.log(
+      `Firecrawl fallback enabled (max search/job=${maxSearch}, max scrape/job=${maxScrape})`,
+    );
   }
   try {
     const searxPort = new URL(SEARXNG_BASE_URL).port || "80";

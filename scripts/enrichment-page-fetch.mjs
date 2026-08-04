@@ -5,6 +5,11 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import * as cheerio from "cheerio";
 import { classifySourceHost } from "./enrichment-source-trust.mjs";
+import {
+  canFirecrawlScrape,
+  firecrawlScrape,
+  isFirecrawlConfigured,
+} from "./enrichment-firecrawl.mjs";
 
 const require = createRequire(import.meta.url);
 const __filename = fileURLToPath(import.meta.url);
@@ -474,6 +479,50 @@ export async function fetchYouTubeTranscript(videoId, options = {}) {
   }
 }
 
+/**
+ * When local fetch is thin/failed (non-permanent), try Firecrawl scrape if configured + budget.
+ * SSRF-checked before leaving the box. Skips YouTube (dedicated path).
+ */
+async function tryFirecrawlPageFallback(source, rawJson, options = {}) {
+  if (options.allowFirecrawl === false) return null;
+  if (!isFirecrawlConfigured() || !canFirecrawlScrape()) return null;
+  if (youtubeVideoId(source?.url)) return null;
+
+  try {
+    await assertSafeFetchUrl(source.url);
+  } catch {
+    return null;
+  }
+
+  try {
+    const scraped = await firecrawlScrape(source.url, {
+      textLimit: options.textLimit || 8000,
+    });
+    const contentText = cleanText(scraped.content_text, options.textLimit || 8000);
+    if (contentText.length < 80) return null;
+    return {
+      ...source,
+      raw_json: {
+        ...rawJson,
+        content_text: contentText,
+        fetched_at: new Date().toISOString(),
+        fetch_provider: "firecrawl",
+        fetch_error: undefined,
+      },
+    };
+  } catch (error) {
+    return {
+      ...source,
+      raw_json: {
+        ...rawJson,
+        fetch_error: cleanText(error?.message || error, 500),
+        fetch_attempted_at: new Date().toISOString(),
+        fetch_provider: "firecrawl_failed",
+      },
+    };
+  }
+}
+
 export async function enrichSourceContent(source, options = {}) {
   const rawJson = source?.raw_json && typeof source.raw_json === "object"
     ? source.raw_json
@@ -503,12 +552,39 @@ export async function enrichSourceContent(source, options = {}) {
           ),
           transcript_fetched: Boolean(transcript),
           fetched_at: new Date().toISOString(),
+          fetch_provider: "youtube",
         },
       };
     }
 
     const response = await fetchWithLimits(source.url, options);
     const contentText = extractMainText(response.body, options.textLimit || 8000);
+    if (contentText.length >= 80) {
+      return {
+        ...source,
+        raw_json: {
+          ...rawJson,
+          content_text: contentText,
+          content_type: response.contentType,
+          final_url: response.finalUrl,
+          fetched_at: new Date().toISOString(),
+          fetch_provider: "local",
+          fetch_error: undefined,
+        },
+      };
+    }
+
+    const viaFirecrawl = await tryFirecrawlPageFallback(source, {
+      ...rawJson,
+      content_type: response.contentType,
+      final_url: response.finalUrl,
+      local_content_text: contentText || undefined,
+    }, options);
+    if (viaFirecrawl?.raw_json?.content_text
+      && cleanText(viaFirecrawl.raw_json.content_text).length >= 80) {
+      return viaFirecrawl;
+    }
+
     if (!contentText) throw new Error("no readable page text");
     return {
       ...source,
@@ -518,15 +594,37 @@ export async function enrichSourceContent(source, options = {}) {
         content_type: response.contentType,
         final_url: response.finalUrl,
         fetched_at: new Date().toISOString(),
+        fetch_provider: "local",
         fetch_error: undefined,
       },
     };
   } catch (error) {
+    const msg = cleanText(error?.message || error, 500);
+    if (isPermanentFetchError(msg)) {
+      return {
+        ...source,
+        raw_json: {
+          ...rawJson,
+          fetch_error: msg,
+          fetch_attempted_at: new Date().toISOString(),
+        },
+      };
+    }
+
+    const viaFirecrawl = await tryFirecrawlPageFallback(source, {
+      ...rawJson,
+      local_fetch_error: msg,
+    }, options);
+    if (viaFirecrawl?.raw_json?.content_text
+      && cleanText(viaFirecrawl.raw_json.content_text).length >= 80) {
+      return viaFirecrawl;
+    }
+
     return {
       ...source,
       raw_json: {
         ...rawJson,
-        fetch_error: cleanText(error?.message || error, 500),
+        fetch_error: viaFirecrawl?.raw_json?.fetch_error || msg,
         fetch_attempted_at: new Date().toISOString(),
       },
     };

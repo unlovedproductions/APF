@@ -38,6 +38,31 @@ export function buildSearxngSearchUrl(baseUrl, query, engines = "brave") {
   return url;
 }
 
+/**
+ * Ordered engine attempts: primary first, then comma-separated fallbacks (deduped).
+ * Used when the pinned engine is rate-limited so one Brave CAPTCHA does not end the job.
+ */
+export function listSearchEngineAttempts(primary = "brave", fallbacks = "duckduckgo") {
+  const out = [];
+  const push = (value) => {
+    const eng = String(value || "").trim();
+    if (eng && !out.includes(eng)) out.push(eng);
+  };
+  for (const part of String(primary || "").split(",")) push(part);
+  for (const part of String(fallbacks || "").split(",")) push(part);
+  if (out.length === 0) out.push("brave");
+  return out;
+}
+
+/**
+ * HTTP status that should count as a search rate-limit signal (before JSON parse).
+ */
+export function isSearchHttpRateLimitStatus(status) {
+  const code = Number(status);
+  return code === 429 || code === 403;
+}
+
+
 export function countReviewTierHosts(sources = [], classifyHost, options = {}) {
   const excludeDirectProbes = Boolean(options.excludeDirectProbes);
   const hosts = new Set();
