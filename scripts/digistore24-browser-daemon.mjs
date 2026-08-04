@@ -6,7 +6,7 @@ import path from "node:path";
 import mysql from "mysql2/promise";
 import { firefox } from "playwright";
 import { scoreProduct, SCORING_VERSION } from "./marketplace-scoring.mjs";
-import { extractDigistore24Detail, resolveProductName } from "./digistore24-detail-extractor.mjs";
+import { extractDigistore24Detail, resolveProductName, resolveExportProductName, isMarketplaceBrandName } from "./digistore24-detail-extractor.mjs";
 import { queueReview, upsertAffiliateLink } from "./apf-db-helpers.mjs";
 import {
   classifySourceType,
@@ -914,6 +914,29 @@ async function collectProducts(options) {
         detailUrl,
         product.affiliateLink
       );
+
+      if (vendorMaterialCount > 0) {
+        const [matRows] = await conn.query(
+          `SELECT title, source_type FROM product_vendor_materials WHERE product_id=? ORDER BY id ASC`,
+          [saved.productId],
+        );
+        const fromMaterials = resolveExportProductName(
+          { name: product.name, platformProductId },
+          matRows || [],
+        );
+        if (
+          fromMaterials
+          && !isMarketplaceBrandName(fromMaterials)
+          && !/^Digistore24 Product\b/i.test(String(fromMaterials))
+          && String(fromMaterials) !== String(product.name || "")
+        ) {
+          await conn.query(
+            `UPDATE products SET name=?, lastUpdatedAt=NOW() WHERE id=? AND platform='digistore24'`,
+            [String(fromMaterials).slice(0, 255), saved.productId],
+          );
+          product.name = String(fromMaterials).slice(0, 255);
+        }
+      }
 
       imported.push({
         id: saved.productId,

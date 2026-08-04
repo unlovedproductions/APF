@@ -249,7 +249,7 @@ export default function Home() {
     });
     if (incomplete.length) {
       toast.error(
-        `${incomplete.length} selected product(s) are not fully enriched (need complete or complete_degraded).`,
+        `${incomplete.length} selected product(s) need enrichment status complete (degraded briefs are quarantined).`,
       );
       return;
     }
@@ -649,7 +649,7 @@ export default function Home() {
                   disabled={shadowCastExportMutation.isPending || selectedExportBlocked}
                   variant="outline"
                   className="flex-1 md:flex-none"
-                  title={selectedExportBlocked ? "All selected products need enrichment status complete or complete_degraded" : undefined}
+                  title={selectedExportBlocked ? "All selected products need enrichment status complete (not degraded)" : undefined}
                 >
                   {shadowCastExportMutation.isPending ? (
                     <>

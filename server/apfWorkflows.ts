@@ -20,8 +20,16 @@ type ScriptResult = {
   stderr: string;
 };
 
+function allowDegradedExport() {
+  const v = String(process.env.APF_ALLOW_DEGRADED_EXPORT || "").trim().toLowerCase();
+  return v === "1" || v === "true" || v === "yes";
+}
+
+/** Auto-export gate: `complete` only unless APF_ALLOW_DEGRADED_EXPORT is set. */
 function isEnrichmentExportReady(status: string | null | undefined) {
-  return status === "complete" || status === "complete_degraded";
+  if (status === "complete") return true;
+  if (status === "complete_degraded" && allowDegradedExport()) return true;
+  return false;
 }
 
 function finiteNumber(v: unknown, fallback = 0): number {
@@ -247,7 +255,7 @@ export async function exportProductsToShadowCast(
         return meta?.name ? `${meta.name} (#${id}, ${status})` : `#${id} (${status})`;
       });
       throw new Error(
-        `Review enrichment is not complete for: ${names.join(", ")}. Wait for enrichment or use force export in CLI.`,
+        `Review enrichment is not complete for: ${names.join(", ")}. Wait for status=complete, re-enrich, or pass force / set APF_ALLOW_DEGRADED_EXPORT=1.`,
       );
     }
   }

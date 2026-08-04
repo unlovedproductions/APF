@@ -83,7 +83,7 @@ export default function Bookmarks() {
   const exportSelected = () => {
     const productIds = Array.from(selected);
     if (selectedIncomplete.length) {
-      toast.error(`${selectedIncomplete.length} selected bookmark(s) are not fully enriched (complete or complete_degraded required).`);
+      toast.error(`${selectedIncomplete.length} selected bookmark(s) need enrichment status complete (degraded briefs are quarantined).`);
       return;
     }
     exportMutation.mutate({ productIds });
@@ -99,7 +99,7 @@ export default function Bookmarks() {
               variant="outline"
               onClick={exportSelected}
               disabled={selected.size === 0 || exportMutation.isPending || selectedIncomplete.length > 0}
-              title={selectedIncomplete.length ? "All selected bookmarks need enrichment status complete or complete_degraded" : undefined}
+              title={selectedIncomplete.length ? "All selected bookmarks need enrichment status complete (not degraded)" : undefined}
             >
               {exportMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
               Send {selected.size} to ShadowCast

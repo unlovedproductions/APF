@@ -179,14 +179,19 @@ export function ProductDetailModal({ productId, open, onOpenChange }: ProductDet
                   className="flex-1"
                   onClick={() => exportMutation.mutate({ productIds: [productId] })}
                   disabled={exportMutation.isPending || !enrichmentComplete}
-                  title={enrichmentComplete ? undefined : "Wait for review enrichment to complete before sending to ShadowCast."}
+                  title={enrichmentComplete ? undefined : "Needs enrichment status complete (degraded briefs are quarantined)."}
                 >
                   {exportMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Send className="w-4 h-4 mr-2" />}
                   Send to ShadowCast
                 </Button>
               </div>
               {!enrichmentComplete && (
-                <p className="text-xs text-amber-700">Review enrichment must be complete before ShadowCast export.</p>
+                <p className="text-xs text-amber-700">
+                  Review enrichment must be <span className="font-medium">complete</span> before ShadowCast export.
+                  {enrichmentStatus === "complete_degraded"
+                    ? " This brief is degraded — re-enrich or use CLI --force."
+                    : null}
+                </p>
               )}
             </CardContent>
           </Card>
