@@ -1,0 +1,22 @@
+id,slug,location,type,credibility,recency,bias,one_liner
+00,capability_discovery,internal,primary,5,5,3,channels map
+01,enrichment_audit_prior,docs/research/apf-enrichment-audit/2026-07-28_validation.md,primary,5,5,4,ESS 56 BLOCK
+02,changelog_postfix_delta,CHANGELOG + validation postfix,primary,5,5,4,10/10 degraded Brave block
+03,marketplace_scoring,scripts/marketplace-scoring.mjs,primary,5,5,3,heuristic no refunds
+04,architecture_daemon,ARCHITECTURE + digistore24-browser-daemon,primary,5,5,3,session preflight
+05,readme_shadowcast,README.md,primary,5,5,4,source engine ShadowCast
+06,clickbank_gravity_official,clickbank.com/blog/clickbank-gravity-score,primary,5,4,3,gravity not final verdict
+07,clickbank_beginners,clickbank.com/blog/clickbank-for-beginners,primary,5,4,3,EPC refunds
+08,gravity_limits_dis,dailyintelservice gravity explained,industry,3,4,3,eligibility filter
+09,digistore_faq,digistore24.com/blog/digistore24-faq,primary,5,4,3,EPC CR refunds reports
+10,digistore_affiliates,digistore24.com/en/affiliates,marketing,3,4,2,find in seconds claim
+11,rag_overtime,overtimelabs stop-rag-hallucinating,industry,4,5,3,abstain first
+12,rag_edtek,edtek hallucination-proof RAG,industry,3,4,3,faithfulness judge
+13,competitors,affsync avida profitspy,marketing,3,4,2,discovery SaaS crowded
+14,convertminded_ds24,convertminded digistore criteria,practitioner,3,3,3,refund under 10%
+15,improvements_stale,IMPROVEMENTS.md,primary,2,1,3,stale May 2025
+16,enrichment_improvements_doc,docs/enrichment-improvements.md,primary,5,5,4,priority slices
+17,internal_inventory,subagent repo brief,primary,4,5,4,pipeline debt ranked
+18,opposition_brief,subagent web adversarial,discussion,3,4,3,H1 H4 vulnerable
+19,session_persistence,mrscraper session management,industry,3,4,3,detect expiry
+20,content_brief_bottleneck,onlinemarketingclassroom brief,practitioner,3,5,3,research before write
