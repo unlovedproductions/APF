@@ -1,0 +1,10 @@
+# Digistore campaign promote_result import template
+# Copy to a working CSV, fill real campaign EPC/refund rows, then:
+#   pnpm promote:outcome --import path/to/your.csv --dry-run
+#   pnpm promote:outcome --import path/to/your.csv
+# Need ≥3 campaign rows per product_id before pnpm promote:calibrate is ready.
+# Do NOT mark notes as listing_signal — those are excluded from calibration.
+product_id,net_epc,refund_rate,notes
+1,1.25,8,campaign: example week of 2026-08-01
+1,1.10,6,campaign: example week of 2026-08-08
+1,0.95,9,campaign: example week of 2026-08-15

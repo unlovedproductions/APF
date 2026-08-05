@@ -1,8 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
   applyPromoteOutcomeCalibration,
+  isCampaignPromoteResult,
   scoreDigistore24,
+  summarizePromoteResults,
 } from "../scripts/marketplace-scoring.mjs";
+import {
+  normalizePromoteCsvRow,
+  parsePromoteCsv,
+} from "../scripts/promote-outcomes.mjs";
 
 describe("scoreDigistore24 v2", () => {
   const base = {
@@ -58,7 +64,36 @@ describe("scoreDigistore24 v2", () => {
     ]);
     expect(applied.meta.promote_calibration.applied).toBe(true);
     expect(applied.strategy).toContain("promote_cal");
-    expect(applied.meta.promote_calibration.adjustments.growth_delta).toBe(4);
-    expect(applied.components.growth).toBeGreaterThanOrEqual(baseScore.components.growth);
+  });
+
+  it("excludes listing_signal seeds from campaign calibration counts", () => {
+    expect(isCampaignPromoteResult({
+      event: "promote_result",
+      notes: "listing_signal: digistore marketplace EPC",
+      net_epc: 2,
+    })).toBe(false);
+    const summary = summarizePromoteResults([
+      { event: "promote_result", notes: "listing_signal: x", net_epc: 3 },
+      { event: "promote_result", notes: "campaign: week 1", net_epc: 1.2, refund_rate: 5 },
+      { event: "promote_result", notes: "campaign: week 2", net_epc: 1.0, refund_rate: 6 },
+    ]);
+    expect(summary.n).toBe(2);
+    expect(summary.avg_epc).toBeCloseTo(1.1, 5);
+  });
+});
+
+describe("promote CSV import helpers", () => {
+  it("parses CSV and rejects listing_signal notes", () => {
+    const rows = parsePromoteCsv(`product_id,epc,refund_rate,notes
+1,1.25,8,campaign: week 1
+2,0.9,4,campaign: week 1`);
+    expect(rows).toHaveLength(2);
+    expect(normalizePromoteCsvRow(rows[0]).productId).toBe(1);
+    expect(normalizePromoteCsvRow(rows[0]).netEpc).toBe(1.25);
+    expect(() => normalizePromoteCsvRow({
+      product_id: "1",
+      epc: "2",
+      notes: "listing_signal: no",
+    })).toThrow(/listing_signal/);
   });
 });

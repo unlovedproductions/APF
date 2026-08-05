@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- `pnpm promote:outcome --import path.csv` — bulk campaign promote_result import (rejects `listing_signal` notes); template at `docs/research/apf-improvement-roadmap/promote-result.template.csv`
 - `pnpm review:trustpilot` — Way 3 Phase B Trustpilot Business Units API collector (`TRUSTPILOT_API_KEY`, dry-run default, cursor file under `.data/`)
 - Way 3 Phase A: Digistore direct review probes `max: 12`; Reddit public `.json` body fetch (`redditJsonUrl` / `reddit_json` provider)
 - `pnpm review:prune-thin --days 0` — disable age gate for soft-pruning fresh thin web orphans
@@ -29,6 +30,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Promote calibration ignores `listing_signal` marketplace EPC seeds — only real campaign `promote_result` rows count toward the ≥3 gate
 - Digistore daemon `--promote` recovery: reopen known `/detail/{id}` URLs when generated links are not on the current marketplace listing
 - Digistore daemon client: long `/collect` no longer dies at ~300s (undici/fetch headers timeout). Uses `node:http` with overall deadline = login wait + ~90s/product.
 - Digistore daemon `/health` no longer calls `ensureBrowser()` (was racing the shared page during collect and spamming logs). Collect is single-flight (`collectBusy` → 409).

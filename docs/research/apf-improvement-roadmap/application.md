@@ -88,7 +88,13 @@
 - Fails closed without `TRUSTPILOT_API_KEY` (exit 2). Documented in `.env.example`.
 - Unit tests for match scoring + review→source mapping.
 
+## Round 16 (calibration integrity)
+
+- Calibration now **excludes** `listing_signal` seeds from `promote_result_n` / ready gate.
+- Added `pnpm promote:outcome --import path.csv` (+ template CSV) for real campaign rows.
+- Live calibrate: campaign ready_count still **0** (listing seeds alone cannot unlock scoring).
+
 ## Still open
 
-- Set `TRUSTPILOT_API_KEY` and run `pnpm review:trustpilot --apply` (optional denser bodies)
-- Accumulate **real campaign** `promote_result` rows (≥3/product) for calibration
+- Fill real campaign EPC/refund CSV (≥3/product) → `--import` → `pnpm promote:calibrate`
+- Set `TRUSTPILOT_API_KEY` and run `pnpm review:trustpilot --apply` (optional)
