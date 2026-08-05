@@ -1,26 +1,26 @@
 # Digistore enrichment DQS snapshot — 2026-08-05
 
-**N:** 10 Digistore briefs (limit 50)  
+**N:** 11 Digistore briefs (limit 50)  
 **DQS estimate:** **97 / 100** (directional; not full audit re-score)
 
 | Metric | Value |
 |--------|------:|
-| complete | 10 (100%) |
+| complete | 11 (100%) |
 | complete_degraded | 0 (0%) |
 | products.name marketplace brand | 0 (0%) |
 | affiliate chrome in summary | 0 |
 | affiliate chrome in complaints | 0 |
 | affiliate chrome in claims | 0 |
 | synthetic competitors | 0 |
-| avg confidence | 37 |
-| sources with content_text≥50 | 50 / 710 (7%) |
+| avg confidence | 39.1 |
+| sources with content_text≥50 | 69 / 741 (9.3%) |
 
 ```json
 {
-  "sampled_at": "2026-08-05T02:36:18.622Z",
-  "digistore_briefs_n": 10,
+  "sampled_at": "2026-08-05T02:47:36.561Z",
+  "digistore_briefs_n": 11,
   "status_counts": {
-    "complete": 10
+    "complete": 11
   },
   "complete_pct": 100,
   "degraded_pct": 0,
@@ -29,10 +29,10 @@
   "affiliate_chrome_complaints": 0,
   "affiliate_chrome_claims": 0,
   "synthetic_competitors": 0,
-  "avg_confidence": 37,
-  "sources_total": 710,
-  "sources_rich_content_text": 50,
-  "sources_rich_pct": 7,
+  "avg_confidence": 39.1,
+  "sources_total": 741,
+  "sources_rich_content_text": 69,
+  "sources_rich_pct": 9.3,
   "dqs_estimate": 97
 }
 ```

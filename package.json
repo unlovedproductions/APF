@@ -47,6 +47,7 @@
     "digistore24:daemon:open": "node scripts/digistore24-daemon-client.mjs open --ensure",
     "digistore24:daemon:collect": "node scripts/digistore24-daemon-client.mjs collect --ensure",
     "digistore24:daemon:stop": "node scripts/digistore24-daemon-client.mjs stop",
+    "digistore:refresh-names": "node scripts/refresh-digistore-names.mjs",
     "local:start": "bash scripts/apf-local-start.sh",
     "video-audit:matrix": "node scripts/video-audit-matrix.mjs",
     "video-audit:start": "bash scripts/video-audit-start.sh",

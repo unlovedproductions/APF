@@ -56,6 +56,8 @@ export function isJunkVendorMaterialTitle(value) {
   if (JUNK_VENDOR_TITLE_RE.test(text)) return true;
   if (/compliance guidelines/i.test(text)) return true;
   if (/^banners$/i.test(text)) return true;
+  if (/page not found/i.test(text)) return true;
+  if (/^coda\b/i.test(text) && /not found/i.test(text)) return true;
   return false;
 }
 

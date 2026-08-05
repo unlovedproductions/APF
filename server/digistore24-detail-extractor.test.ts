@@ -65,6 +65,16 @@ describe("digistore24 detail extractor", () => {
         ],
       ),
     ).toBe("CircO2 Nitric Oxide Booster Supplements");
+
+    expect(
+      resolveExportProductName(
+        { name: "Digistore24 Product 51603", platformProductId: "51603" },
+        [
+          { source_type: "sales_page", title: "Coda | Page not found - Coda" },
+          { source_type: "offer_page", title: "Advanced Memory Formula Supplements - health" },
+        ],
+      ),
+    ).toBe("Advanced Memory Formula Supplements");
   });
 
   it("parses refund/cancellation rate from listing body", () => {

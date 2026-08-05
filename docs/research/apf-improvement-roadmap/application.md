@@ -2,7 +2,7 @@
 
 **Investigation:** `apf-improvement-roadmap`  
 **Report:** `2026-08-04_decision.md`  
-**Status:** rounds 1–5 applied; Digistore catalog §9 closed (10/10 complete, DQS 97)
+**Status:** rounds 1–7 applied; Digistore catalog **11/11 complete**, DQS **97**
 
 | Fork | Prompt | Research default | Your call | Status |
 |------|--------|------------------|-----------|--------|
@@ -29,16 +29,26 @@
 ## Round 4
 
 - **P0.1b:** Healthy soft-miss after Brave rate-limit no longer counts as a circuit strike.
-- **P0.1c:** Default `SEARXNG_FALLBACK_ENGINES=bing,duckduckgo` (Bing returned hits while Brave was RL).
-- **calibrate:** `applyPromoteOutcomeCalibration` gated at ≥3 `promote_result` rows; `pnpm promote:calibrate`.
-- **§9 pilot:** product #2 → `complete` (24 sources); product #1 still degraded (pre-fix run). Live DQS **70**, complete **1/10**.
+- **P0.1c:** Default `SEARXNG_FALLBACK_ENGINES=bing,duckduckgo`.
+- **calibrate:** `applyPromoteOutcomeCalibration` gated at ≥3 `promote_result` rows.
 
 ## Round 5
 
-- **§9:** Re-enriched Digistore products 1–10 one-at-a-time → **10/10 `complete`**, live DQS **97** (was 70).
-- **P1.3b:** Enrichment rescore + score backfill load `promote_result` rows into calibration (still gated until ≥3 rows).
+- **§9:** Digistore products 1–10 → **10/10 `complete`**, live DQS **97**.
+- **P1.3b:** Enrichment rescore + score backfill load `promote_result` rows (gated).
+
+## Round 6
+
+- Page-fetch harden, Digistore name-clobber guard, CLI export gate, promolink coverage.
+
+## Round 7
+
+- **`pnpm digistore:refresh-names`:** #11 `Digistore24 Product 51603` → `Advanced Memory Formula Supplements`.
+- Junk vendor titles: skip page-not-found / Coda 404 titles in name resolution.
+- Enriched #11 → `complete`, conf **50**, page-fetch **10/10** rich. Catalog **11/11 complete**, rich-source **9.3%**.
 
 ## Still open
 
+- Raise rich `content_text` rate (evidence depth for ShadowCast video quality)
+- Approve more Digistore promolinks (ops)
 - Accumulate labeled `promote_result` EPC/refund rows so calibration can apply
-- Watch content quality: marketplace brand-name pct still **0%**, avg conf **37** despite status green
