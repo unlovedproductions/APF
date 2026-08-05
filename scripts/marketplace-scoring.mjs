@@ -1,4 +1,5 @@
 export const SCORING_VERSION = "apf_marketplace_router_v2_native_components";
+export const PROMOTE_CALIBRATION_MIN_RESULTS = 3;
 
 function clamp(n, min = 0, max = 100) {
   n = Number(n);
@@ -118,7 +119,83 @@ export function scoreClickBank(product, options = {}) {
   };
 }
 
-export function scoreDigistore24(product) {
+export function summarizePromoteResults(outcomes = []) {
+  const rows = (outcomes || []).filter((o) => clean(o?.event) === "promote_result");
+  const epcs = rows
+    .map((r) => Number(r.net_epc ?? r.netEpc))
+    .filter((n) => Number.isFinite(n));
+  const refunds = rows
+    .map((r) => Number(r.refund_rate ?? r.refundRate))
+    .filter((n) => Number.isFinite(n));
+  return {
+    n: rows.length,
+    avg_epc: epcs.length ? epcs.reduce((a, b) => a + b, 0) / epcs.length : null,
+    avg_refund_rate: refunds.length
+      ? refunds.reduce((a, b) => a + b, 0) / refunds.length
+      : null,
+  };
+}
+
+/**
+ * Optional post-score calibration from labeled promote_result rows.
+ * Gated until PROMOTE_CALIBRATION_MIN_RESULTS exist for the product.
+ */
+export function applyPromoteOutcomeCalibration(result, outcomes = [], options = {}) {
+  const min = Number(options.minResults ?? PROMOTE_CALIBRATION_MIN_RESULTS) || PROMOTE_CALIBRATION_MIN_RESULTS;
+  const summary = summarizePromoteResults(outcomes);
+  const next = {
+    ...result,
+    components: { ...(result?.components || {}) },
+    meta: { ...(result?.meta || {}) },
+  };
+  if (summary.n < min) {
+    next.meta.promote_calibration = {
+      applied: false,
+      reason: "insufficient_rows",
+      min,
+      ...summary,
+    };
+    return next;
+  }
+
+  let growth = Number(next.components.growth || 0);
+  let quality = Number(next.components.quality || 0);
+  const adjustments = {};
+
+  if (summary.avg_epc != null) {
+    const delta =
+      summary.avg_epc >= 2 ? 4 :
+      summary.avg_epc >= 1 ? 2 :
+      summary.avg_epc >= 0.5 ? 0 :
+      -4;
+    growth = clamp(growth + delta, 0, 30);
+    adjustments.growth_delta = delta;
+  }
+
+  if (summary.avg_refund_rate != null) {
+    const delta =
+      summary.avg_refund_rate < 5 ? 2 :
+      summary.avg_refund_rate < 10 ? 0 :
+      summary.avg_refund_rate < 20 ? -3 :
+      -6;
+    quality = clamp(quality + delta, 0, 40);
+    adjustments.quality_delta = delta;
+  }
+
+  next.components.growth = growth;
+  next.components.quality = quality;
+  next.score = sumComponents(next.components);
+  next.strategy = `${clean(result?.strategy) || "scored"}+promote_cal`;
+  next.meta.promote_calibration = {
+    applied: true,
+    min,
+    ...summary,
+    adjustments,
+  };
+  return next;
+}
+
+export function scoreDigistore24(product, options = {}) {
   const previous = parseJson(product.scoreComponents, {});
   const meta = previous?._meta || previous?.meta || {};
   const fallbackText = clean(product.description);
@@ -234,7 +311,7 @@ export function scoreDigistore24(product) {
 
   const components = { recency, growth, competition, quality };
 
-  return {
+  const result = {
     score: sumComponents(components),
     strategy: "digistore24_native_v2",
     marketplace: "digistore24",
@@ -253,6 +330,12 @@ export function scoreDigistore24(product) {
       note: "digistore24_native_v2: refund/cancel rate in quality; enrichment confidence excluded from score.",
     }
   };
+
+  const outcomes = options.promoteOutcomes || product.promoteOutcomes || [];
+  if (Array.isArray(outcomes) && outcomes.length > 0) {
+    return applyPromoteOutcomeCalibration(result, outcomes, options);
+  }
+  return result;
 }
 
 export function scoreGeneric(product) {

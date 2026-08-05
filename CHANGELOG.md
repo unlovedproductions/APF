@@ -8,11 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- `applyPromoteOutcomeCalibration` + `pnpm promote:calibrate` (gated until ≥3 `promote_result` rows)
+- `shouldCountSearchRateLimitStrike` — healthy soft-miss after primary rate-limit does not open circuit
 - `product_promote_outcomes` table + `pnpm promote:outcome` CLI for Hidden Gem calibration (bookmark `promoting` logs `promote_start`)
 - `pnpm review:dqs` Digistore enrichment DQS snapshot (`--write` saves under research folder)
 - `APF_ALLOW_DEGRADED_EXPORT` opt-in for ShadowCast auto-export of `complete_degraded` briefs (default off)
 - Digistore daemon refreshes `products.name` from vendor materials after capture when listing title was weak
-- SearXNG engine fallbacks (`SEARXNG_FALLBACK_ENGINES`, default duckduckgo) + HTTP 429/403 rate-limit handling
+- SearXNG engine fallbacks (`SEARXNG_FALLBACK_ENGINES`) + HTTP 429/403 rate-limit handling
 - Optional Firecrawl BYOK search/scrape fallback when SearXNG is rate-limited
 - Digistore listing refund/cancellation rate parsing into `detected_refund_rate`
 - `REVIEW_ENRICHMENT_FULL_PAGE_LIMIT` and `REVIEW_ENRICHMENT_FULL_PAGE_MAX_ATTEMPTS` for full-page fetch success target and attempt budget
@@ -23,6 +25,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Default `SEARXNG_FALLBACK_ENGINES` is now `bing,duckduckgo` (Bing returned hits while Brave was rate-limited)
 - ShadowCast UI/workflow export requires enrichment `complete` only; `complete_degraded` is quarantined (CLI `--force` / env opt-in still available)
 - Default enrichment search delay raised from 5s to 8s
 - Digistore scorer `digistore24_native_v2`: refund/cancel rate in quality; enrichment confidence excluded from score

@@ -57,6 +57,7 @@ import {
   isSearchHttpRateLimitStatus,
   listSearchEngineAttempts,
   readSearchCooldown,
+  shouldCountSearchRateLimitStrike,
   shouldOpenSearchCircuit,
   writeSearchCooldown,
 } from "./enrichment-search-policy.mjs";
@@ -151,8 +152,8 @@ const REVIEW_ENRICHMENT_PROVIDER = process.env.REVIEW_ENRICHMENT_PROVIDER || "se
 const SEARXNG_BASE_URL = process.env.SEARXNG_BASE_URL || "http://localhost:8088";
 /** Pin SearXNG to engines that tolerate local meta-search (default brave). Avoids fan-out to ~276 engines. */
 const SEARXNG_ENGINES = String(process.env.SEARXNG_ENGINES || "brave").trim() || "brave";
-/** Tried after primary engine returns rate-limit + 0 hits (default duckduckgo). */
-const SEARXNG_FALLBACK_ENGINES = String(process.env.SEARXNG_FALLBACK_ENGINES || "duckduckgo").trim();
+/** Tried after primary engine returns rate-limit + 0 hits (default bing then duckduckgo). */
+const SEARXNG_FALLBACK_ENGINES = String(process.env.SEARXNG_FALLBACK_ENGINES || "bing,duckduckgo").trim();
 const BRAVE_SEARCH_API_KEY = process.env.BRAVE_SEARCH_API_KEY || "";
 const MAX_SOURCES = Number(process.env.REVIEW_ENRICHMENT_MAX_SOURCES || "25");
 const FULL_PAGE_SOURCE_LIMIT = Number(process.env.REVIEW_ENRICHMENT_FULL_PAGE_LIMIT || "6");
@@ -617,6 +618,7 @@ async function searchReviews(query) {
     let results = [];
     let unresponsive = [];
     let sawRateLimit = false;
+    let healthySoftMiss = false;
 
     if (REVIEW_ENRICHMENT_PROVIDER === "searxng") {
       const engines = listSearchEngineAttempts(SEARXNG_ENGINES, SEARXNG_FALLBACK_ENGINES);
@@ -640,6 +642,9 @@ async function searchReviews(query) {
             console.warn(`[search] ${eng} rate-limited; trying fallback engine ${engines[i + 1]}`);
             continue;
           }
+        } else {
+          // Fallback (or primary) returned a clean 0-hit — niche site: queries, not RL.
+          healthySoftMiss = true;
         }
         // Soft miss: do not burn remaining fallback engines.
         break;
@@ -693,7 +698,14 @@ async function searchReviews(query) {
       }
     }
 
-    if (sawRateLimit || shouldOpenSearchCircuit({ results, unresponsive })) {
+    if (
+      shouldCountSearchRateLimitStrike({
+        sawPrimaryRateLimit: sawRateLimit,
+        healthySoftMiss,
+        results,
+        unresponsive,
+      })
+    ) {
       searchRateLimitStrikes += 1;
       console.warn(`[search] 0 hits for ${query}; rate-limit signal in unresponsive_engines=${JSON.stringify(unresponsive)}`);
       // Brave scrape flakes; require 2 strikes before cross-job cooldown so one bad site: query does not kill the catalog.

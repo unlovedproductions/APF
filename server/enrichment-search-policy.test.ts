@@ -11,6 +11,7 @@ import {
   isSearchRateLimitSignal,
   listSearchEngineAttempts,
   readSearchCooldown,
+  shouldCountSearchRateLimitStrike,
   shouldOpenSearchCircuit,
   writeSearchCooldown,
 } from "../scripts/enrichment-search-policy.mjs";
@@ -74,6 +75,28 @@ describe("enrichment search policy", () => {
       shouldOpenSearchCircuit({
         results: [],
         unresponsive: [["brave", "Too many request"]],
+      }),
+    ).toBe(true);
+  });
+
+  it("does not strike when primary was rate-limited but fallback soft-missed", () => {
+    expect(
+      shouldCountSearchRateLimitStrike({
+        sawPrimaryRateLimit: true,
+        healthySoftMiss: true,
+        results: [],
+        unresponsive: [],
+      }),
+    ).toBe(false);
+  });
+
+  it("strikes when every engine attempt was rate-limited", () => {
+    expect(
+      shouldCountSearchRateLimitStrike({
+        sawPrimaryRateLimit: true,
+        healthySoftMiss: false,
+        results: [],
+        unresponsive: [["bing", "CAPTCHA"]],
       }),
     ).toBe(true);
   });

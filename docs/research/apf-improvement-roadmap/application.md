@@ -2,7 +2,7 @@
 
 **Investigation:** `apf-improvement-roadmap`  
 **Report:** `2026-08-04_decision.md`  
-**Status:** rounds 1–3 engineering applied; §9 still ops-gated
+**Status:** rounds 1–4 engineering applied; §9 catalog re-enrich still ops-gated
 
 | Fork | Prompt | Research default | Your call | Status |
 |------|--------|------------------|-----------|--------|
@@ -26,7 +26,14 @@
 - **P1.3:** `product_promote_outcomes` + `pnpm promote:outcome`; bookmark→`promoting` logs `promote_start`.
 - **P0.4:** `pnpm review:dqs [--write]` Digistore enrichment DQS snapshot tooling.
 
+## Round 4
+
+- **P0.1b:** Healthy soft-miss after Brave rate-limit no longer counts as a circuit strike.
+- **P0.1c:** Default `SEARXNG_FALLBACK_ENGINES=bing,duckduckgo` (Bing returned hits while Brave was RL).
+- **calibrate:** `applyPromoteOutcomeCalibration` gated at ≥3 `promote_result` rows; `pnpm promote:calibrate`.
+- **§9 pilot:** product #2 → `complete` (24 sources); product #1 still degraded (pre-fix run). Live DQS **70**, complete **1/10**.
+
 ## Still open
 
-- Catalog **§9** re-enrich when search stays healthy (ops)
-- Feed promote outcomes back into scorer once enough `promote_result` rows exist
+- Finish catalog **§9** for products 3–10 (+ requeue #1) one-at-a-time after soft-miss fix
+- Accumulate labeled `promote_result` EPC/refund rows so calibration can apply

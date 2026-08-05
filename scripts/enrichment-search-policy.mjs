@@ -27,6 +27,22 @@ export function shouldOpenSearchCircuit({ results = [], unresponsive = [] } = {}
   return isSearchRateLimitSignal(unresponsive);
 }
 
+/**
+ * Count a rate-limit strike only when the job never got a healthy soft miss
+ * from a fallback engine. Primary Brave CAPTCHA + Bing 0-hit niche site:
+ * queries must not burn the catalog circuit.
+ */
+export function shouldCountSearchRateLimitStrike({
+  sawPrimaryRateLimit = false,
+  healthySoftMiss = false,
+  results = [],
+  unresponsive = [],
+} = {}) {
+  if (healthySoftMiss) return false;
+  if ((results?.length || 0) > 0) return false;
+  return Boolean(sawPrimaryRateLimit) || shouldOpenSearchCircuit({ results, unresponsive });
+}
+
 export function buildSearxngSearchUrl(baseUrl, query, engines = "brave") {
   const url = new URL("/search", baseUrl);
   url.searchParams.set("q", query);
@@ -42,7 +58,7 @@ export function buildSearxngSearchUrl(baseUrl, query, engines = "brave") {
  * Ordered engine attempts: primary first, then comma-separated fallbacks (deduped).
  * Used when the pinned engine is rate-limited so one Brave CAPTCHA does not end the job.
  */
-export function listSearchEngineAttempts(primary = "brave", fallbacks = "duckduckgo") {
+export function listSearchEngineAttempts(primary = "brave", fallbacks = "bing,duckduckgo") {
   const out = [];
   const push = (value) => {
     const eng = String(value || "").trim();

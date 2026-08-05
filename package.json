@@ -23,6 +23,7 @@
     "review:dqs": "node scripts/enrichment-dqs-report.mjs",
     "promote:outcome": "node scripts/promote-outcomes.mjs",
     "promote:outcomes:list": "node scripts/promote-outcomes.mjs --list",
+    "promote:calibrate": "node scripts/promote-outcomes.mjs --calibrate",
     "digistore24:test-api": "node scripts/digistore24-api-test.mjs",
     "digistore24:probe": "node scripts/digistore24-probe.mjs",
     "digistore24:import-api": "node scripts/digistore24-importer.mjs --api",

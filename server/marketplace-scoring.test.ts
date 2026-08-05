@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { scoreDigistore24 } from "../scripts/marketplace-scoring.mjs";
+import {
+  applyPromoteOutcomeCalibration,
+  scoreDigistore24,
+} from "../scripts/marketplace-scoring.mjs";
 
 describe("scoreDigistore24 v2", () => {
   const base = {
@@ -34,5 +37,28 @@ describe("scoreDigistore24 v2", () => {
     });
     expect(risky.components.quality).toBeLessThan(healthy.components.quality);
     expect(risky.meta.detected_refund_rate).toBe(25);
+  });
+
+  it("gates promote calibration until enough promote_result rows", () => {
+    const baseScore = scoreDigistore24(base);
+    const gated = scoreDigistore24({
+      ...base,
+      promoteOutcomes: [
+        { event: "promote_result", net_epc: 2.5, refund_rate: 4 },
+        { event: "promote_result", net_epc: 2.1, refund_rate: 3 },
+      ],
+    });
+    expect(gated.meta.promote_calibration.applied).toBe(false);
+    expect(gated.score).toBe(baseScore.score);
+
+    const applied = applyPromoteOutcomeCalibration(baseScore, [
+      { event: "promote_result", net_epc: 2.5, refund_rate: 4 },
+      { event: "promote_result", net_epc: 2.1, refund_rate: 3 },
+      { event: "promote_result", net_epc: 1.8, refund_rate: 5 },
+    ]);
+    expect(applied.meta.promote_calibration.applied).toBe(true);
+    expect(applied.strategy).toContain("promote_cal");
+    expect(applied.meta.promote_calibration.adjustments.growth_delta).toBe(4);
+    expect(applied.components.growth).toBeGreaterThanOrEqual(baseScore.components.growth);
   });
 });

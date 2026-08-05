@@ -105,10 +105,57 @@ async function main() {
   const notes = arg("--notes", "");
   const limit = Math.max(1, Number(arg("--limit", "20")) || 20);
   const listOnly = hasFlag("--list");
+  const calibrate = hasFlag("--calibrate");
 
   const conn = await mysql.createConnection(process.env.DATABASE_URL);
   try {
     await ensurePromoteOutcomesTable(conn);
+
+    if (calibrate) {
+      const { summarizePromoteResults, PROMOTE_CALIBRATION_MIN_RESULTS } = await import(
+        "./marketplace-scoring.mjs"
+      );
+      const params = [];
+      let sql = `
+        SELECT product_id, event, net_epc, refund_rate, hidden_gem_score, created_at
+        FROM product_promote_outcomes
+        WHERE event='promote_result'
+      `;
+      if (productId > 0) {
+        sql += ` AND product_id=?`;
+        params.push(productId);
+      }
+      sql += ` ORDER BY id DESC LIMIT ?`;
+      params.push(Math.max(limit, 200));
+      const [rows] = await conn.query(sql, params);
+      const byProduct = new Map();
+      for (const row of rows) {
+        const list = byProduct.get(row.product_id) || [];
+        list.push(row);
+        byProduct.set(row.product_id, list);
+      }
+      const report = [];
+      for (const [pid, outcomes] of byProduct.entries()) {
+        const summary = summarizePromoteResults(outcomes);
+        report.push({
+          product_id: pid,
+          promote_result_n: summary.n,
+          avg_epc: summary.avg_epc == null ? null : Number(summary.avg_epc.toFixed(4)),
+          avg_refund_rate: summary.avg_refund_rate == null
+            ? null
+            : Number(summary.avg_refund_rate.toFixed(2)),
+          ready: summary.n >= PROMOTE_CALIBRATION_MIN_RESULTS,
+          min_required: PROMOTE_CALIBRATION_MIN_RESULTS,
+        });
+      }
+      console.log(JSON.stringify({
+        products_with_results: report.length,
+        ready_count: report.filter((r) => r.ready).length,
+        min_required: PROMOTE_CALIBRATION_MIN_RESULTS,
+        products: report,
+      }, null, 2));
+      return;
+    }
 
     if (listOnly) {
       const params = [];
