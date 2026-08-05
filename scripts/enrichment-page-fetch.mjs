@@ -599,8 +599,9 @@ export async function fetchYouTubeTranscript(videoId, options = {}) {
         isDefault: $(el).attr("lang_default") === "true",
       });
     });
-    if (!tracks.length) return "";
-
+    if (!tracks.length) {
+      return await fetchYouTubeTranscriptFromWatchPage(id, options);
+    }
     const scoreTrack = (t) => {
       let score = 0;
       if (/^en([_-]|$)/i.test(t.lang)) score += 100;
@@ -637,10 +638,81 @@ export async function fetchYouTubeTranscript(videoId, options = {}) {
         }
       }
     }
+    const fromWatch = await fetchYouTubeTranscriptFromWatchPage(id, options);
+    if (fromWatch) return fromWatch;
     return "";
+  } catch {
+    const fromWatch = await fetchYouTubeTranscriptFromWatchPage(id, options).catch(() => "");
+    return fromWatch || "";
+  }
+}
+
+/** Parse caption track baseUrls from a YouTube watch HTML payload (no API key). */
+export function extractYouTubeCaptionTrackUrls(html) {
+  const text = String(html || "");
+  const urls = [];
+  const seen = new Set();
+  const push = (raw) => {
+    const url = String(raw || "").replace(/\\u0026/g, "&").replace(/\\\//g, "/").trim();
+    if (!url.startsWith("http") || seen.has(url)) return;
+    seen.add(url);
+    urls.push(url);
+  };
+  // Prefer structured captionTracks JSON blob when present.
+  const tracksMatch = text.match(/"captionTracks"\s*:\s*(\[[\s\S]*?\])\s*,\s*"/);
+  if (tracksMatch?.[1]) {
+    try {
+      const tracks = JSON.parse(tracksMatch[1].replace(/\\"/g, '"'));
+      if (Array.isArray(tracks)) {
+        const scored = tracks.map((t) => ({
+          url: t.baseUrl || t.base_url || "",
+          lang: String(t.languageCode || t.language_code || ""),
+          kind: String(t.kind || ""),
+        })).filter((t) => t.url);
+        scored.sort((a, b) => {
+          const score = (t) => (/^en/i.test(t.lang) ? 10 : 0) + (t.kind === "asr" ? 0 : 5);
+          return score(b) - score(a);
+        });
+        for (const t of scored) push(t.url);
+      }
+    } catch {
+      // fall through to regex scrape
+    }
+  }
+  for (const m of text.matchAll(/"baseUrl"\s*:\s*"(https[^"]+timedtext[^"]+)"/g)) {
+    push(m[1]);
+  }
+  return urls;
+}
+
+async function fetchYouTubeTranscriptFromWatchPage(videoId, options = {}) {
+  const id = String(videoId || "").trim();
+  if (!id) return "";
+  try {
+    const watchUrl = `https://www.youtube.com/watch?v=${encodeURIComponent(id)}`;
+    const page = await fetchWithLimits(watchUrl, {
+      timeoutMs: options.timeoutMs,
+      maxBytes: 2_000_000,
+    });
+    const trackUrls = extractYouTubeCaptionTrackUrls(page.body);
+    const textLimit = options.textLimit || 8000;
+    for (const trackUrl of trackUrls.slice(0, 6)) {
+      try {
+        await assertSafeFetchUrl(trackUrl);
+        const body = await fetchWithLimits(trackUrl, {
+          timeoutMs: options.timeoutMs,
+          maxBytes: 1_000_000,
+        });
+        const text = parseTimedTextXml(body.body).slice(0, textLimit);
+        if (text.length >= 40) return text;
+      } catch {
+        // try next track
+      }
+    }
   } catch {
     return "";
   }
+  return "";
 }
 
 /**

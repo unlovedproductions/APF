@@ -156,6 +156,8 @@ const SEARXNG_ENGINES = String(process.env.SEARXNG_ENGINES || "brave").trim() ||
 const SEARXNG_FALLBACK_ENGINES = String(process.env.SEARXNG_FALLBACK_ENGINES || "bing,duckduckgo").trim();
 const BRAVE_SEARCH_API_KEY = process.env.BRAVE_SEARCH_API_KEY || "";
 const MAX_SOURCES = Number(process.env.REVIEW_ENRICHMENT_MAX_SOURCES || "25");
+/** Digistore: cap generic web SERP upserts so review/video tiers keep slots (Way 3A). */
+const MAX_WEB_SOURCES = Number(process.env.REVIEW_ENRICHMENT_MAX_WEB_SOURCES || "5");
 const FULL_PAGE_SOURCE_LIMIT = Number(process.env.REVIEW_ENRICHMENT_FULL_PAGE_LIMIT || "10");
 const FULL_PAGE_FETCH_TIMEOUT_MS = Number(process.env.REVIEW_ENRICHMENT_FETCH_TIMEOUT_MS || "8000");
 const FULL_PAGE_FETCH_DELAY_MS = Number(process.env.REVIEW_ENRICHMENT_FETCH_DELAY_MS || "250");
@@ -826,6 +828,7 @@ function vendorMaterialSummary(materials) {
 }
 
 async function saveSources(conn, product, sources, vendorDomains = new Set()) {
+  const isDigistore = String(product.platform || "").toLowerCase() === "digistore24";
   const seen = new Set();
   const final = [];
   const [cachedRows] = await conn.query(`
@@ -891,23 +894,44 @@ async function saveSources(conn, product, sources, vendorDomains = new Set()) {
     );
   }
 
+  const isGenericWebSerp = (source) => {
+    const raw = source?.raw_json && typeof source.raw_json === "object" ? source.raw_json : {};
+    if (raw.direct_probe || raw.competitor_search) return false;
+    let host = "";
+    try { host = new URL(source.url).hostname.replace(/^www\./, ""); } catch { /* ignore */ }
+    if (vendorDomains.has(host)) return false;
+    const tier = classifySourceHost(host).tier;
+    return tier === "web" || tier === "affiliate_noise";
+  };
+
   const top = [];
   const topUrls = new Set();
+  let webCount = 0;
+  const pushTop = (row) => {
+    if (!row?.url || topUrls.has(row.url) || top.length >= MAX_SOURCES) return false;
+    if (isDigistore && isGenericWebSerp(row)) {
+      if (webCount >= MAX_WEB_SOURCES) return false;
+      webCount += 1;
+    }
+    top.push(row);
+    topUrls.add(row.url);
+    return true;
+  };
+
   for (const source of candidates) {
     const row = enrichedByUrl.get(source.url);
     if (!row) continue;
-    if (topUrls.has(source.url)) continue;
-    top.push(row);
-    topUrls.add(source.url);
+    pushTop(row);
     if (top.length >= MAX_SOURCES) break;
   }
   for (const source of final) {
     if (top.length >= MAX_SOURCES) break;
-    if (topUrls.has(source.url)) continue;
-    top.push(enrichedByUrl.get(source.url) || source);
-    topUrls.add(source.url);
+    pushTop(enrichedByUrl.get(source.url) || source);
   }
 
+  if (isDigistore && webCount >= MAX_WEB_SOURCES) {
+    console.log(`[${product.name}] Digistore web SERP upserts capped at ${MAX_WEB_SOURCES}`);
+  }
   for (const s of top) {
     await conn.query(`
       INSERT INTO product_review_sources
@@ -1356,7 +1380,7 @@ async function processJob(conn, job) {
   collected.push(...competitorHits);
 
   if (!isDigistore && (!collected.length || !collectedHasReviewTier(collected))) {
-    const probes = directReviewSiteCandidates(searchProduct, { max: 8 });
+    const probes = directReviewSiteCandidates(searchProduct, { max: 12 });
     if (probes.length) {
       console.log(`[${enrichProduct.name}] direct review-site probes: ${probes.length}`);
       collected.push(...probes);

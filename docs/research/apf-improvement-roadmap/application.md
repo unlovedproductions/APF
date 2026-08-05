@@ -70,6 +70,12 @@
 - Digistore probe max **8→12**; Reddit public `.json` fetch (`fetch_provider=reddit_json`).
 - ≥60% all-source rich **CLEAR**. Unit tests for page-fetch + source-trust pass.
 
+## Round 13 (Way 3A finish)
+
+- Digistore generic web SERP upserts capped at **5** (`REVIEW_ENRICHMENT_MAX_WEB_SOURCES`).
+- YouTube transcript harden: watch-page `captionTracks` fallback when timedtext list empty (no paid key).
+- Live DQS @17:10Z: all-rich **80.7%**, high-trust **96.7%**, deep **67.7%**, gate PASS, DQS **97**.
+
 ## Still open
 
 - **Way 3 Phase B** Trustpilot API (needs key) — optional denser review bodies
