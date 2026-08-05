@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   extractDigistore24Detail,
+  extractBuyerPriceFromVendorMaterials,
   isMarketplaceBrandName,
   resolveExportProductName,
   resolveProductName,
@@ -94,5 +95,38 @@ describe("digistore24 detail extractor", () => {
       sanitizeBuyerPrice("Joseph's Well Our Affiliates Are Seeing 5%+ Conversion Rates & Over $2 EPCs On ICE COLD Traffic!"),
     ).toBe("See official offer page");
     expect(sanitizeBuyerPrice("", 47)).toBe("$47.00");
+  });
+
+  it("extracts honest buyer prices from vendor materials", () => {
+    expect(
+      extractBuyerPriceFromVendorMaterials([
+        {
+          source_type: "order_page",
+          content_text: "Normal price: $199 Temporarily only $67 USD Add to cart For limited time",
+        },
+        {
+          source_type: "offer_page",
+          content_text: "Price $75.91 Commission 35% EPC $19.28",
+        },
+      ]),
+    ).toMatchObject({ display: "$67.00", cartValue: 67, reason: "only_price" });
+
+    expect(
+      extractBuyerPriceFromVendorMaterials([
+        {
+          source_type: "offer_page",
+          content_text: "Price $50.99 Commission 75% EPC $26.75",
+        },
+      ]),
+    ).toMatchObject({ display: "$50.99", cartValue: 50.99, reason: "marketplace_price_commission" });
+
+    expect(
+      extractBuyerPriceFromVendorMaterials([
+        {
+          source_type: "offer_page",
+          content_text: "EPC $2.45 Commission 75%",
+        },
+      ]),
+    ).toBeNull();
   });
 });

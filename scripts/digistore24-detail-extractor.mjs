@@ -147,6 +147,78 @@ export function sanitizeBuyerPrice(value, cartValue) {
   return "See official offer page";
 }
 
+/**
+ * Extract a buyer-facing price from vendor materials without inventing.
+ * Prefer order/sales "only $X" / add-to-cart copy; then Digistore marketplace
+ * "Price $X Commission" (product price, not bare EPC dollars).
+ */
+export function extractBuyerPriceFromVendorMaterials(materials = []) {
+  const list = Array.isArray(materials) ? [...materials] : [];
+  const typePri = { order_page: 0, sales_page: 1, offer_page: 2 };
+  list.sort((a, b) => {
+    const aPri = typePri[clean(a?.source_type || a?.sourceType || "").toLowerCase()] ?? 9;
+    const bPri = typePri[clean(b?.source_type || b?.sourceType || "").toLowerCase()] ?? 9;
+    return aPri - bPri;
+  });
+
+  const toResult = (n, source, reason) => {
+    if (!Number.isFinite(n) || n < 5 || n > 5000) return null;
+    return {
+      display: `$${n.toFixed(2)}`,
+      cartValue: n,
+      source,
+      reason,
+    };
+  };
+
+  for (const material of list) {
+    const source = clean(material?.source_type || material?.sourceType || "").toLowerCase();
+    if (source === "offer_page" || source === "banners") continue;
+    const text = clean(material?.content_text || material?.contentText || "", 20000);
+    if (!text) continue;
+
+    const only = text.match(
+      /(?:temporarily\s+)?only\s+\$?\s*(\d{1,4}(?:\.\d{2})?)\s*(?:USD|usd)?/i,
+    );
+    if (only) {
+      const n = Number(only[1]);
+      // Ignore tiny "only $X" promo chips that are not full product prices.
+      if (n >= 15) {
+        const hit = toResult(n, source, "only_price");
+        if (hit) return hit;
+      }
+    }
+
+    const nearCart = text.match(
+      /\$\s*(\d{1,4}(?:\.\d{2})?)\s*(?:USD|usd)?[^.]{0,40}(?:add to cart|buy now|order now|checkout)/i,
+    ) || text.match(
+      /(?:add to cart|buy now|order now|checkout)[^.]{0,40}\$\s*(\d{1,4}(?:\.\d{2})?)/i,
+    );
+    if (nearCart) {
+      const hit = toResult(Number(nearCart[1]), source, "cart_cta_price");
+      if (hit) return hit;
+    }
+  }
+
+  for (const material of list) {
+    const source = clean(material?.source_type || material?.sourceType || "").toLowerCase();
+    if (source !== "offer_page") continue;
+    const text = clean(material?.content_text || material?.contentText || "", 20000);
+    // Digistore marketplace listing: "Price $50.99 Commission 75%" — product price, not EPC.
+    const listing = text.match(/\bPrice\s+\$?\s*(\d{1,4}(?:\.\d{2})?)\s+Commission\b/i);
+    if (listing) {
+      const n = Number(listing[1]);
+      // Marketplace product prices are rarely under $15; bare EPC often is.
+      if (n >= 15) {
+        const hit = toResult(n, source, "marketplace_price_commission");
+        if (hit) return hit;
+      }
+    }
+  }
+
+  return null;
+}
+
 function parsePercent(text, hints = []) {
   const source = clean(text, 20000);
   for (const hint of hints) {

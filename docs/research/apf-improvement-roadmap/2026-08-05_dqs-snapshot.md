@@ -12,12 +12,12 @@
 | affiliate chrome in complaints | 0 |
 | affiliate chrome in claims | 0 |
 | synthetic competitors | 0 |
-| avg confidence | 37.3 |
-| sources with content_text≥50 | 85 / 758 (11.2%) |
+| avg confidence | 60.5 |
+| sources with content_text≥50 | 376 / 905 (41.5%) |
 
 ```json
 {
-  "sampled_at": "2026-08-05T02:58:54.085Z",
+  "sampled_at": "2026-08-05T08:09:34.540Z",
   "digistore_briefs_n": 11,
   "status_counts": {
     "complete": 11
@@ -29,10 +29,10 @@
   "affiliate_chrome_complaints": 0,
   "affiliate_chrome_claims": 0,
   "synthetic_competitors": 0,
-  "avg_confidence": 37.3,
-  "sources_total": 758,
-  "sources_rich_content_text": 85,
-  "sources_rich_pct": 11.2,
+  "avg_confidence": 60.5,
+  "sources_total": 905,
+  "sources_rich_content_text": 376,
+  "sources_rich_pct": 41.5,
   "dqs_estimate": 97
 }
 ```
