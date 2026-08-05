@@ -8,7 +8,9 @@ import {
   isContentCacheFresh,
   isHighTrustFetchCandidate,
   isJinaReaderEnabled,
+  isRedditUrl,
   loadUndici,
+  redditJsonUrl,
   selectPageFetchCandidates,
   youtubeVideoId,
 } from "../scripts/enrichment-page-fetch.mjs";
@@ -168,6 +170,17 @@ describe("enrichment page fetch", () => {
     expect(isJinaReaderEnabled({ REVIEW_ENRICHMENT_JINA: "1" })).toBe(true);
     expect(isJinaReaderEnabled({ REVIEW_ENRICHMENT_JINA: "0" })).toBe(false);
     expect(isJinaReaderEnabled({ REVIEW_ENRICHMENT_JINA: "off" })).toBe(false);
+  });
+
+  it("maps Reddit HTML URLs to public JSON endpoints", () => {
+    expect(isRedditUrl("https://www.reddit.com/r/x/comments/abc/title/")).toBe(true);
+    expect(redditJsonUrl("https://www.reddit.com/r/x/comments/abc/title/")).toBe(
+      "https://old.reddit.com/r/x/comments/abc/title.json",
+    );
+    expect(redditJsonUrl("https://old.reddit.com/search?q=foo&sort=relevance")).toContain(
+      "/search.json?",
+    );
+    expect(redditJsonUrl("https://example.com/x")).toBe("");
   });
 });
 

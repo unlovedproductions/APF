@@ -8,6 +8,7 @@
  * Usage:
  *   pnpm review:prune-thin
  *   pnpm review:prune-thin --days 14 --product-id N
+ *   pnpm review:prune-thin --days 0          # no age gate (thin web orphans ok)
  *   pnpm review:prune-thin --apply
  *   pnpm review:prune-thin --apply --hard
  */
@@ -110,7 +111,9 @@ async function main() {
   const apply = hasFlag("--apply");
   const hard = hasFlag("--hard");
   const dryRun = !apply;
-  const days = Math.max(1, Number(arg("--days", "14")) || 14);
+  // --days 0 disables the age gate so fresh thin web orphans can soft-prune.
+  const days = Math.max(0, Number(arg("--days", "14")));
+  const daysResolved = Number.isFinite(days) ? days : 14;
   const productId = Number(arg("--product-id", "0"));
   const limit = Math.max(0, Number(arg("--limit", "0")) || 0);
 
@@ -144,7 +147,7 @@ async function main() {
       const raw = parseJson(row.raw_json, {});
       const host = hostnameFromUrl(row.url);
       const tier = classifySourceHost(host).tier;
-      const decision = shouldPrune(row, raw, tier, days);
+      const decision = shouldPrune(row, raw, tier, daysResolved);
       const entry = {
         id: row.id,
         product_id: row.product_id,
@@ -198,7 +201,7 @@ async function main() {
       dry_run: dryRun,
       apply,
       hard,
-      days,
+      days: daysResolved,
       product_id: productId || null,
       thin_aged_scanned: rows.length,
       prune_candidates: candidates.length,

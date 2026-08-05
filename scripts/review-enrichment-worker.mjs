@@ -1314,7 +1314,7 @@ async function processJob(conn, job) {
 
   // Digistore: lead with direct review-site probes so SERP suspensions cannot hollow the job.
   if (isDigistore) {
-    const probes = directReviewSiteCandidates(searchProduct, { max: 8 });
+    const probes = directReviewSiteCandidates(searchProduct, { max: 12 });
     if (probes.length) {
       console.log(`[${enrichProduct.name}] direct review-site probes (first): ${probes.length}`);
       collected.push(...probes);

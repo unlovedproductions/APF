@@ -297,6 +297,106 @@ export function youtubeVideoId(value) {
   return "";
 }
 
+/** True for reddit.com / old.reddit.com hosts. */
+export function isRedditUrl(value) {
+  try {
+    const host = new URL(String(value || "")).hostname.toLowerCase().replace(/^www\./, "");
+    return host === "reddit.com" || host === "old.reddit.com" || host.endsWith(".reddit.com");
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Map a Reddit HTML URL to its public JSON endpoint (ToS-aware, no Pushshift).
+ * Comment threads → …/.json; search → …/search.json?…
+ */
+export function redditJsonUrl(value) {
+  try {
+    const url = new URL(String(value || "").trim());
+    if (!isRedditUrl(url.href)) return "";
+    url.protocol = "https:";
+    url.hostname = "old.reddit.com";
+    const path = url.pathname.replace(/\/+$/, "") || "/";
+    if (/\/comments\//i.test(path)) {
+      if (!/\.json$/i.test(path)) url.pathname = `${path}.json`;
+      return url.toString();
+    }
+    if (/\/search\/?$/i.test(path) || path === "/search") {
+      url.pathname = "/search.json";
+      return url.toString();
+    }
+    if (!/\.json$/i.test(path)) url.pathname = `${path}.json`;
+    return url.toString();
+  } catch {
+    return "";
+  }
+}
+
+function flattenRedditJsonText(payload, limit = 8000) {
+  const chunks = [];
+  const visit = (node, depth = 0) => {
+    if (!node || chunks.join("\n").length >= limit || depth > 8) return;
+    if (Array.isArray(node)) {
+      for (const child of node) visit(child, depth + 1);
+      return;
+    }
+    if (typeof node !== "object") return;
+    const data = node.data && typeof node.data === "object" ? node.data : node;
+    const title = cleanText(data.title || "", 500);
+    const selftext = cleanText(data.selftext || data.body || "", 4000);
+    if (title) chunks.push(title);
+    if (selftext) chunks.push(selftext);
+    if (data.children) visit(data.children, depth + 1);
+    if (node.children) visit(node.children, depth + 1);
+  };
+  visit(payload);
+  return cleanText(chunks.join("\n\n"), limit);
+}
+
+async function tryRedditJsonFetch(source, rawJson, options = {}) {
+  if (!isRedditUrl(source?.url)) return null;
+  const jsonUrl = redditJsonUrl(source.url);
+  if (!jsonUrl) return null;
+  try {
+    await assertSafeFetchUrl(jsonUrl);
+  } catch {
+    return null;
+  }
+  try {
+    const response = await fetchWithLimits(jsonUrl, options);
+    let payload = null;
+    try {
+      payload = JSON.parse(response.body);
+    } catch {
+      return null;
+    }
+    const contentText = flattenRedditJsonText(payload, options.textLimit || 8000);
+    if (contentText.length < 80) return null;
+    return {
+      ...source,
+      raw_json: {
+        ...rawJson,
+        content_text: contentText,
+        fetched_at: new Date().toISOString(),
+        fetch_provider: "reddit_json",
+        final_url: response.finalUrl || jsonUrl,
+        fetch_error: undefined,
+      },
+    };
+  } catch (error) {
+    return {
+      ...source,
+      raw_json: {
+        ...rawJson,
+        fetch_error: cleanText(error?.message || error, 500),
+        fetch_attempted_at: new Date().toISOString(),
+        fetch_provider: "reddit_json_failed",
+      },
+    };
+  }
+}
+
 async function readBodyCapped(response, maxBytes) {
   if (!response.body || typeof response.body.getReader !== "function") {
     const bytes = new Uint8Array(await response.arrayBuffer());
@@ -738,6 +838,12 @@ export async function enrichSourceContent(source, options = {}) {
           fetch_provider: "youtube",
         },
       };
+    }
+
+    const viaReddit = await tryRedditJsonFetch(source, rawJson, options);
+    if (viaReddit?.raw_json?.content_text
+      && cleanText(viaReddit.raw_json.content_text).length >= 80) {
+      return viaReddit;
     }
 
     const response = await fetchWithLimits(source.url, options);

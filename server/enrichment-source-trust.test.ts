@@ -82,6 +82,13 @@ describe("enrichment source trust", () => {
     expect(probes.some((p) => /sitejabber\.com/.test(p.url))).toBe(true);
     expect(probes.some((p) => /reddit\.com/.test(p.url))).toBe(true);
     expect(slugifyForReviewUrl("Joseph's Well")).toBe("josephs-well");
+
+    const digistoreProbes = directReviewSiteCandidates(
+      { name: "Joseph's Well", vendor: "Acme Labs" },
+      { max: 12 },
+    );
+    expect(digistoreProbes.length).toBeGreaterThanOrEqual(probes.length);
+    expect(digistoreProbes.length).toBeLessThanOrEqual(12);
   });
 
   it("caps digistore and competitor query counts", () => {

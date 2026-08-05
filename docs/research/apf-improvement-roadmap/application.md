@@ -62,10 +62,15 @@
 
 - `pnpm review:depth-backfill --limit 15`: 39 attempted, **+28 newly_rich**, 0 errors.
 - Live DQS @14:57Z: all-rich **48.9%** (434/888), high-trust **96.7%** (323/334), deep **32.4%** (218/672), gate PASS, DQS **97**.
-- High-trust saturated — stop HT Firecrawl retries. All-rich ≥60% needs Way 3 or more low-trust prune.
+- High-trust saturated — stop HT Firecrawl retries.
+
+## Round 12 (Way 3A + prune)
+
+- Soft-prune `--days 0 --apply`: **350** thin web orphans → all-rich **80.7%** (434/538), deep **67.7%**, pruned total **367**.
+- Digistore probe max **8→12**; Reddit public `.json` fetch (`fetch_provider=reddit_json`).
+- ≥60% all-source rich **CLEAR**. Unit tests for page-fetch + source-trust pass.
 
 ## Still open
 
-- **Way 3** Phase A free corpora (Trustpilot / YT transcripts / Reddit) — or optional more soft-prune
-- All-source rich toward **≥60%** (now **48.9%**; HT already **96.7%**)
+- **Way 3 Phase B** Trustpilot API (needs key) — optional denser review bodies
 - Accumulate labeled campaign `promote_result` rows (≥3/product) for calibration

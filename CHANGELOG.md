@@ -8,6 +8,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- Way 3 Phase A: Digistore direct review probes `max: 12`; Reddit public `.json` body fetch (`redditJsonUrl` / `reddit_json` provider)
+- `pnpm review:prune-thin --days 0` — disable age gate for soft-pruning fresh thin web orphans
 - `pnpm digistore:refresh-names` — refresh Digistore placeholder names from vendor materials (`--dry-run` / `--product-id`)
 - `applyPromoteOutcomeCalibration` + `pnpm promote:calibrate` (gated until ≥3 `promote_result` rows)
 - `shouldCountSearchRateLimitStrike` — healthy soft-miss after primary rate-limit does not open circuit
@@ -33,6 +35,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Soft-prune pass: all-rich **80.7%**, deep **67.7%**, high-trust **96.7%** (pruned 367); ≥60% all-rich target cleared
 - Way 2 depth-backfill pass: all-rich **48.9%**, high-trust rich **96.7%**, deep **32.4%** (was ~42% / ~79% / ~24%); +28 newly rich sources
 - Digistore catalog: **11/11** briefs `complete`, live DQS **97**, rich-source rate **9.3%** (was 10/10 / ~8%)
 - Vendor title junk filter skips page-not-found / Coda 404 titles during name resolution
