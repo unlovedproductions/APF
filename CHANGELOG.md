@@ -24,6 +24,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Unit coverage for brief finalize scrubbing, page-fetch candidate selection, and vendor-sales detection
 - Holistic improvement deep research under `docs/research/apf-improvement-roadmap/`
 
+### Fixed
+
+- Digistore daemon `--promote` recovery: reopen known `/detail/{id}` URLs when generated links are not on the current marketplace listing
+- Digistore daemon client: long `/collect` no longer dies at ~300s (undici/fetch headers timeout). Uses `node:http` with overall deadline = login wait + ~90s/product.
+- Digistore daemon `/health` no longer calls `ensureBrowser()` (was racing the shared page during collect and spamming logs). Collect is single-flight (`collectBusy` → 409).
+- Digistore daemon `ensureBrowser`: real liveness ping (`browser.isConnected` + `page.evaluate`) so dead Firefox contexts are relaunched instead of failing on `newPage`.
+
 ### Changed
 
 - Digistore catalog: **11/11** briefs `complete`, live DQS **97**, rich-source rate **9.3%** (was 10/10 / ~8%)

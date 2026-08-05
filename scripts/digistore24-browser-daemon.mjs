@@ -48,6 +48,8 @@ const DIGISTORE_USER_AGENT =
 
 let context;
 let mainPage;
+let browserReadyLogged = false;
+let collectBusy = false;
 
 async function waitForMarketplaceDetailLinks(page, timeoutMs = 5000) {
   try {
@@ -119,17 +121,65 @@ function productIdFromUrl(url) {
   return m ? m[1] : "";
 }
 
-async function ensureBrowser() {
-  let contextUsable = false;
+function digistoreMarketplaceDetailUrl(platformProductId) {
+  const id = clean(platformProductId);
+  if (!/^\d+$/.test(id)) return "";
+  return `https://www.digistore24-app.com/app/en/affiliate/account/marketplace/all/detail/${id}`;
+}
 
-  try {
-    contextUsable = Boolean(context && context.pages);
-    if (contextUsable) context.pages();
-  } catch {
-    contextUsable = false;
+/**
+ * When --promote recovery is on, reopen known Digistore detail pages that still
+ * have generated links even if they are not on the current marketplace listing.
+ */
+function appendPromoteRecoveryCandidates(candidates = [], needsPromote = new Set(), limit = 10) {
+  const out = Array.isArray(candidates) ? [...candidates] : [];
+  const have = new Set(out.map((c) => clean(c?.platformProductId)));
+  const max = Math.max(1, Number(limit) || 10);
+
+  for (const platformProductId of needsPromote) {
+    if (out.length >= max) break;
+    const id = clean(platformProductId);
+    if (!id || have.has(id)) continue;
+    const href = digistoreMarketplaceDetailUrl(id);
+    if (!href) continue;
+    out.push({
+      href,
+      text: `Digistore24 Product ${id}`,
+      platformProductId: id,
+      promoteRecovery: true,
+    });
+    have.add(id);
   }
 
+  return out;
+}
+
+async function browserContextAlive() {
+  if (!context) return false;
+  try {
+    const browser = context.browser?.() || null;
+    if (browser && typeof browser.isConnected === "function" && !browser.isConnected()) {
+      return false;
+    }
+    // pages() can succeed on a half-dead context; ping a live page.
+    const pages = context.pages().filter((p) => !p.isClosed());
+    if (pages.length === 0) return Boolean(browser?.isConnected?.() ?? true);
+    await pages[0].evaluate(() => true);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function ensureBrowser() {
+  let contextUsable = await browserContextAlive();
+
   if (!contextUsable) {
+    try { await context?.close(); } catch { /* ignore */ }
+    context = null;
+    mainPage = null;
+    browserReadyLogged = false;
+
     fs.mkdirSync(PROFILE_DIR, { recursive: true });
     const lockCleanup = clearStaleFirefoxProfileLock(PROFILE_DIR);
     if (lockCleanup.cleared.length > 0) {
@@ -168,9 +218,12 @@ async function ensureBrowser() {
     await mainPage.goto(START_URL, { waitUntil: "domcontentloaded", timeout: 60000 }).catch(() => {});
   }
 
-  console.log("Digistore24 daemon browser ready.");
-  console.log("If login/2FA is required, complete it in the opened Firefox window.");
-  console.log("");
+  if (!browserReadyLogged) {
+    console.log("Digistore24 daemon browser ready.");
+    console.log("If login/2FA is required, complete it in the opened Firefox window.");
+    console.log("");
+    browserReadyLogged = true;
+  }
 
   return context;
 }
@@ -832,15 +885,41 @@ async function collectProducts(options) {
 
     const knownState = await loadKnownProductState(conn, options.userId, options.promote);
 
-    const detailLookup = await waitForDetailLinks(
+    // Promote recovery can reopen known detail URLs; don't burn the full login wait
+    // when the listing page is already open and we only need to re-promote.
+    const listingWaitMs = options.promote && knownState.needsPromote.size > 0
+      ? Math.min(options.loginWaitMs || 60_000, 90_000)
+      : (options.loginWaitMs || 10 * 60 * 1000);
+
+    let detailLookup = await waitForDetailLinks(
       mainPage,
-      options.loginWaitMs || 10 * 60 * 1000,
+      listingWaitMs,
       {
         targetCount: options.limit,
         shouldInclude: (platformProductId) =>
           !knownState.knownIds.has(platformProductId) || knownState.needsPromote.has(platformProductId),
       }
     );
+
+    if (options.promote && knownState.needsPromote.size > 0) {
+      const before = (detailLookup.candidates || []).length;
+      const merged = appendPromoteRecoveryCandidates(
+        detailLookup.candidates || [],
+        knownState.needsPromote,
+        options.limit,
+      );
+      if (merged.length > before) {
+        console.log(
+          `Promote recovery: added ${merged.length - before} known detail URL(s) not on current listing ` +
+          `(needsPromote=${knownState.needsPromote.size}).`,
+        );
+      }
+      detailLookup = {
+        ...detailLookup,
+        ready: Boolean(detailLookup.ready) || merged.length > 0,
+        candidates: merged,
+      };
+    }
 
     if (!detailLookup.ready) {
       return {
@@ -1057,11 +1136,19 @@ const server = http.createServer(async (req, res) => {
     const url = new URL(req.url || "/", `http://${req.headers.host}`);
 
     if (url.pathname === "/health") {
-      await ensureBrowser();
+      const alive = await browserContextAlive();
+      let pageUrl = "";
+      try {
+        pageUrl = alive && mainPage && !mainPage.isClosed() ? (mainPage.url() || "") : "";
+      } catch {
+        pageUrl = "";
+      }
       return sendJson(res, 200, {
         ok: true,
-        pageUrl: mainPage?.url() || "",
+        pageUrl,
         profile: PROFILE_DIR,
+        browserReady: alive,
+        collectBusy,
       });
     }
 
@@ -1080,7 +1167,9 @@ const server = http.createServer(async (req, res) => {
         try {
           await context?.close();
         } catch {}
-
+        context = null;
+        mainPage = null;
+        browserReadyLogged = false;
         process.exit(0);
       }, 500);
 
@@ -1088,28 +1177,41 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (url.pathname === "/collect") {
-      const requestUserId = Number(url.searchParams.get("userId") || process.env.APF_USER_ID || "0");
-      const result = await collectProducts({
-        limit: Math.max(1, Math.min(200, Number(url.searchParams.get("limit") || "10"))),
-        loginWaitMs: Math.max(
-          30,
-          Math.min(
-            1800,
-            Number(
-              url.searchParams.get("wait") ||
-              process.env.DIGISTORE24_LOGIN_WAIT_SECONDS ||
-              process.env.DIGISTORE24_REFRESH_WAIT_SECONDS ||
-              "600"
-            )
-          )
-        ) * 1000,
-        promote: url.searchParams.get("promote") === "1",
-        confirm: url.searchParams.get("confirm") === "1",
-        affiliateId: process.env.DIGISTORE24_ID || "UnlovedProducts",
-        userId: requestUserId,
-      });
+      if (collectBusy) {
+        return sendJson(res, 409, {
+          success: false,
+          error: "collect_busy",
+          message: "A Digistore24 collect is already running. Retry when it finishes.",
+        });
+      }
 
-      return sendJson(res, result.success ? 200 : 409, result);
+      collectBusy = true;
+      try {
+        const requestUserId = Number(url.searchParams.get("userId") || process.env.APF_USER_ID || "0");
+        const result = await collectProducts({
+          limit: Math.max(1, Math.min(200, Number(url.searchParams.get("limit") || "10"))),
+          loginWaitMs: Math.max(
+            30,
+            Math.min(
+              1800,
+              Number(
+                url.searchParams.get("wait") ||
+                process.env.DIGISTORE24_LOGIN_WAIT_SECONDS ||
+                process.env.DIGISTORE24_REFRESH_WAIT_SECONDS ||
+                "600"
+              )
+            )
+          ) * 1000,
+          promote: url.searchParams.get("promote") === "1",
+          confirm: url.searchParams.get("confirm") === "1",
+          affiliateId: process.env.DIGISTORE24_ID || "UnlovedProducts",
+          userId: requestUserId,
+        });
+
+        return sendJson(res, result.success ? 200 : 409, result);
+      } finally {
+        collectBusy = false;
+      }
     }
 
     return sendJson(res, 404, { error: "not_found" });

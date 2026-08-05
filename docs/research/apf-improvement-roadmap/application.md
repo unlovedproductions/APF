@@ -47,8 +47,20 @@
 - Junk vendor titles: skip page-not-found / Coda 404 titles in name resolution.
 - Enriched #11 → `complete`, conf **50**, page-fetch **10/10** rich. Catalog **11/11 complete**, rich-source **9.3%**.
 
+## Round 9
+
+- Daemon client long `/collect` timeout fix (shipped).
+- **Promote recovery:** `--promote` reopens known `/detail/{id}` URLs when SKUs are not on the current listing.
+
+## Round 10
+
+- `ensureBrowser` liveness: `browser.isConnected` + `page.evaluate` (dead contexts relaunch).
+- `/health` reports real `browserReady` (no stale marketplace URL from a dead page).
+- Daemon restarted; Firefox is on **login** page. Finish login/2FA in that window (do **not** run `digistore24:login` while daemon holds the profile), then `collect --ensure --promote --limit 7 --wait 120`.
+
 ## Still open
 
-- Raise rich `content_text` rate (evidence depth for ShadowCast video quality)
-- Approve more Digistore promolinks (ops)
+- **Ops:** Digistore login + promote remaining **7 generated** links
+- Raise rich `content_text` rate (now **13%**, avg conf **42.3**)
+- Buyer price abstain on #3/#5/#6/#7 (do not invent from EPC-looking amounts)
 - Accumulate labeled `promote_result` EPC/refund rows so calibration can apply
