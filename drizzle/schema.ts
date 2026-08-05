@@ -314,3 +314,25 @@ export const vendorProfiles = mysqlTable("vendor_profiles", {
 
 export type VendorProfile = typeof vendorProfiles.$inferSelect;
 export type InsertVendorProfile = typeof vendorProfiles.$inferInsert;
+
+/**
+ * Manual / bookmark-driven promote outcomes for Hidden Gem calibration (P1.3).
+ */
+export const productPromoteOutcomes = mysqlTable("product_promote_outcomes", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("user_id").notNull(),
+  productId: int("product_id").notNull(),
+  event: varchar("event", { length: 32 }).notNull(),
+  netEpc: decimal("net_epc", { precision: 12, scale: 4 }),
+  refundRate: decimal("refund_rate", { precision: 5, scale: 2 }),
+  hiddenGemScore: decimal("hidden_gem_score", { precision: 8, scale: 2 }),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({
+  productIdx: index("idx_promote_outcomes_product").on(table.productId),
+  userIdx: index("idx_promote_outcomes_user").on(table.userId),
+  eventIdx: index("idx_promote_outcomes_event").on(table.event),
+}));
+
+export type ProductPromoteOutcome = typeof productPromoteOutcomes.$inferSelect;
+export type InsertProductPromoteOutcome = typeof productPromoteOutcomes.$inferInsert;
