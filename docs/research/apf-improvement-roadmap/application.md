@@ -56,11 +56,16 @@
 
 - `ensureBrowser` liveness: `browser.isConnected` + `page.evaluate` (dead contexts relaunch).
 - `/health` reports real `browserReady` (no stale marketplace URL from a dead page).
-- Daemon restarted; Firefox is on **login** page. Finish login/2FA in that window (do **not** run `digistore24:login` while daemon holds the profile), then `collect --ensure --promote --limit 7 --wait 120`.
+- Promote completed: **11/11** affiliate links `approved`.
+
+## Round 11 (Way 2)
+
+- `pnpm review:depth-backfill --limit 15`: 39 attempted, **+28 newly_rich**, 0 errors.
+- Live DQS @14:57Z: all-rich **48.9%** (434/888), high-trust **96.7%** (323/334), deep **32.4%** (218/672), gate PASS, DQS **97**.
+- High-trust saturated — stop HT Firecrawl retries. All-rich ≥60% needs Way 3 or more low-trust prune.
 
 ## Still open
 
-- **Ops:** Digistore login + promote remaining **7 generated** links
-- Raise rich `content_text` rate (now **13%**, avg conf **42.3**)
-- Buyer price abstain on #3/#5/#6/#7 (do not invent from EPC-looking amounts)
-- Accumulate labeled `promote_result` EPC/refund rows so calibration can apply
+- **Way 3** Phase A free corpora (Trustpilot / YT transcripts / Reddit) — or optional more soft-prune
+- All-source rich toward **≥60%** (now **48.9%**; HT already **96.7%**)
+- Accumulate labeled campaign `promote_result` rows (≥3/product) for calibration

@@ -14,14 +14,14 @@
 | affiliate chrome in claims | 0 |
 | synthetic competitors | 0 |
 | avg confidence | 60.5 |
-| sources rich (all) | 376 / 888 (42.3%) |
-| sources rich (high-trust) | 265 / 334 (79.3%) |
-| sources rich (deep, excl snippet_fallback) | 160 / 672 (23.8%) |
+| sources rich (all) | 434 / 888 (48.9%) |
+| sources rich (high-trust) | 323 / 334 (96.7%) |
+| sources rich (deep, excl snippet_fallback) | 218 / 672 (32.4%) |
 | soft-pruned excluded | 17 |
 
 ```json
 {
-  "sampled_at": "2026-08-05T14:38:41.205Z",
+  "sampled_at": "2026-08-05T14:57:34.564Z",
   "digistore_briefs_n": 11,
   "status_counts": {
     "complete": 11
@@ -35,15 +35,15 @@
   "synthetic_competitors": 0,
   "avg_confidence": 60.5,
   "sources_total": 888,
-  "sources_rich_content_text": 376,
-  "sources_rich_pct": 42.3,
-  "sources_rich_pct_all": 42.3,
+  "sources_rich_content_text": 434,
+  "sources_rich_pct": 48.9,
+  "sources_rich_pct_all": 48.9,
   "sources_high_trust_total": 334,
-  "sources_high_trust_rich": 265,
-  "sources_rich_pct_high_trust": 79.3,
+  "sources_high_trust_rich": 323,
+  "sources_rich_pct_high_trust": 96.7,
   "sources_deep_total": 672,
-  "sources_deep_rich": 160,
-  "sources_rich_pct_deep": 23.8,
+  "sources_deep_rich": 218,
+  "sources_rich_pct_deep": 32.4,
   "sources_pruned_excluded": 17,
   "video_claim_gate": true,
   "dqs_estimate": 97

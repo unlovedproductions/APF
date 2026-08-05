@@ -33,6 +33,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Way 2 depth-backfill pass: all-rich **48.9%**, high-trust rich **96.7%**, deep **32.4%** (was ~42% / ~79% / ~24%); +28 newly rich sources
 - Digistore catalog: **11/11** briefs `complete`, live DQS **97**, rich-source rate **9.3%** (was 10/10 / ~8%)
 - Vendor title junk filter skips page-not-found / Coda 404 titles during name resolution
 - Digistore catalog §9 re-enrich: **10/10** briefs `complete`, live DQS **97** (was 70 / 1/10 complete)
