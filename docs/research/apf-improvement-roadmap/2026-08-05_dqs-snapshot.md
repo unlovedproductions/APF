@@ -1,7 +1,8 @@
 # Digistore enrichment DQS snapshot — 2026-08-05
 
 **N:** 11 Digistore briefs (limit 50)  
-**DQS estimate:** **97 / 100** (directional; not full audit re-score)
+**DQS estimate:** **97 / 100** (directional; not full audit re-score)  
+**Video-claim gate:** PASS (high-trust rich ≥70% OR all rich ≥60%)
 
 | Metric | Value |
 |--------|------:|
@@ -13,11 +14,14 @@
 | affiliate chrome in claims | 0 |
 | synthetic competitors | 0 |
 | avg confidence | 60.5 |
-| sources with content_text≥50 | 376 / 905 (41.5%) |
+| sources rich (all) | 376 / 888 (42.3%) |
+| sources rich (high-trust) | 265 / 334 (79.3%) |
+| sources rich (deep, excl snippet_fallback) | 160 / 672 (23.8%) |
+| soft-pruned excluded | 17 |
 
 ```json
 {
-  "sampled_at": "2026-08-05T08:09:34.540Z",
+  "sampled_at": "2026-08-05T14:38:41.205Z",
   "digistore_briefs_n": 11,
   "status_counts": {
     "complete": 11
@@ -30,11 +34,20 @@
   "affiliate_chrome_claims": 0,
   "synthetic_competitors": 0,
   "avg_confidence": 60.5,
-  "sources_total": 905,
+  "sources_total": 888,
   "sources_rich_content_text": 376,
-  "sources_rich_pct": 41.5,
+  "sources_rich_pct": 42.3,
+  "sources_rich_pct_all": 42.3,
+  "sources_high_trust_total": 334,
+  "sources_high_trust_rich": 265,
+  "sources_rich_pct_high_trust": 79.3,
+  "sources_deep_total": 672,
+  "sources_deep_rich": 160,
+  "sources_rich_pct_deep": 23.8,
+  "sources_pruned_excluded": 17,
+  "video_claim_gate": true,
   "dqs_estimate": 97
 }
 ```
 
-**Next:** If complete% stays near 0, keep search healthy then re-enrich one product at a time (§9). Do not declare production-ready until complete briefs dominate and affiliate chrome is near zero.
+**Next:** Prefer `pnpm review:prune-thin` then `review:backfill-content` over bulk `review:once`. Video-claim gate: high-trust rich ≥70% or all rich ≥60%.

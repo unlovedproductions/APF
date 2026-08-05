@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Digistore enrichment DQS snapshot (roadmap P0.4).
+ * Digistore enrichment DQS snapshot (roadmap P0.4 + Way 1 evidence splits).
  * Writes markdown under docs/research/apf-improvement-roadmap/ when --write is set.
  *
  * Usage:
@@ -11,6 +11,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import mysql from "mysql2/promise";
+import { classifySourceHost } from "./enrichment-source-trust.mjs";
 
 function loadEnv(file = ".env") {
   if (!fs.existsSync(file)) return;
@@ -37,10 +38,25 @@ function hasFlag(name) {
 
 const AFFILIATE_RE = /\b(epc|commission|affiliate|promolink|checkout-ds24|jvzoo|warriorplus)\b/i;
 const MARKETPLACE_NAME_RE = /^(digistore24?|marketplace)$/i;
+const HIGH_TRUST_TIERS = new Set(["review", "scam_advisor", "video", "retailer"]);
 
 function pct(n, d) {
   if (!d) return 0;
   return Math.round((1000 * n) / d) / 10;
+}
+
+function parseJson(value, fallback = {}) {
+  if (value == null) return fallback;
+  if (typeof value === "object") return value;
+  try { return JSON.parse(value); } catch { return fallback; }
+}
+
+function hostnameFromUrl(url) {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return "";
+  }
 }
 
 async function main() {
@@ -106,22 +122,50 @@ async function main() {
 
     const [sourceRows] = await conn.query(
       `
-      SELECT
-        COUNT(*) AS total,
-        SUM(CASE WHEN CHAR_LENGTH(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(raw_json, '$.content_text')), '')) >= 50 THEN 1 ELSE 0 END) AS rich_content
+      SELECT s.url, s.raw_json
       FROM product_review_sources s
       INNER JOIN products p ON p.id = s.product_id
       WHERE p.platform LIKE '%digistore%'
       `,
     );
-    const sourcesTotal = Number(sourceRows[0]?.total || 0);
-    const richContent = Number(sourceRows[0]?.rich_content || 0);
+
+    let sourcesTotal = 0;
+    let richContent = 0;
+    let highTrustTotal = 0;
+    let highTrustRich = 0;
+    let deepTotal = 0;
+    let deepRich = 0;
+    let prunedExcluded = 0;
+
+    for (const row of sourceRows) {
+      const raw = parseJson(row.raw_json, {});
+      if (raw.pruned_at) {
+        prunedExcluded += 1;
+        continue;
+      }
+      const textLen = String(raw.content_text || "").trim().length;
+      const rich = textLen >= 50;
+      const provider = String(raw.fetch_provider || "");
+      const tier = classifySourceHost(hostnameFromUrl(row.url)).tier;
+
+      sourcesTotal += 1;
+      if (rich) richContent += 1;
+
+      if (HIGH_TRUST_TIERS.has(tier)) {
+        highTrustTotal += 1;
+        if (rich) highTrustRich += 1;
+      }
+
+      if (provider !== "snippet_fallback") {
+        deepTotal += 1;
+        if (rich) deepRich += 1;
+      }
+    }
 
     const complete = statusCounts.complete || 0;
     const degraded = statusCounts.complete_degraded || 0;
     const avgConf = confN ? Math.round((10 * confSum) / confN) / 10 : null;
 
-    // Only true `complete` counts toward completeness — degraded is finished but not production-ready.
     const completeness = n ? pct(complete, n) : 0;
     const consistency = n ? 100 - pct(marketplaceName, n) : 0;
     const chromeHits = affiliateInSummary + affiliateInComplaints + affiliateInClaims + syntheticCompetitors;
@@ -131,6 +175,11 @@ async function main() {
     const dqs = Math.round(
       0.3 * completeness + 0.25 * consistency + 0.2 * validity + 0.15 * uniqueness + 0.1 * timeliness,
     );
+
+    const richPctAll = pct(richContent, sourcesTotal);
+    const richPctHighTrust = pct(highTrustRich, highTrustTotal);
+    const richPctDeep = pct(deepRich, deepTotal);
+    const videoClaimGate = richPctHighTrust >= 70 || richPctAll >= 60;
 
     const report = {
       sampled_at: new Date().toISOString(),
@@ -146,7 +195,16 @@ async function main() {
       avg_confidence: avgConf,
       sources_total: sourcesTotal,
       sources_rich_content_text: richContent,
-      sources_rich_pct: pct(richContent, sourcesTotal),
+      sources_rich_pct: richPctAll,
+      sources_rich_pct_all: richPctAll,
+      sources_high_trust_total: highTrustTotal,
+      sources_high_trust_rich: highTrustRich,
+      sources_rich_pct_high_trust: richPctHighTrust,
+      sources_deep_total: deepTotal,
+      sources_deep_rich: deepRich,
+      sources_rich_pct_deep: richPctDeep,
+      sources_pruned_excluded: prunedExcluded,
+      video_claim_gate: videoClaimGate,
       dqs_estimate: dqs,
     };
 
@@ -173,7 +231,8 @@ async function main() {
       const md = `# Digistore enrichment DQS snapshot — ${day}
 
 **N:** ${n} Digistore briefs (limit ${limit})  
-**DQS estimate:** **${dqs} / 100** (directional; not full audit re-score)
+**DQS estimate:** **${dqs} / 100** (directional; not full audit re-score)  
+**Video-claim gate:** ${videoClaimGate ? "PASS" : "FAIL"} (high-trust rich ≥70% OR all rich ≥60%)
 
 | Metric | Value |
 |--------|------:|
@@ -185,13 +244,16 @@ async function main() {
 | affiliate chrome in claims | ${affiliateInClaims} |
 | synthetic competitors | ${syntheticCompetitors} |
 | avg confidence | ${avgConf ?? "n/a"} |
-| sources with content_text≥50 | ${richContent} / ${sourcesTotal} (${pct(richContent, sourcesTotal)}%) |
+| sources rich (all) | ${richContent} / ${sourcesTotal} (${richPctAll}%) |
+| sources rich (high-trust) | ${highTrustRich} / ${highTrustTotal} (${richPctHighTrust}%) |
+| sources rich (deep, excl snippet_fallback) | ${deepRich} / ${deepTotal} (${richPctDeep}%) |
+| soft-pruned excluded | ${prunedExcluded} |
 
 \`\`\`json
 ${JSON.stringify(report, null, 2)}
 \`\`\`
 
-**Next:** If complete% stays near 0, keep search healthy then re-enrich one product at a time (§9). Do not declare production-ready until complete briefs dominate and affiliate chrome is near zero.
+**Next:** Prefer \`pnpm review:prune-thin\` then \`review:backfill-content\` over bulk \`review:once\`. Video-claim gate: high-trust rich ≥70% or all rich ≥60%.
 `;
       fs.writeFileSync(outPath, md);
       console.log(`\nWrote ${outPath}`);
