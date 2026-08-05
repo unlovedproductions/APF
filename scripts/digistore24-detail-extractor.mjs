@@ -5,7 +5,11 @@ function clean(value, limit = 10000) {
 }
 
 export function isMarketplaceBrandName(value) {
-  return /^(digistore24?|marketplace)$/i.test(clean(value, 255));
+  const text = clean(value, 255);
+  if (/^(digistore24?|marketplace)$/i.test(text)) return true;
+  // Placeholder minted when detail title was missing
+  if (/^digistore24\s+product\s+\d+/i.test(text)) return true;
+  return false;
 }
 
 export function resolveProductName(extractedTitle, listingText, platformProductId) {

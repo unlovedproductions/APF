@@ -202,6 +202,7 @@ function fetchTierRank(source, vendorDomains = new Set()) {
 
 function isPermanentFetchError(message) {
   const msg = String(message || "").toLowerCase();
+  // 403 often UA/WAF; retry with browser UA / Firecrawl. 404/410 are dead ends.
   return /http 404|http 410|unsupported content type|invalid url|blocked (host|ip)|unsupported protocol/.test(msg);
 }
 
@@ -214,19 +215,35 @@ export function selectPageFetchCandidates(sources = [], options = {}) {
   const limit = Math.max(0, Number(options.limit ?? 6));
   const maxAttempts = Math.max(limit, Number(options.maxAttempts ?? limit * 3));
 
-  const eligible = sources
+  const rankSort = (a, b) => {
+    const tierDelta = fetchTierRank(a, vendorDomains) - fetchTierRank(b, vendorDomains);
+    if (tierDelta !== 0) return tierDelta;
+    const scoreA = Number(a.relevance_score || 0) + Number(a.trust_score || 0);
+    const scoreB = Number(b.relevance_score || 0) + Number(b.trust_score || 0);
+    return scoreB - scoreA;
+  };
+
+  const highTrust = sources
     .filter((source) => (
       isHighTrustFetchCandidate(source, vendorDomains)
       || Boolean(youtubeVideoId(source?.url))
     ))
     .filter((source) => !isPermanentFetchError(source?.raw_json?.fetch_error))
-    .sort((a, b) => {
-      const tierDelta = fetchTierRank(a, vendorDomains) - fetchTierRank(b, vendorDomains);
-      if (tierDelta !== 0) return tierDelta;
-      const scoreA = Number(a.relevance_score || 0) + Number(a.trust_score || 0);
-      const scoreB = Number(b.relevance_score || 0) + Number(b.trust_score || 0);
-      return scoreB - scoreA;
-    });
+    .sort(rankSort);
+
+  // When review/retailer URLs are scarce, still attempt top non-noise web hits.
+  const seen = new Set(highTrust.map((s) => s.url));
+  const fillers = sources
+    .filter((source) => source?.url && !seen.has(source.url))
+    .filter((source) => !isPermanentFetchError(source?.raw_json?.fetch_error))
+    .filter((source) => {
+      const host = hostnameFromUrl(source?.url);
+      const tier = classifySourceHost(host).tier;
+      return tier !== "affiliate_noise";
+    })
+    .sort(rankSort);
+
+  const eligible = [...highTrust, ...fillers];
 
   return {
     candidates: eligible.slice(0, maxAttempts),
@@ -280,9 +297,55 @@ export function youtubeVideoId(value) {
   return "";
 }
 
+async function readBodyCapped(response, maxBytes) {
+  if (!response.body || typeof response.body.getReader !== "function") {
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    const truncated = bytes.byteLength > maxBytes;
+    return {
+      body: new TextDecoder().decode(truncated ? bytes.slice(0, maxBytes) : bytes),
+      truncated,
+    };
+  }
+
+  const reader = response.body.getReader();
+  const chunks = [];
+  let total = 0;
+  let truncated = false;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (!value?.byteLength) continue;
+    const remaining = maxBytes - total;
+    if (remaining <= 0) {
+      truncated = true;
+      try { await reader.cancel(); } catch { /* ignore */ }
+      break;
+    }
+    if (value.byteLength > remaining) {
+      chunks.push(value.slice(0, remaining));
+      total += remaining;
+      truncated = true;
+      try { await reader.cancel(); } catch { /* ignore */ }
+      break;
+    }
+    chunks.push(value);
+    total += value.byteLength;
+  }
+  const merged = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    merged.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return {
+    body: new TextDecoder().decode(merged),
+    truncated,
+  };
+}
+
 async function fetchWithLimits(url, options = {}) {
   const timeoutMs = options.timeoutMs || 8000;
-  const maxBytes = options.maxBytes || 1_000_000;
+  const maxBytes = options.maxBytes || 1_500_000;
   const maxRedirects = Math.max(0, Number(options.maxRedirects ?? 5));
   let current = String(url);
   const undici = options.undici || loadUndici();
@@ -296,8 +359,11 @@ async function fetchWithLimits(url, options = {}) {
 
     try {
       const headers = {
-        "User-Agent": "APF-Enrichment/1.0 (+https://github.com/)",
-        "Accept": "text/html,application/xhtml+xml,application/json;q=0.8",
+        // Browser-like UA reduces HTTP 403 on review hosts that block bot UAs.
+        "User-Agent": options.userAgent
+          || "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
       };
 
       let response;
@@ -337,13 +403,11 @@ async function fetchWithLimits(url, options = {}) {
 
       const contentType = response.headers.get("content-type") || "";
       if (BINARY_CONTENT_RE.test(contentType)) throw new Error(`unsupported content type: ${contentType}`);
-      const contentLength = Number(response.headers.get("content-length") || 0);
-      if (contentLength > maxBytes) throw new Error(`response too large: ${contentLength}`);
 
-      const bytes = new Uint8Array(await response.arrayBuffer());
-      if (bytes.byteLength > maxBytes) throw new Error(`response too large: ${bytes.byteLength}`);
+      // Cap/truncate instead of aborting — large review pages still yield usable text.
+      const { body } = await readBodyCapped(response, maxBytes);
       return {
-        body: new TextDecoder().decode(bytes),
+        body,
         contentType,
         finalUrl: response.url || current,
       };
@@ -532,6 +596,20 @@ export async function enrichSourceContent(source, options = {}) {
     return { ...source, raw_json: { ...rawJson, content_text: cachedText } };
   }
 
+  const snippetFallback = () => {
+    const snippet = cleanText(source?.snippet || rawJson?.snippet || "", options.textLimit || 8000);
+    if (snippet.length < 80) return null;
+    return {
+      ...source,
+      raw_json: {
+        ...rawJson,
+        content_text: snippet,
+        fetched_at: new Date().toISOString(),
+        fetch_provider: "snippet_fallback",
+      },
+    };
+  };
+
   const videoId = youtubeVideoId(source?.url);
   try {
     if (videoId) {
@@ -585,7 +663,11 @@ export async function enrichSourceContent(source, options = {}) {
       return viaFirecrawl;
     }
 
-    if (!contentText) throw new Error("no readable page text");
+    if (!contentText) {
+      const fallback = snippetFallback();
+      if (fallback) return fallback;
+      throw new Error("no readable page text");
+    }
     return {
       ...source,
       raw_json: {
@@ -601,7 +683,7 @@ export async function enrichSourceContent(source, options = {}) {
   } catch (error) {
     const msg = cleanText(error?.message || error, 500);
     if (isPermanentFetchError(msg)) {
-      return {
+      return snippetFallback() || {
         ...source,
         raw_json: {
           ...rawJson,
@@ -620,7 +702,7 @@ export async function enrichSourceContent(source, options = {}) {
       return viaFirecrawl;
     }
 
-    return {
+    return snippetFallback() || {
       ...source,
       raw_json: {
         ...rawJson,

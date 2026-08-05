@@ -127,10 +127,10 @@ async function saveAffiliateLink(conn, product, force = false) {
     ON DUPLICATE KEY UPDATE
       vendor_nickname=VALUES(vendor_nickname),
       platform_product_id=VALUES(platform_product_id),
-      affiliate_url=VALUES(affiliate_url),
+      affiliate_url=IF(status='approved' AND affiliate_url IS NOT NULL AND affiliate_url != '', affiliate_url, VALUES(affiliate_url)),
       campaign_key=VALUES(campaign_key),
-      status='generated',
-      notes=VALUES(notes),
+      status=IF(status='approved', 'approved', 'generated'),
+      notes=IF(status='approved', notes, VALUES(notes)),
       updated_at=NOW()
   `, [
     product.id,

@@ -15,6 +15,7 @@ describe("digistore24 detail extractor", () => {
     });
     expect(detail.title).toBe("");
     expect(isMarketplaceBrandName("Digistore24")).toBe(true);
+    expect(isMarketplaceBrandName("Digistore24 Product 54669")).toBe(true);
     expect(resolveProductName("Digistore24", "Alpha Lean Formula", "123")).toBe("Alpha Lean Formula");
   });
 
