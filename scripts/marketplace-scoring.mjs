@@ -119,8 +119,17 @@ export function scoreClickBank(product, options = {}) {
   };
 }
 
+export function isCampaignPromoteResult(row = {}) {
+  const event = clean(row?.event);
+  if (event !== "promote_result") return false;
+  const notes = clean(row?.notes);
+  // Listing/marketplace EPC seeds are not campaign outcomes.
+  if (/^listing_signal\b/i.test(notes)) return false;
+  return true;
+}
+
 export function summarizePromoteResults(outcomes = []) {
-  const rows = (outcomes || []).filter((o) => clean(o?.event) === "promote_result");
+  const rows = (outcomes || []).filter((o) => isCampaignPromoteResult(o));
   const epcs = rows
     .map((r) => Number(r.net_epc ?? r.netEpc))
     .filter((n) => Number.isFinite(n));

@@ -1214,7 +1214,7 @@ async function rescoreProductAfterEnrichment(conn, product, sourceCount, confide
   let promoteOutcomes = [];
   try {
     const [outcomeRows] = await conn.query(
-      `SELECT event, net_epc, refund_rate, hidden_gem_score, created_at
+      `SELECT event, net_epc, refund_rate, hidden_gem_score, notes, created_at
        FROM product_promote_outcomes
        WHERE product_id=? AND event='promote_result'
        ORDER BY id DESC
