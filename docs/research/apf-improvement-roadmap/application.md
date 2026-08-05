@@ -2,7 +2,7 @@
 
 **Investigation:** `apf-improvement-roadmap`  
 **Report:** `2026-08-04_decision.md`  
-**Status:** rounds 1–4 engineering applied; §9 catalog re-enrich still ops-gated
+**Status:** rounds 1–5 applied; Digistore catalog §9 closed (10/10 complete, DQS 97)
 
 | Fork | Prompt | Research default | Your call | Status |
 |------|--------|------------------|-----------|--------|
@@ -33,7 +33,12 @@
 - **calibrate:** `applyPromoteOutcomeCalibration` gated at ≥3 `promote_result` rows; `pnpm promote:calibrate`.
 - **§9 pilot:** product #2 → `complete` (24 sources); product #1 still degraded (pre-fix run). Live DQS **70**, complete **1/10**.
 
+## Round 5
+
+- **§9:** Re-enriched Digistore products 1–10 one-at-a-time → **10/10 `complete`**, live DQS **97** (was 70).
+- **P1.3b:** Enrichment rescore + score backfill load `promote_result` rows into calibration (still gated until ≥3 rows).
+
 ## Still open
 
-- Finish catalog **§9** for products 3–10 (+ requeue #1) one-at-a-time after soft-miss fix
 - Accumulate labeled `promote_result` EPC/refund rows so calibration can apply
+- Watch content quality: marketplace brand-name pct still **0%**, avg conf **37** despite status green

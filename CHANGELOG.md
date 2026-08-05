@@ -25,6 +25,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Digistore catalog §9 re-enrich: **10/10** briefs `complete`, live DQS **97** (was 70 / 1/10 complete)
 - Default `SEARXNG_FALLBACK_ENGINES` is now `bing,duckduckgo` (Bing returned hits while Brave was rate-limited)
 - ShadowCast UI/workflow export requires enrichment `complete` only; `complete_degraded` is quarantined (CLI `--force` / env opt-in still available)
 - Default enrichment search delay raised from 5s to 8s
@@ -32,6 +33,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Default full-page rich success target raised from 4 to 6
 - Digistore thin-evidence path prefers an honest limited-independent summary over offer-page sales pitch
 - Enrichment worker logs page-fetch success/attempt counts per product
+- Enrichment rescore + score backfill feed `promote_result` rows into gated calibration
 
 ## [2026-08-02]
 
