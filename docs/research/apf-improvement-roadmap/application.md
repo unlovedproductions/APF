@@ -76,7 +76,13 @@
 - YouTube transcript harden: watch-page `captionTracks` fallback when timedtext list empty (no paid key).
 - Live DQS @17:10Z: all-rich **80.7%**, high-trust **96.7%**, deep **67.7%**, gate PASS, DQS **97**.
 
+## Round 14 (export smoke)
+
+- `pnpm export:shadowcast` for products **1–11**: all wrote enriched JSON; enrichment `complete`; affiliate host `checkout-ds24.com`.
+- `pnpm promote:calibrate`: still gated — **5** listing_signal rows, **0** products with ≥3 `promote_result`.
+- Evidence metrics unchanged @17:15Z (all **80.7%** / HT **96.7%** / deep **67.7%**).
+
 ## Still open
 
-- **Way 3 Phase B** Trustpilot API (needs key) — optional denser review bodies
-- Accumulate labeled campaign `promote_result` rows (≥3/product) for calibration
+- Accumulate **real campaign** `promote_result` rows (≥3/product) for calibration
+- **Way 3 Phase B** Trustpilot API (optional; needs key) — evidence ≥60% already cleared

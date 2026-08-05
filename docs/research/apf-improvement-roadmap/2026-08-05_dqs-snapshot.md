@@ -21,7 +21,7 @@
 
 ```json
 {
-  "sampled_at": "2026-08-05T17:10:15.196Z",
+  "sampled_at": "2026-08-05T17:15:38.827Z",
   "digistore_briefs_n": 11,
   "status_counts": {
     "complete": 11
