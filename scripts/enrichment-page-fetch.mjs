@@ -544,6 +544,93 @@ export async function fetchYouTubeTranscript(videoId, options = {}) {
 }
 
 /**
+ * When local fetch is thin/failed (non-permanent), try Jina Reader then Firecrawl.
+ * Ladder: local → Jina (optional) → Firecrawl (BYOK) → caller may snippet_fallback.
+ * SSRF-checked before leaving the box. Skips YouTube (dedicated path).
+ */
+export function isJinaReaderEnabled(env = process.env) {
+  const flag = String(env.REVIEW_ENRICHMENT_JINA || "1").trim().toLowerCase();
+  if (flag === "0" || flag === "false" || flag === "off" || flag === "no") return false;
+  return true;
+}
+
+export function buildJinaReaderUrl(targetUrl) {
+  const raw = String(targetUrl || "").trim();
+  if (!raw) return "";
+  return `https://r.jina.ai/${raw}`;
+}
+
+async function tryJinaReaderFallback(source, rawJson, options = {}) {
+  if (options.allowJina === false) return null;
+  if (!isJinaReaderEnabled()) return null;
+  if (youtubeVideoId(source?.url)) return null;
+
+  try {
+    await assertSafeFetchUrl(source.url);
+  } catch {
+    return null;
+  }
+
+  const jinaUrl = buildJinaReaderUrl(source.url);
+  if (!jinaUrl) return null;
+
+  const timeoutSec = Math.max(
+    5,
+    Math.min(180, Math.ceil(Number(options.timeoutMs || process.env.REVIEW_ENRICHMENT_FETCH_TIMEOUT_MS || 8000) / 1000)),
+  );
+  const headers = {
+    Accept: "text/plain",
+    "X-Respond-With": "markdown",
+    "X-Timeout": String(timeoutSec),
+    "User-Agent": "APF-Enrichment/1.0",
+  };
+  const token = String(process.env.JINA_API_KEY || "").trim();
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  try {
+    const res = await fetch(jinaUrl, {
+      method: "GET",
+      headers,
+      signal: AbortSignal.timeout(Math.max(5000, timeoutSec * 1000 + 2000)),
+    });
+    if (!res.ok) {
+      return {
+        ...source,
+        raw_json: {
+          ...rawJson,
+          fetch_error: cleanText(`jina HTTP ${res.status}`, 500),
+          fetch_attempted_at: new Date().toISOString(),
+          fetch_provider: "jina_failed",
+        },
+      };
+    }
+    const body = await res.text();
+    const contentText = cleanText(body, options.textLimit || 8000);
+    if (contentText.length < 80) return null;
+    return {
+      ...source,
+      raw_json: {
+        ...rawJson,
+        content_text: contentText,
+        fetched_at: new Date().toISOString(),
+        fetch_provider: "jina",
+        fetch_error: undefined,
+      },
+    };
+  } catch (error) {
+    return {
+      ...source,
+      raw_json: {
+        ...rawJson,
+        fetch_error: cleanText(error?.message || error, 500),
+        fetch_attempted_at: new Date().toISOString(),
+        fetch_provider: "jina_failed",
+      },
+    };
+  }
+}
+
+/**
  * When local fetch is thin/failed (non-permanent), try Firecrawl scrape if configured + budget.
  * SSRF-checked before leaving the box. Skips YouTube (dedicated path).
  */
@@ -585,6 +672,24 @@ async function tryFirecrawlPageFallback(source, rawJson, options = {}) {
       },
     };
   }
+}
+
+async function trySecondaryPageFallbacks(source, rawJson, options = {}) {
+  const viaJina = await tryJinaReaderFallback(source, rawJson, options);
+  if (viaJina?.raw_json?.content_text
+    && cleanText(viaJina.raw_json.content_text).length >= 80) {
+    return viaJina;
+  }
+  const viaFirecrawl = await tryFirecrawlPageFallback(source, {
+    ...rawJson,
+    ...(viaJina?.raw_json?.fetch_provider ? { jina_fetch_provider: viaJina.raw_json.fetch_provider } : {}),
+    ...(viaJina?.raw_json?.fetch_error ? { jina_fetch_error: viaJina.raw_json.fetch_error } : {}),
+  }, options);
+  if (viaFirecrawl?.raw_json?.content_text
+    && cleanText(viaFirecrawl.raw_json.content_text).length >= 80) {
+    return viaFirecrawl;
+  }
+  return viaFirecrawl || viaJina || null;
 }
 
 export async function enrichSourceContent(source, options = {}) {
@@ -652,15 +757,15 @@ export async function enrichSourceContent(source, options = {}) {
       };
     }
 
-    const viaFirecrawl = await tryFirecrawlPageFallback(source, {
+    const viaSecondary = await trySecondaryPageFallbacks(source, {
       ...rawJson,
       content_type: response.contentType,
       final_url: response.finalUrl,
       local_content_text: contentText || undefined,
     }, options);
-    if (viaFirecrawl?.raw_json?.content_text
-      && cleanText(viaFirecrawl.raw_json.content_text).length >= 80) {
-      return viaFirecrawl;
+    if (viaSecondary?.raw_json?.content_text
+      && cleanText(viaSecondary.raw_json.content_text).length >= 80) {
+      return viaSecondary;
     }
 
     if (!contentText) {
@@ -693,20 +798,20 @@ export async function enrichSourceContent(source, options = {}) {
       };
     }
 
-    const viaFirecrawl = await tryFirecrawlPageFallback(source, {
+    const viaSecondary = await trySecondaryPageFallbacks(source, {
       ...rawJson,
       local_fetch_error: msg,
     }, options);
-    if (viaFirecrawl?.raw_json?.content_text
-      && cleanText(viaFirecrawl.raw_json.content_text).length >= 80) {
-      return viaFirecrawl;
+    if (viaSecondary?.raw_json?.content_text
+      && cleanText(viaSecondary.raw_json.content_text).length >= 80) {
+      return viaSecondary;
     }
 
     return snippetFallback() || {
       ...source,
       raw_json: {
         ...rawJson,
-        fetch_error: viaFirecrawl?.raw_json?.fetch_error || msg,
+        fetch_error: viaSecondary?.raw_json?.fetch_error || msg,
         fetch_attempted_at: new Date().toISOString(),
       },
     };

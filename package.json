@@ -22,6 +22,7 @@
     "review:status": "node scripts/apf-review-status.mjs",
     "review:dqs": "node scripts/enrichment-dqs-report.mjs",
     "review:backfill-content": "node scripts/backfill-source-content.mjs",
+    "review:depth-backfill": "node scripts/run-depth-backfill.mjs",
     "review:prune-thin": "node scripts/prune-thin-review-sources.mjs",
     "promote:outcome": "node scripts/promote-outcomes.mjs",
     "promote:outcomes:list": "node scripts/promote-outcomes.mjs --list",

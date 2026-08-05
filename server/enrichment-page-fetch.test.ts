@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
   assertSafeFetchUrl,
+  buildJinaReaderUrl,
   createPinnedLookup,
   extractMainText,
   isBlockedFetchIp,
   isContentCacheFresh,
   isHighTrustFetchCandidate,
+  isJinaReaderEnabled,
   loadUndici,
   selectPageFetchCandidates,
   youtubeVideoId,
@@ -156,6 +158,16 @@ describe("enrichment page fetch", () => {
     createPinnedLookup([])("x", {}, (err) => {
       expect(err).toBeInstanceOf(Error);
     });
+  });
+
+  it("builds Jina Reader proxy URLs and respects disable flag", () => {
+    expect(buildJinaReaderUrl("https://www.trustpilot.com/review/x")).toBe(
+      "https://r.jina.ai/https://www.trustpilot.com/review/x",
+    );
+    expect(buildJinaReaderUrl("")).toBe("");
+    expect(isJinaReaderEnabled({ REVIEW_ENRICHMENT_JINA: "1" })).toBe(true);
+    expect(isJinaReaderEnabled({ REVIEW_ENRICHMENT_JINA: "0" })).toBe(false);
+    expect(isJinaReaderEnabled({ REVIEW_ENRICHMENT_JINA: "off" })).toBe(false);
   });
 });
 
