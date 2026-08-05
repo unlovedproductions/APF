@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- `pnpm review:trustpilot` — Way 3 Phase B Trustpilot Business Units API collector (`TRUSTPILOT_API_KEY`, dry-run default, cursor file under `.data/`)
 - Way 3 Phase A: Digistore direct review probes `max: 12`; Reddit public `.json` body fetch (`redditJsonUrl` / `reddit_json` provider)
 - `pnpm review:prune-thin --days 0` — disable age gate for soft-pruning fresh thin web orphans
 - `pnpm digistore:refresh-names` — refresh Digistore placeholder names from vendor materials (`--dry-run` / `--product-id`)

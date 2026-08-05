@@ -82,7 +82,13 @@
 - `pnpm promote:calibrate`: still gated — **5** listing_signal rows, **0** products with ≥3 `promote_result`.
 - Evidence metrics unchanged @17:15Z (all **80.7%** / HT **96.7%** / deep **67.7%**).
 
+## Round 15 (Way 3 Phase B scaffold)
+
+- Shipped `pnpm review:trustpilot` (`scripts/collect-trustpilot-reviews.mjs`): search business units → paginate `all-reviews` → upsert rich sources (`fetch_provider=trustpilot_api`).
+- Fails closed without `TRUSTPILOT_API_KEY` (exit 2). Documented in `.env.example`.
+- Unit tests for match scoring + review→source mapping.
+
 ## Still open
 
+- Set `TRUSTPILOT_API_KEY` and run `pnpm review:trustpilot --apply` (optional denser bodies)
 - Accumulate **real campaign** `promote_result` rows (≥3/product) for calibration
-- **Way 3 Phase B** Trustpilot API (optional; needs key) — evidence ≥60% already cleared
