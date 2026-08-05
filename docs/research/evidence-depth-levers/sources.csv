@@ -1,0 +1,16 @@
+id,slug,location,type,credibility,recency,bias,one_liner,maps_to
+00,internal_pipeline,scripts/enrichment-page-fetch.mjs + review-enrichment-worker.mjs,primary,5,5,3,10 rich fills / 25 sources / no prune,H1+H2
+01,dqs_baseline,docs/research/apf-improvement-roadmap/2026-08-05_dqs-snapshot.md,primary,5,5,4,rich 41.5% 376/905 avg conf 60.5,baseline
+02,prior_f3,docs/research/apf-enrichment-audit/findings/F3_zero-content-text.md,primary,5,4,4,historical zero content_text,H2
+03,firecrawl_scrape,https://www.firecrawl.dev/blog/mastering-firecrawl-scrape-endpoint,vendor,4,5,2,browser scrape LLM markdown,Way2
+04,jina_reader,https://github.com/jina-ai/reader,oss,4,5,3,r.jina.ai URL to text,Way2
+05,browserless_content,https://docs.browserless.io/examples/extract-content,vendor,4,5,3,post-JS full DOM,Way2
+06,trafilatura,https://trafilatura.readthedocs.io/en/latest/,oss,5,5,4,main-content extract precision,Way1
+07,cohere_rerank,https://docs.cohere.com/docs/reranking-best-practices,vendor,4,5,3,threshold drop low relevance,Way1
+08,trustpilot_api,https://developers.trustpilot.com/business-units-api,primary,5,5,3,review text pagination,Way3
+09,youtube_transcript_api,https://github.com/jdepoix/youtube-transcript-api,oss,5,5,4,captions no browser no key,Way3
+10,anthropic_contextual,https://www.anthropic.com/engineering/contextual-retrieval,industry,5,5,3,rerank keep top-K,Way1+D
+11,arxiv_less_is_more,https://arxiv.org/html/2601.17532,academic,5,5,4,IGP prune low utility,Way1
+12,arxiv_more_docs,https://arxiv.org/html/2503.04388v1,academic,5,4,4,more docs hurt at fixed length,Way1
+13,backfill_script,scripts/backfill-source-content.mjs,primary,5,5,3,no-SERP content backfill,Way2
+14,direct_probes,scripts/enrichment-source-trust.mjs directReviewSiteCandidates,primary,5,5,3,Trustpilot Sitejabber Reddit probes,Way3
