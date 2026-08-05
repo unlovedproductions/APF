@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import fs from "node:fs";
+import http from "node:http";
 import path from "node:path";
 import { spawn } from "node:child_process";
 
@@ -18,11 +19,28 @@ const port = process.env.DIGISTORE24_DAEMON_PORT || "3219";
 const baseUrl = `http://127.0.0.1:${port}`;
 const ensure = hasFlag("--ensure") || process.env.DIGISTORE24_DAEMON_AUTO_START === "true";
 
+function collectWaitSeconds() {
+  return Math.max(
+    30,
+    Math.min(
+      1800,
+      Number(
+        arg(
+          "--wait",
+          process.env.DIGISTORE24_LOGIN_WAIT_SECONDS
+            || process.env.DIGISTORE24_REFRESH_WAIT_SECONDS
+            || "600",
+        ),
+      ) || 600,
+    ),
+  );
+}
+
 function buildPath() {
   if (cmd === "collect") {
     const params = new URLSearchParams();
     params.set("limit", arg("--limit", "10"));
-    params.set("wait", arg("--wait", process.env.DIGISTORE24_LOGIN_WAIT_SECONDS || process.env.DIGISTORE24_REFRESH_WAIT_SECONDS || "600"));
+    params.set("wait", String(collectWaitSeconds()));
     const userId = Number(process.env.APF_USER_ID || "0");
     if (userId > 0) params.set("userId", String(userId));
     if (hasFlag("--promote")) params.set("promote", "1");
@@ -36,18 +54,74 @@ function buildPath() {
   return "/health";
 }
 
+/**
+ * Collect can run many minutes (login wait + N detail pages + promote).
+ * Global fetch/undici defaults headersTimeout to 300s, which killed long
+ * /collect calls with "fetch failed" while the daemon was still working.
+ * Use node:http with an explicit overall deadline instead.
+ */
+function fetchTimeoutMs(pathname) {
+  const override = Number(arg("--timeout-ms", process.env.DIGISTORE24_DAEMON_FETCH_TIMEOUT_MS || "0"));
+  if (Number.isFinite(override) && override > 0) return override;
+  if (String(pathname).startsWith("/collect")) {
+    const waitMs = collectWaitSeconds() * 1000;
+    const limit = Math.max(1, Number(arg("--limit", "10")) || 10);
+    // ~90s per product for detail+promote, plus login wait, plus 2m slack.
+    return waitMs + (limit * 90_000) + 120_000;
+  }
+  return 30_000;
+}
+
 async function sleep(ms) {
   await new Promise(resolve => setTimeout(resolve, ms));
 }
 
-async function tryFetch(pathname) {
-  try {
-    const res = await fetch(`${baseUrl}${pathname}`);
-    const text = await res.text();
-    return { ok: true, res, text };
-  } catch (err) {
-    return { ok: false, error: err?.message || String(err) };
-  }
+function tryFetch(pathname) {
+  const timeoutMs = fetchTimeoutMs(pathname);
+  const url = new URL(pathname, baseUrl);
+
+  return new Promise((resolve) => {
+    const req = http.request(
+      {
+        protocol: url.protocol,
+        hostname: url.hostname,
+        port: url.port,
+        path: `${url.pathname}${url.search}`,
+        method: "GET",
+        // Disable idle socket timeout; enforce overall deadline ourselves.
+        timeout: 0,
+      },
+      (res) => {
+        const chunks = [];
+        res.on("data", (chunk) => chunks.push(chunk));
+        res.on("end", () => {
+          clearTimeout(timer);
+          const text = Buffer.concat(chunks).toString("utf8");
+          const status = Number(res.statusCode || 0);
+          resolve({
+            ok: true,
+            res: {
+              ok: status >= 200 && status < 300,
+              status,
+            },
+            text,
+            timeoutMs,
+          });
+        });
+      },
+    );
+
+    const timer = setTimeout(() => {
+      req.destroy(new Error(`request timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+
+    req.on("error", (err) => {
+      clearTimeout(timer);
+      resolve({ ok: false, error: err?.message || String(err), timeoutMs });
+    });
+
+    req.end();
+  });
 }
 
 function startDaemonDetached() {
@@ -136,7 +210,8 @@ if (!result.ok) {
     error: "digistore24_daemon_not_running",
     message: "Digistore24 daemon is not running. APF can auto-start it when called with --ensure.",
     url: `${baseUrl}${pathname}`,
-    detail: result.error
+    detail: result.error,
+    timeoutMs: result.timeoutMs,
   }, null, 2));
   process.exit(1);
 }
