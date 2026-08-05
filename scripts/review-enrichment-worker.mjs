@@ -1187,6 +1187,22 @@ async function rescoreProductAfterEnrichment(conn, product, sourceCount, confide
   const affiliate_url = linkRows?.[0]?.affiliate_url || "";
   const link_status = linkRows?.[0]?.status || "";
 
+  let promoteOutcomes = [];
+  try {
+    const [outcomeRows] = await conn.query(
+      `SELECT event, net_epc, refund_rate, hidden_gem_score, created_at
+       FROM product_promote_outcomes
+       WHERE product_id=? AND event='promote_result'
+       ORDER BY id DESC
+       LIMIT 20`,
+      [product.id],
+    );
+    promoteOutcomes = outcomeRows || [];
+  } catch {
+    // Table may not exist on older DBs; calibration stays inert.
+    promoteOutcomes = [];
+  }
+
   const scored = scoreProduct({
     ...product,
     affiliateLink: product.affiliateLink || affiliate_url || "",
@@ -1195,6 +1211,7 @@ async function rescoreProductAfterEnrichment(conn, product, sourceCount, confide
     vendor_trust_score: vendorTrustScore,
     link_status,
     generated_affiliate_url: affiliate_url,
+    promoteOutcomes,
   });
 
   const scoreComponents = {

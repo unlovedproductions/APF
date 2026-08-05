@@ -86,9 +86,25 @@ async function main() {
     const output = [];
 
     for (const row of rows) {
+      let promoteOutcomes = [];
+      try {
+        const [outcomeRows] = await conn.query(
+          `SELECT event, net_epc, refund_rate, hidden_gem_score, created_at
+           FROM product_promote_outcomes
+           WHERE product_id=? AND event='promote_result'
+           ORDER BY id DESC
+           LIMIT 20`,
+          [row.id],
+        );
+        promoteOutcomes = outcomeRows || [];
+      } catch {
+        promoteOutcomes = [];
+      }
+
       const product = {
         ...row,
-        affiliateLink: row.affiliateLink || row.generated_affiliate_url || ""
+        affiliateLink: row.affiliateLink || row.generated_affiliate_url || "",
+        promoteOutcomes,
       };
 
       const scored = scoreProduct(product, {
