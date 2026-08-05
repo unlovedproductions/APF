@@ -4,6 +4,7 @@ import {
   buildJinaReaderUrl,
   createPinnedLookup,
   extractMainText,
+  extractYouTubeCaptionTrackUrls,
   isBlockedFetchIp,
   isContentCacheFresh,
   isHighTrustFetchCandidate,
@@ -181,6 +182,13 @@ describe("enrichment page fetch", () => {
       "/search.json?",
     );
     expect(redditJsonUrl("https://example.com/x")).toBe("");
+  });
+
+  it("extracts YouTube caption track URLs from watch HTML", () => {
+    const html = `"captionTracks":[{"baseUrl":"https://www.youtube.com/api/timedtext?v=abc\\u0026lang=en","languageCode":"en","kind":""}],"`;
+    const urls = extractYouTubeCaptionTrackUrls(html);
+    expect(urls[0]).toContain("timedtext");
+    expect(urls[0]).toContain("lang=en");
   });
 });
 
