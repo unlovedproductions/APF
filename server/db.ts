@@ -1,6 +1,6 @@
 import { eq, and, desc, asc, like, inArray, or, sql, isNull } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users, apiCredentials, products, bookmarks, dataRefreshLogs, productReviewBriefs } from "../drizzle/schema";
+import { InsertUser, users, apiCredentials, products, bookmarks, dataRefreshLogs, productReviewBriefs, productPromoteOutcomes } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -322,6 +322,25 @@ export async function updateBookmarkStatus(userId: number, productId: number, st
   await db.update(bookmarks)
     .set({ status: status as any })
     .where(and(eq(bookmarks.userId, userId), eq(bookmarks.productId, productId)));
+
+  // Roadmap P1.3: capture promote funnel transitions for later score calibration.
+  if (status === "promoting") {
+    try {
+      const [row] = await db.select({ hiddenGemScore: products.hiddenGemScore })
+        .from(products)
+        .where(eq(products.id, productId))
+        .limit(1);
+      await db.insert(productPromoteOutcomes).values({
+        userId,
+        productId,
+        event: "promote_start",
+        hiddenGemScore: row?.hiddenGemScore != null ? String(row.hiddenGemScore) : null,
+        notes: "bookmark_status=promoting",
+      });
+    } catch (error) {
+      console.warn("[Bookmarks] promote_start outcome log skipped:", error);
+    }
+  }
 }
 
 export async function isProductBookmarked(userId: number, productId: number) {

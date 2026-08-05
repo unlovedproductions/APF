@@ -6,11 +6,16 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 /**
- * ShadowCast auto-export gate. Only `complete` is ready by default.
- * `complete_degraded` is finished work but quarantined from export (use CLI --force).
+ * ShadowCast auto-export gate. `complete` is always ready.
+ * `complete_degraded` is ready only when server policy allows degraded export.
  */
-export function isEnrichmentExportReady(status: string | null | undefined) {
-  return status === "complete";
+export function isEnrichmentExportReady(
+  status: string | null | undefined,
+  allowDegradedShadowCastExport = false,
+) {
+  if (status === "complete") return true;
+  if (status === "complete_degraded" && allowDegradedShadowCastExport) return true;
+  return false;
 }
 
 /** Brief finished (complete or degraded) — used for queue skip / display, not export. */

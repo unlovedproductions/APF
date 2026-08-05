@@ -15,7 +15,7 @@ import { fetchAndProcessImpactCatalogItems } from "./impact";
 import { fetchAndProcessAmazonCreatorsProducts } from "./amazon";
 import { fetchAndProcessRakutenProducts, parseRakutenCredentials } from "./rakuten";
 import { TRPCError } from "@trpc/server";
-import { exportProductsToShadowCast, queueProductsForEnrichment, runDigistore24RefreshWorkflow, runPostRefreshWorkflow } from "./apfWorkflows";
+import { allowDegradedExport, exportProductsToShadowCast, queueProductsForEnrichment, runDigistore24RefreshWorkflow, runPostRefreshWorkflow } from "./apfWorkflows";
 
 const PLATFORM_VALUES = [
   "warriorplus",
@@ -94,9 +94,11 @@ export const appRouter = router({
         try {
           const products = await db.getProductsByUser(ctx.user.id, input.platform, input.limit, input.offset);
           const statusById = await db.getProductEnrichmentStatuses(products.map((product) => product.id));
+          const allowDegradedShadowCastExport = allowDegradedExport();
           return products.map((product) => ({
             ...product,
             enrichmentStatus: statusById.get(product.id) || "pending",
+            allowDegradedShadowCastExport,
           }));
         } catch (error) {
           console.error("[Products] Error listing products:", error);
@@ -157,9 +159,11 @@ export const appRouter = router({
             });
           }
           const enrichmentStatus = await db.getProductEnrichmentStatus(product.id);
+          const allowDegradedShadowCastExport = allowDegradedExport();
           return {
             ...product,
             enrichmentStatus,
+            allowDegradedShadowCastExport,
           };
         } catch (error) {
           if (error instanceof TRPCError) throw error;
@@ -414,6 +418,7 @@ export const appRouter = router({
       .query(async ({ ctx }) => {
         try {
           const bookmarks = await db.getBookmarks(ctx.user.id);
+          const allowDegradedShadowCastExport = allowDegradedExport();
           // Enrich with product details
           const enriched = await Promise.all(
             bookmarks.map(async (bookmark) => {
@@ -421,7 +426,7 @@ export const appRouter = router({
               const enrichmentStatus = product
                 ? await db.getProductEnrichmentStatus(product.id)
                 : "pending";
-              return { ...bookmark, product, enrichmentStatus };
+              return { ...bookmark, product, enrichmentStatus, allowDegradedShadowCastExport };
             })
           );
           return enriched;

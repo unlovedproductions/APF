@@ -8,6 +8,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- `product_promote_outcomes` table + `pnpm promote:outcome` CLI for Hidden Gem calibration (bookmark `promoting` logs `promote_start`)
+- `pnpm review:dqs` Digistore enrichment DQS snapshot (`--write` saves under research folder)
 - `APF_ALLOW_DEGRADED_EXPORT` opt-in for ShadowCast auto-export of `complete_degraded` briefs (default off)
 - Digistore daemon refreshes `products.name` from vendor materials after capture when listing title was weak
 - SearXNG engine fallbacks (`SEARXNG_FALLBACK_ENGINES`, default duckduckgo) + HTTP 429/403 rate-limit handling

@@ -112,7 +112,8 @@ export function ProductDetailModal({ productId, open, onOpenChange }: ProductDet
     scoreComponents = null;
   }
   const enrichmentStatus = String(product.enrichmentStatus || payloadQuery.data?.review_enrichment?.status || "pending");
-  const enrichmentComplete = isEnrichmentExportReady(enrichmentStatus);
+  const allowDegradedShadowCastExport = Boolean(product.allowDegradedShadowCastExport);
+  const enrichmentComplete = isEnrichmentExportReady(enrichmentStatus, allowDegradedShadowCastExport);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -179,7 +180,7 @@ export function ProductDetailModal({ productId, open, onOpenChange }: ProductDet
                   className="flex-1"
                   onClick={() => exportMutation.mutate({ productIds: [productId] })}
                   disabled={exportMutation.isPending || !enrichmentComplete}
-                  title={enrichmentComplete ? undefined : "Needs enrichment status complete (degraded briefs are quarantined)."}
+                  title={enrichmentComplete ? undefined : "Needs enrichment status complete, or complete_degraded when policy allows it."}
                 >
                   {exportMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Send className="w-4 h-4 mr-2" />}
                   Send to ShadowCast
@@ -189,7 +190,9 @@ export function ProductDetailModal({ productId, open, onOpenChange }: ProductDet
                 <p className="text-xs text-amber-700">
                   Review enrichment must be <span className="font-medium">complete</span> before ShadowCast export.
                   {enrichmentStatus === "complete_degraded"
-                    ? " This brief is degraded — re-enrich or use CLI --force."
+                    ? allowDegradedShadowCastExport
+                      ? null
+                      : " This brief is degraded and currently blocked by export policy."
                     : null}
                 </p>
               )}

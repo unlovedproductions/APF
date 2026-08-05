@@ -73,9 +73,20 @@ export default function Bookmarks() {
     () =>
       Array.from(selected).filter((productId) => {
         const bookmark = bookmarks.find(
-          (b: { productId: number; enrichmentStatus?: string }) => b.productId === productId,
+          (b: { productId: number; enrichmentStatus?: string; allowDegradedShadowCastExport?: boolean }) => b.productId === productId,
         );
-        return !isEnrichmentExportReady(bookmark?.enrichmentStatus);
+        return !isEnrichmentExportReady(bookmark?.enrichmentStatus, Boolean(bookmark?.allowDegradedShadowCastExport));
+      }),
+    [selected, bookmarks],
+  );
+
+  const selectedDegradedPolicyBlocked = useMemo(
+    () =>
+      Array.from(selected).some((productId) => {
+        const bookmark = bookmarks.find(
+          (b: { productId: number; enrichmentStatus?: string; allowDegradedShadowCastExport?: boolean }) => b.productId === productId,
+        );
+        return bookmark?.enrichmentStatus === "complete_degraded" && !Boolean(bookmark?.allowDegradedShadowCastExport);
       }),
     [selected, bookmarks],
   );
@@ -83,7 +94,11 @@ export default function Bookmarks() {
   const exportSelected = () => {
     const productIds = Array.from(selected);
     if (selectedIncomplete.length) {
-      toast.error(`${selectedIncomplete.length} selected bookmark(s) need enrichment status complete (degraded briefs are quarantined).`);
+      toast.error(
+        selectedDegradedPolicyBlocked
+          ? `${selectedIncomplete.length} selected bookmark(s) are blocked. complete_degraded exports are disabled by current policy.`
+          : `${selectedIncomplete.length} selected bookmark(s) need enrichment status complete.`,
+      );
       return;
     }
     exportMutation.mutate({ productIds });
@@ -99,7 +114,13 @@ export default function Bookmarks() {
               variant="outline"
               onClick={exportSelected}
               disabled={selected.size === 0 || exportMutation.isPending || selectedIncomplete.length > 0}
-              title={selectedIncomplete.length ? "All selected bookmarks need enrichment status complete (not degraded)" : undefined}
+              title={
+                selectedIncomplete.length
+                  ? selectedDegradedPolicyBlocked
+                    ? "Selected complete_degraded briefs are blocked by current export policy."
+                    : "All selected bookmarks need enrichment status complete."
+                  : undefined
+              }
             >
               {exportMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
               Send {selected.size} to ShadowCast

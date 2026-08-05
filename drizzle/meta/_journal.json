@@ -64,6 +64,13 @@
       "when": 1784300000000,
       "tag": "0008_review_brief_extra_columns",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "5",
+      "when": 1784400000000,
+      "tag": "0009_product_promote_outcomes",
+      "breakpoints": true
     }
   ]
 }

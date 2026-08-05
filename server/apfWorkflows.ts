@@ -20,7 +20,7 @@ type ScriptResult = {
   stderr: string;
 };
 
-function allowDegradedExport() {
+export function allowDegradedExport() {
   const v = String(process.env.APF_ALLOW_DEGRADED_EXPORT || "").trim().toLowerCase();
   return v === "1" || v === "true" || v === "yes";
 }

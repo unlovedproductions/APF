@@ -243,13 +243,19 @@ export default function Home() {
       return;
     }
 
-    const incomplete = productIds.filter((id) => {
-      const p = (productsQuery.data || []).find((row: { id: number; enrichmentStatus?: string }) => row.id === id);
-      return !isEnrichmentExportReady(p?.enrichmentStatus);
+    const blocked = productIds.filter((id) => {
+      const p = (productsQuery.data || []).find((row: { id: number; enrichmentStatus?: string; allowDegradedShadowCastExport?: boolean }) => row.id === id);
+      return !isEnrichmentExportReady(p?.enrichmentStatus, Boolean(p?.allowDegradedShadowCastExport));
     });
-    if (incomplete.length) {
+    const degradedPolicyBlocked = blocked.filter((id) => {
+      const p = (productsQuery.data || []).find((row: { id: number; enrichmentStatus?: string; allowDegradedShadowCastExport?: boolean }) => row.id === id);
+      return p?.enrichmentStatus === "complete_degraded" && !Boolean(p?.allowDegradedShadowCastExport);
+    }).length;
+    if (blocked.length) {
       toast.error(
-        `${incomplete.length} selected product(s) need enrichment status complete (degraded briefs are quarantined).`,
+        degradedPolicyBlocked > 0
+          ? `${blocked.length} selected product(s) are blocked. complete_degraded exports are disabled by current policy.`
+          : `${blocked.length} selected product(s) need enrichment status complete.`,
       );
       return;
     }
@@ -268,8 +274,16 @@ export default function Home() {
   const selectedExportBlocked = useMemo(() => {
     if (selectedProducts.size === 0) return false;
     return Array.from(selectedProducts).some((id) => {
-      const p = (productsQuery.data || []).find((row: { id: number; enrichmentStatus?: string }) => row.id === id);
-      return !isEnrichmentExportReady(p?.enrichmentStatus);
+      const p = (productsQuery.data || []).find((row: { id: number; enrichmentStatus?: string; allowDegradedShadowCastExport?: boolean }) => row.id === id);
+      return !isEnrichmentExportReady(p?.enrichmentStatus, Boolean(p?.allowDegradedShadowCastExport));
+    });
+  }, [selectedProducts, productsQuery.data]);
+
+  const selectedDegradedPolicyBlocked = useMemo(() => {
+    if (selectedProducts.size === 0) return false;
+    return Array.from(selectedProducts).some((id) => {
+      const p = (productsQuery.data || []).find((row: { id: number; enrichmentStatus?: string; allowDegradedShadowCastExport?: boolean }) => row.id === id);
+      return p?.enrichmentStatus === "complete_degraded" && !Boolean(p?.allowDegradedShadowCastExport);
     });
   }, [selectedProducts, productsQuery.data]);
 
@@ -649,7 +663,13 @@ export default function Home() {
                   disabled={shadowCastExportMutation.isPending || selectedExportBlocked}
                   variant="outline"
                   className="flex-1 md:flex-none"
-                  title={selectedExportBlocked ? "All selected products need enrichment status complete (not degraded)" : undefined}
+                  title={
+                    selectedExportBlocked
+                      ? selectedDegradedPolicyBlocked
+                        ? "Selected complete_degraded briefs are blocked by current export policy."
+                        : "All selected products need enrichment status complete."
+                      : undefined
+                  }
                 >
                   {shadowCastExportMutation.isPending ? (
                     <>
