@@ -50,6 +50,11 @@ import {
   resetFirecrawlBudget,
 } from "./enrichment-firecrawl.mjs";
 import {
+  canOxylabsSearch,
+  oxylabsSearch,
+  resetOxylabsBudget,
+} from "./enrichment-oxylabs.mjs";
+import {
   buildSearxngSearchUrl,
   defaultSearchCooldownPath,
   hasEnoughReviewEvidence,
@@ -700,6 +705,27 @@ async function searchReviews(query) {
       }
     }
 
+    // Oxylabs Web Scraper API — last resort after Firecrawl (trial: 2k results, 10 jobs/s).
+    if (
+      REVIEW_ENRICHMENT_PROVIDER === "searxng"
+      && results.length === 0
+      && canOxylabsSearch()
+      && (sawRateLimit || attempt >= SEARCH_MAX_RETRIES)
+    ) {
+      try {
+        await throttleSearchGap();
+        lastSearchAt = Date.now();
+        const oxyResults = await oxylabsSearch(query, { limit: 10 });
+        if (oxyResults.length > 0) {
+          searchRateLimitStrikes = 0;
+          console.warn(`[search] oxylabs fallback returned ${oxyResults.length} hits for ${query}`);
+          return oxyResults;
+        }
+      } catch (err) {
+        console.warn(`[search] oxylabs fallback failed: ${String(err?.message || err).slice(0, 200)}`);
+      }
+    }
+
     if (
       shouldCountSearchRateLimitStrike({
         sawPrimaryRateLimit: sawRateLimit,
@@ -1275,6 +1301,7 @@ async function processJob(conn, job) {
   searchSuspensionSeen = false;
   searchRateLimitStrikes = 0;
   resetFirecrawlBudget();
+  resetOxylabsBudget();
   const cooldown = readSearchCooldown(SEARCH_COOLDOWN_PATH);
   if (isSearchCooldownActive(cooldown)) {
     searchSuspensionSeen = true;
@@ -1526,6 +1553,12 @@ async function main() {
     const { maxSearch, maxScrape } = resetFirecrawlBudget();
     console.log(
       `Firecrawl fallback enabled (max search/job=${maxSearch}, max scrape/job=${maxScrape})`,
+    );
+  }
+  if (String(process.env.OXYLABS_USERNAME || "").trim() && String(process.env.OXYLABS_PASSWORD || "").trim()) {
+    const { maxSearch, minGapMs } = resetOxylabsBudget();
+    console.log(
+      `Oxylabs fallback enabled last (max search/job=${maxSearch}, min gap=${minGapMs}ms; trial ~2k results / 10 jobs/s)`,
     );
   }
   try {

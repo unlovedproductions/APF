@@ -398,7 +398,7 @@ In `scripts/shadowcast-direct-lib.mjs` / Digistore extractors:
 | **B** | §3 | Real or empty competitors; no fake VS targets | Largely shipped |
 | **C** | §4 + §5 + §8 | Briefs stop treating affiliate chrome as reviews | Shipped — split before prompt, chrome/sales scrub, degrade gates, probe-title clear |
 | **D** | §6 + §7 | Deeper review text from Trustpilot/Reddit/YouTube | Partial — full-page fetch + candidate budget in; YouTube transcripts optional later |
-| **E** | §9 | Re-enrich Digistore catalog | Blocked on flaky Brave scrape (2026-08-03). R3.9: open-web queries first + 2-strike cooldown. Engine fallbacks (`SEARXNG_FALLBACK_ENGINES`) + optional Firecrawl search (`FIRECRAWL_API_KEY`, max 2/job) when primary dies. Re-run one-at-a-time with DELAY≥10s after a stable probe. |
+| **E** | §9 | Re-enrich Digistore catalog | Blocked on flaky Brave scrape (2026-08-03). R3.9: open-web queries first + 2-strike cooldown. Engine fallbacks (`SEARXNG_FALLBACK_ENGINES`) + optional Firecrawl then Oxylabs search (last; trial ~2k results / 10 jobs/s) when primary dies. Re-run one-at-a-time with DELAY≥10s after a stable probe. |
 
 Ship A → B before broad re-enrich (E). C can land with A/B. D is incremental.
 
