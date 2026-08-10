@@ -4,6 +4,7 @@ import {
   extractBuyerPriceFromVendorMaterials,
   isMarketplaceBrandName,
   resolveExportProductName,
+  resolveProductCategory,
   resolveProductName,
   sanitizeBuyerPrice,
 } from "../scripts/digistore24-detail-extractor.mjs";
@@ -35,6 +36,39 @@ describe("digistore24 detail extractor", () => {
       body: "Promote now Vendor: Acme Labs Category: Health Commission 50%",
     });
     expect(detail.vendor).toBe("Acme Labs");
+  });
+
+  it("never falls back category to Digistore24 Marketplace", () => {
+    const detail = extractDigistore24Detail({
+      title: "Mystery Offer",
+      body: "Vendor: Acme Labs\nCommission 50%",
+    });
+    expect(detail.category).not.toMatch(/digistore|marketplace/i);
+  });
+
+  it("infers Health from offer title niche suffix and name", () => {
+    const detail = extractDigistore24Detail({
+      title: "Advanced Mitochondrial Formula Supplements - health",
+      body: "Vendor: Bio Labs\nCommission 60%",
+    });
+    expect(detail.category).toBe("Health");
+
+    expect(
+      resolveProductCategory({
+        category: "Digistore24 Marketplace",
+        name: "CircO2 Nitric Oxide Booster Supplements",
+        vendorMaterials: [
+          { title: "Earn 60% Commission Promoting CircO2 Nitric Oxide Booster Supplements - health" },
+        ],
+      }),
+    ).toBe("Health");
+
+    expect(
+      resolveProductCategory({
+        category: "Digistore24",
+        name: "NEW: The Self-Sufficient Backyard Book (printed)",
+      }),
+    ).toBe("Books");
   });
 
   it("scrubs marketplace vendor names", () => {

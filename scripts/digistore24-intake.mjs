@@ -4,6 +4,7 @@ import readline from 'node:readline/promises'
 import { stdin as input, stdout as output } from 'node:process'
 import mysql from 'mysql2/promise'
 import { ensureTableExists } from './apf-db-helpers.mjs'
+import { resolveProductCategory } from './digistore24-detail-extractor.mjs'
 
 function loadEnv(file = '.env') {
   if (!fs.existsSync(file)) return
@@ -122,7 +123,7 @@ async function main() {
   let url = arg('--url')
   let name = arg('--name')
   let vendor = arg('--vendor', 'digistore24')
-  let category = arg('--category', 'Digistore24')
+  let category = arg('--category', '')
   let description = arg('--description', '')
 
   if (!url || !name) {
@@ -151,7 +152,7 @@ async function main() {
   url = clean(url, 2000)
   name = clean(name, 255)
   vendor = clean(vendor, 255)
-  category = clean(category, 255)
+  category = resolveProductCategory({ category: clean(category, 255), name })
   description = clean(description, 2000)
 
   const platformProductId = extractProductId(url)

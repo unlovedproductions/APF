@@ -9,6 +9,10 @@ import {
   substantiveReviewSources,
 } from "./enrichment-source-trust.mjs";
 import { sanitizeBuyerPrice } from "./digistore24-detail-extractor.mjs";
+import {
+  resolveExportClaimLedger,
+  seedCommonClaimsFromLedger,
+} from "./digistore24-vendor-materials.mjs";
 
 const CONTENT_STYLES = new Set([
   "honest_review",
@@ -144,12 +148,19 @@ export function finalizeBrief(product, brief, sources = [], options = {}) {
   let common_complaints = stripAffiliateMetaLines(
     (brief.common_complaints || []).map((x) => briefText(x)).filter(Boolean),
   ).filter((x) => !isProbeTitleSignal(x));
-  const common_claims = stripAffiliateMetaLines(
+  let common_claims = stripAffiliateMetaLines(
     (brief.common_claims || []).map((x) => briefText(x)).filter(Boolean),
   );
   const negative_signals = stripAffiliateMetaLines(
     (brief.negative_signals || []).map((x) => briefText(x)).filter(Boolean),
   ).filter((x) => !isProbeTitleSignal(x));
+
+  const claimLedger = resolveExportClaimLedger(
+    options.claimLedger || brief.claim_ledger,
+    options.vendorMaterials || [],
+    Array.isArray(reviewSources) ? reviewSources : sources,
+  );
+  common_claims = seedCommonClaimsFromLedger(common_claims, claimLedger);
 
   if (blockPraiseComplaint) {
     positive_signals = [];
@@ -207,6 +218,7 @@ export function finalizeBrief(product, brief, sources = [], options = {}) {
     series_name: seriesNameForStyle(recommended_content_style),
     coupon_code: "",
     evidence_coverage: coverage,
+    claim_ledger: claimLedger,
     confidence_score,
   };
 }

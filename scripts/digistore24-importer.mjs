@@ -2,6 +2,7 @@
 import fs from "node:fs";
 import mysql from "mysql2/promise";
 import { queueReview, upsertAffiliateLink } from "./apf-db-helpers.mjs";
+import { resolveProductCategory } from "./digistore24-detail-extractor.mjs";
 
 function loadEnv(file = ".env") {
   if (!fs.existsSync(file)) return;
@@ -164,7 +165,7 @@ function normalizeApiProduct(raw) {
     platformProductId: productId,
     name,
     vendor: clean(raw.vendor || raw.vendor_name || raw.seller || raw.merchant || raw.owner || "", 255),
-    category: clean(raw.category || raw.product_type || raw.productType || raw.language || "Digistore24", 255),
+    category: resolveProductCategory({ category: clean(raw.category || raw.product_type || raw.productType || "", 255), name: clean(raw.name || raw.title || "", 255) }),
     description: clean(raw.description || raw.short_description || raw.subtitle || raw.summary || "", 2000),
     sourceUrl: "",
     raw
@@ -182,7 +183,7 @@ function normalizeDiscovered(result) {
     platformProductId: id,
     name: title || `Digistore24 Product ${id}`,
     vendor: "",
-    category: "Digistore24",
+    category: resolveProductCategory({ name: title || `Digistore24 Product ${id}` }),
     description: clean(result.content || result.description || "", 2000),
     sourceUrl: result.url,
     raw: result
@@ -255,8 +256,8 @@ async function upsertProduct(conn, item, source) {
     platformProductId: item.platformProductId,
     name: item.name,
     vendor: item.vendor || "",
-    category: item.category || "Digistore24",
-    keywords: `${item.name}, ${item.category || "Digistore24"}, Digistore24, review, pros and cons`,
+    category: resolveProductCategory({ category: item.category, name: item.name }),
+    keywords: `${item.name}, ${resolveProductCategory({ category: item.category, name: item.name }) || "affiliate"}, Digistore24, review, pros and cons`,
     description: item.description || "",
     saleCount: 0,
     aggregateSales: 0,

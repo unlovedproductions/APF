@@ -27,6 +27,10 @@ function page(rows, q = "", message = "") {
     const status = p.enrichment_status || "not enriched yet";
     const sourceCount = p.source_count ?? 0;
     const confidence = p.confidence_score ?? "";
+    const claimCount = Number(p.claim_ledger_count || 0);
+    const claimWarn = claimCount === 0
+      ? `<div class="warn">No cited claims — scripts will hedge or invent. Re-collect vendor order page.</div>`
+      : `<small>${htmlEscape(claimCount)} cited claims</small>`;
 
     return `
       <tr>
@@ -40,6 +44,7 @@ function page(rows, q = "", message = "") {
         <td>
           ${htmlEscape(status)}<br>
           <small>${htmlEscape(sourceCount)} sources ${confidence ? " · confidence " + htmlEscape(confidence) : ""}</small>
+          ${claimWarn}
         </td>
         <td>
           <form method="POST" action="/send">
@@ -65,6 +70,7 @@ function page(rows, q = "", message = "") {
     table { width: 100%; border-collapse: collapse; margin-top: 24px; }
     th, td { padding: 10px; border-bottom: 1px solid #333; vertical-align: top; text-align: left; }
     small { color: #aaa; }
+    .warn { color: #f0c36a; font-size: 12px; margin-top: 6px; }
     .message { margin: 16px 0; padding: 12px; background: #1f2b1f; border: 1px solid #315a31; border-radius: 8px; }
     .top { display:flex; justify-content:space-between; align-items:center; gap:16px; }
   </style>

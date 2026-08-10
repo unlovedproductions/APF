@@ -6,7 +6,7 @@ import { stdin as input, stdout as output } from "node:process";
 import mysql from "mysql2/promise";
 import { chromium, firefox, webkit } from "playwright";
 import { scoreProduct, SCORING_VERSION } from "./marketplace-scoring.mjs";
-import { extractDigistore24Detail, resolveProductName } from "./digistore24-detail-extractor.mjs";
+import { extractDigistore24Detail, resolveProductName, resolveProductCategory } from "./digistore24-detail-extractor.mjs";
 import { queueReview, upsertAffiliateLink } from "./apf-db-helpers.mjs";
 
 function loadEnv(file = ".env") {
@@ -745,7 +745,7 @@ async function main() {
         platformProductId,
         name: productName.slice(0, 255),
         vendor: detail.vendor || "",
-        category: detail.category || "Digistore24 Marketplace",
+        category: resolveProductCategory({ category: detail.category, name: productName, title: detail.title }),
         keywords: [
           "digistore24",
           ...clean(productName).toLowerCase().split(/[^a-z0-9]+/).filter(Boolean).slice(0, 10),

@@ -4,11 +4,14 @@ import mysql from "mysql2/promise";
 import { normalizeKeywordList, safeJsonParse } from "./apf-db-helpers.mjs";
 import {
   resolveExportProductName,
+  resolveProductCategory,
   sanitizeBuyerPrice,
 } from "./digistore24-detail-extractor.mjs";
 import {
   ensureVendorMaterialsTable,
   loadVendorMaterials,
+  resolveExportClaimLedger,
+  seedCommonClaimsFromLedger,
 } from "./digistore24-vendor-materials.mjs";
 import {
   ensureVendorProfilesTable,
@@ -50,6 +53,29 @@ function clean(v) {
   return String(v ?? "").replace(/\s+/g, " ").trim();
 }
 
+export function applyClaimLedgerToExport(reviewBrief, vendorMaterials = [], reviewSources = []) {
+  const materials = (vendorMaterials || []).map((material) => ({
+    ...material,
+    source_url: material.source_url || material.url,
+    content_text: material.content_text || material.excerpt || "",
+  }));
+  const sources = (reviewSources || []).map((source) => {
+    if (source?.raw_json && typeof source.raw_json === "object") return source;
+    const excerpt = clean(source?.content_excerpt || "");
+    return excerpt
+      ? { ...source, raw_json: { ...(source.raw_json || {}), content_text: excerpt } }
+      : source;
+  });
+  const claimLedger = resolveExportClaimLedger(reviewBrief?.claim_ledger, materials, sources);
+  const commonClaims = seedCommonClaimsFromLedger(reviewBrief?.common_claims || [], claimLedger);
+  return { claim_ledger: claimLedger, common_claims: commonClaims };
+}
+
+function sourceContentExcerpt(row) {
+  const raw = parseJson(row?.raw_json, {}) || {};
+  return clean(raw.content_text || "").slice(0, 2000);
+}
+
 function digistore24DetailUrlForShadowCast(product) {
   const components = parseJson(product.scoreComponents, {}) || {};
   const meta = components._meta || components.meta || {};
@@ -88,9 +114,23 @@ export async function db() {
   return mysql.createConnection(process.env.DATABASE_URL);
 }
 
+async function ensureClaimLedgerColumn(conn) {
+  const [rows] = await conn.query(`
+    SELECT COUNT(*) AS c
+    FROM information_schema.columns
+    WHERE table_schema = DATABASE()
+      AND table_name = 'product_review_briefs'
+      AND column_name = 'claim_ledger'
+  `);
+  if (!Number(rows?.[0]?.c || 0)) {
+    await conn.query("ALTER TABLE product_review_briefs ADD COLUMN claim_ledger JSON NULL");
+  }
+}
+
 export async function listProducts(q = "") {
   const conn = await db();
   try {
+    await ensureClaimLedgerColumn(conn);
     const [rows] = await conn.query(`
       SELECT
         p.id,
@@ -102,7 +142,8 @@ export async function listProducts(q = "") {
         b.enrichment_status,
         b.source_count,
         b.confidence_score,
-        b.generated_at
+        b.generated_at,
+        JSON_LENGTH(COALESCE(b.claim_ledger, JSON_ARRAY())) AS claim_ledger_count
       FROM products p
       LEFT JOIN product_review_briefs b ON b.product_id = p.id
       WHERE
@@ -173,6 +214,7 @@ export async function buildPayload(productId) {
     }
 
     const p = products[0];
+    await ensureClaimLedgerColumn(conn);
 
     const [briefRows] = await conn.query(
       `SELECT * FROM product_review_briefs WHERE product_id=? LIMIT 1`,
@@ -189,7 +231,8 @@ export async function buildPayload(productId) {
         relevance_score,
         trust_score,
         sentiment,
-        discovered_at
+        discovered_at,
+        raw_json
       FROM product_review_sources
       WHERE product_id=?
       ORDER BY relevance_score DESC, trust_score DESC, id ASC
@@ -223,6 +266,7 @@ export async function buildPayload(productId) {
       series_name: b.series_name || "",
       coupon_code: b.coupon_code || "",
       evidence_coverage: parseJson(b.evidence_coverage, {}),
+      claim_ledger: parseJson(b.claim_ledger, []),
     } : null;
     const bestAffiliateUrl = clean(p.linkedAffiliateUrl) || clean(p.affiliateLink);
     const affiliateStatus = p.linkedAffiliateStatus || (bestAffiliateUrl ? "approved" : "needs_approval");
@@ -234,6 +278,22 @@ export async function buildPayload(productId) {
       excerpt: clean(m.content_text).slice(0, 1200),
       structured_blocks: m.structured_blocks || {},
     }));
+    const mappedReviewSources = (sources || []).map((source) => {
+      const { raw_json: _rawJson, ...rest } = source;
+      return {
+        ...rest,
+        content_excerpt: sourceContentExcerpt(source),
+      };
+    });
+    const { claim_ledger: claimLedger, common_claims: seededClaims } = applyClaimLedgerToExport(
+      reviewBrief,
+      vendorMaterials,
+      sources,
+    );
+    if (reviewBrief) {
+      reviewBrief.claim_ledger = claimLedger;
+      reviewBrief.common_claims = seededClaims;
+    }
     const resolvedName = isDigistore
       ? resolveExportProductName(p, mappedVendorMaterials)
       : clean(p.name || "");
@@ -246,8 +306,8 @@ export async function buildPayload(productId) {
           couponCode ? `Coupon: ${couponCode}` : "",
         ].filter(Boolean).join("; ")
       : (p.commissionRate ? `${p.commissionRate}% commission` : "");
-    const keyFeatures = reviewBrief?.common_claims?.length
-      ? reviewBrief.common_claims.slice(0, 5)
+    const keyFeatures = seededClaims.length
+      ? seededClaims.slice(0, 5)
       : clean(p.description).split(/[,.;]/).map(x => x.trim()).filter(Boolean).slice(0, 5);
     const commonPraises = reviewBrief?.positive_signals || [];
     const commonComplaints = reviewBrief?.common_complaints || [];
@@ -269,13 +329,18 @@ export async function buildPayload(productId) {
     const consumerUsp = reviewBrief?.review_summary
       || keyFeatures[0]
       || clean(p.description).slice(0, 240);
+    const resolvedCategory = resolveProductCategory({
+      category: p.category,
+      name: resolvedName || p.name || "",
+      vendorMaterials: mappedVendorMaterials,
+    });
     const shadowcastImport = {
       product_name: resolvedName || p.name || "",
-      niche: p.category || "",
+      niche: resolvedCategory,
       key_features: keyFeatures,
       affiliate_link: shadowCastAffiliateUrl({ ...p, affiliateLink: bestAffiliateUrl }),
       keywords: safeKeywords,
-      product_category: p.category || p.platform || "",
+      product_category: resolvedCategory,
       competitors: suggestedCompetitors,
       discount_info: discountInfo,
       unique_selling_point: isDigistore
@@ -292,6 +357,7 @@ export async function buildPayload(productId) {
       who_not_for: reviewBrief?.who_should_skip_it || "",
       buyer_problem: isDigistore ? (reviewBrief?.who_it_may_help || "") : "",
       buyer_cta: isDigistore ? (reviewBrief?.cta_guidance || "Check the official offer page for current price and refund terms.") : (reviewBrief?.cta_guidance || ""),
+      claim_ledger: claimLedger,
     };
 
     return {
@@ -303,7 +369,7 @@ export async function buildPayload(productId) {
         platform_product_id: p.platformProductId || "",
         name: resolvedName || p.name || "",
         vendor: p.vendor || "",
-        category: p.category || "",
+        category: resolvedCategory || p.category || "",
         keywords: safeKeywords,
         description: p.description || "",
         affiliate_url: shadowCastAffiliateUrl({ ...p, affiliateLink: bestAffiliateUrl }),
@@ -329,7 +395,7 @@ export async function buildPayload(productId) {
       review_brief: reviewBrief
         ? { ...reviewBrief, price_display: isDigistore ? priceDisplay : (reviewBrief.price_display || priceDisplay) }
         : reviewBrief,
-      review_sources: sources,
+      review_sources: mappedReviewSources,
       vendor_materials: mappedVendorMaterials,
       shadowcast_import: shadowcastImport,
     };

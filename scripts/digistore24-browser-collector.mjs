@@ -5,7 +5,7 @@ import crypto from "node:crypto";
 import mysql from "mysql2/promise";
 import { chromium } from "playwright";
 import { ensureTableExists } from "./apf-db-helpers.mjs";
-import { extractDigistore24Detail, resolveProductName } from "./digistore24-detail-extractor.mjs";
+import { extractDigistore24Detail, resolveProductName, resolveProductCategory } from "./digistore24-detail-extractor.mjs";
 
 function loadEnv(file = ".env") {
   if (!fs.existsSync(file)) return;
@@ -149,8 +149,8 @@ async function upsertProduct(conn, item, userId) {
       platformProductId,
       name: item.name,
       vendor: item.vendor || "",
-      category: item.category || "Digistore24",
-      keywords: `${item.name}, ${item.category || "Digistore24"}, Digistore24, review, pros and cons`,
+      category: resolveProductCategory({ category: item.category, name: item.name }),
+      keywords: `${item.name}, ${resolveProductCategory({ category: item.category, name: item.name }) || "affiliate"}, Digistore24, review, pros and cons`,
       description: item.description || "",
       saleCount: 0,
       aggregateSales: 0,
@@ -312,7 +312,7 @@ async function enrichDetail(page, item) {
     detailUrl: item.detailUrl,
     name,
     vendor: detail.vendor || "",
-    category: detail.category || "Digistore24",
+    category: resolveProductCategory({ category: detail.category, name: detail.title || item?.name, title: detail.title }),
     description: clean(detail.description || lines.slice(1, 8).join(" "), 2000),
     affiliateLink: clean(data.affiliateLink, 2000)
   };

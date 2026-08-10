@@ -368,6 +368,7 @@ const REVIEW_BRIEF_COLUMNS = [
   { name: "series_name", ddl: "ADD COLUMN series_name TEXT NULL AFTER price_comparison" },
   { name: "coupon_code", ddl: "ADD COLUMN coupon_code TEXT NULL AFTER series_name" },
   { name: "evidence_coverage", ddl: "ADD COLUMN evidence_coverage JSON NULL AFTER coupon_code" },
+  { name: "claim_ledger", ddl: "ADD COLUMN claim_ledger JSON NULL AFTER evidence_coverage" },
 ];
 
 async function ensureReviewBriefSchema(conn) {
@@ -377,11 +378,9 @@ async function ensureReviewBriefSchema(conn) {
     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'product_review_briefs'
   `);
   const existing = new Set(rows.map(r => r.COLUMN_NAME));
-  const missing = REVIEW_BRIEF_COLUMNS.map(col => col.name).filter(name => !existing.has(name));
-  if (missing.length) {
-    throw new Error(
-      `product_review_briefs missing columns: ${missing.join(", ")}. Run: pnpm db:push`
-    );
+  for (const col of REVIEW_BRIEF_COLUMNS) {
+    if (existing.has(col.name)) continue;
+    await conn.query(`ALTER TABLE product_review_briefs ${col.ddl}`);
   }
 
   const [result] = await conn.query(`
@@ -1013,7 +1012,10 @@ function fallbackBrief(product, sources, vendorMaterials = [], options = {}) {
     suggested_competitors: (options.competitorCandidates || []).map(c => c.name || c).slice(0, 4),
   };
 
-  return finalizeBrief(product, base, sources, options);
+  return finalizeBrief(product, base, sources, {
+    ...options,
+    vendorMaterials: vendorMaterials || options.vendorMaterials || [],
+  });
 }
 
 function fallbackConsumerBrief(product, sources, vendorMaterials, options = {}) {
@@ -1081,6 +1083,7 @@ function fallbackConsumerBrief(product, sources, vendorMaterials, options = {}) 
   return finalizeBrief(product, base, sources, {
     ...options,
     hasVendorMaterial: summary.length > 0,
+    vendorMaterials,
   });
 }
 
@@ -1129,6 +1132,7 @@ async function summarizeWithOllama(product, sources, vendorMaterials = [], optio
     const finalized = finalizeBrief(product, {...fallback, ...validated}, sources, {
       ...options,
       searchSuspended: searchSuspensionSeen,
+      vendorMaterials,
     });
     const coverage = finalized.evidence_coverage || {};
     return {
@@ -1165,10 +1169,10 @@ async function saveBrief(conn, product, brief, sourceCount, enrichmentStatus = "
     (product_id, enrichment_status, review_summary, positive_signals, negative_signals,
      common_claims, common_complaints, target_audience, who_it_may_help, who_should_skip_it,
      best_video_angles, cta_guidance, recommended_content_style, suggested_competitors, price_display, price_comparison,
-     series_name, coupon_code, evidence_coverage,
+     series_name, coupon_code, evidence_coverage, claim_ledger,
      source_count, confidence_score, generated_at)
     VALUES (?, ?, ?, CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON),
-            ?, ?, ?, CAST(? AS JSON), ?, ?, CAST(? AS JSON), ?, ?, ?, ?, CAST(? AS JSON), ?, ?, NOW())
+            ?, ?, ?, CAST(? AS JSON), ?, ?, CAST(? AS JSON), ?, ?, ?, ?, CAST(? AS JSON), CAST(? AS JSON), ?, ?, NOW())
     ON DUPLICATE KEY UPDATE
       enrichment_status=VALUES(enrichment_status),
       review_summary=VALUES(review_summary),
@@ -1188,6 +1192,7 @@ async function saveBrief(conn, product, brief, sourceCount, enrichmentStatus = "
       series_name=VALUES(series_name),
       coupon_code=VALUES(coupon_code),
       evidence_coverage=VALUES(evidence_coverage),
+      claim_ledger=VALUES(claim_ledger),
       source_count=VALUES(source_count),
       confidence_score=VALUES(confidence_score),
       generated_at=NOW(),
@@ -1213,6 +1218,7 @@ async function saveBrief(conn, product, brief, sourceCount, enrichmentStatus = "
     clamp(brief.series_name, 255),
     clamp(brief.coupon_code, 255),
     JSON.stringify(brief.evidence_coverage || {}),
+    JSON.stringify(brief.claim_ledger || []),
     sourceCount,
     Number(brief.confidence_score || Math.min(95, 40 + sourceCount * 3))
   ]);

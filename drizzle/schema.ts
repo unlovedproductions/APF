@@ -213,6 +213,7 @@ export const productReviewBriefs = mysqlTable("product_review_briefs", {
   seriesName: text("series_name"),
   couponCode: text("coupon_code"),
   evidenceCoverage: json("evidence_coverage"),
+  claimLedger: json("claim_ledger"),
   sourceCount: int("source_count").default(0).notNull(),
   confidenceScore: decimal("confidence_score", { precision: 5, scale: 2 }),
   errorMessage: text("error_message"),

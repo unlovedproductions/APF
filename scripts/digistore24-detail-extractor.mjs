@@ -12,6 +12,91 @@ export function isMarketplaceBrandName(value) {
   return false;
 }
 
+const MARKETPLACE_CATEGORY_RE =
+  /^(digistore24?(\s+marketplace)?|marketplace|digistore)$/i;
+const TITLE_NICHE_RE =
+  /\s+-\s+(health|fitness|business|software|dating|education|gambling|gaming|home|garden|finance|nutra|beauty|spirituality|travel|self[- ]?help|make\s*money|weight\s*loss)\s*$/i;
+const NAME_SUFFIX_CATEGORIES = [
+  [/\bsupplements?\b/i, "Health"],
+  [/\bnitric\s+oxide\b|\bmale\s+enhancement\b/i, "Health"],
+  [/\bbook\b|\(printed\)/i, "Books"],
+  [/\bdownloads?\b/i, "Downloads"],
+  [/\bcourse\b|member\s*area|video\s+courses?/i, "Courses"],
+  [/\bgarden\b|homestead|backyard/i, "Home & Garden"],
+  [/\bsewing\b|serger\b/i, "Courses"],
+];
+const NICHE_LABEL_MAP = {
+  health: "Health",
+  fitness: "Fitness",
+  business: "Business",
+  software: "Software",
+  dating: "Dating",
+  education: "Education",
+  gambling: "Gambling",
+  gaming: "Gaming",
+  home: "Home",
+  garden: "Home & Garden",
+  finance: "Finance",
+  nutra: "Health",
+  beauty: "Beauty",
+  spirituality: "Spirituality",
+  travel: "Travel",
+  "self-help": "Self-Help",
+  "self help": "Self-Help",
+  "make money": "Business",
+  "weight loss": "Health",
+};
+
+export function isMarketplaceCategoryPlaceholder(value) {
+  const text = clean(value, 255);
+  if (!text) return true;
+  return MARKETPLACE_CATEGORY_RE.test(text);
+}
+
+function normalizeNicheLabel(raw) {
+  const key = clean(raw, 64).toLowerCase();
+  if (!key) return "";
+  if (NICHE_LABEL_MAP[key]) return NICHE_LABEL_MAP[key];
+  return key.replace(/\b\w/g, (c) => c.toUpperCase()).slice(0, 64);
+}
+
+export function inferProductCategory(...texts) {
+  for (const text of texts) {
+    const source = clean(text, 500);
+    if (!source || isMarketplaceCategoryPlaceholder(source)) continue;
+    const nicheMatch = source.match(TITLE_NICHE_RE);
+    if (nicheMatch) return normalizeNicheLabel(nicheMatch[1]);
+  }
+  for (const text of texts) {
+    const source = clean(text, 500);
+    if (!source) continue;
+    for (const [re, category] of NAME_SUFFIX_CATEGORIES) {
+      if (re.test(source)) return category;
+    }
+  }
+  return "";
+}
+
+/**
+ * Prefer a real marketplace Category/Niche label, then title/name/material hints.
+ * Never returns Digistore24 / Marketplace placeholders.
+ */
+export function resolveProductCategory({
+  category = "",
+  name = "",
+  title = "",
+  vendorMaterials = [],
+} = {}) {
+  const parsed = clean(category, 255);
+  if (parsed && !isMarketplaceCategoryPlaceholder(parsed)) {
+    return normalizeNicheLabel(parsed) || parsed;
+  }
+  const materialTitles = (Array.isArray(vendorMaterials) ? vendorMaterials : [])
+    .map((m) => clean(m?.title, 255))
+    .filter(Boolean);
+  return inferProductCategory(name, title, ...materialTitles);
+}
+
 export function resolveProductName(extractedTitle, listingText, platformProductId) {
   for (const candidate of [extractedTitle, listingText]) {
     const value = clean(candidate, 255);
@@ -300,8 +385,12 @@ export function extractDigistore24Detail(raw) {
     "seller name",
   ]);
   const vendor = isMarketplaceBrandName(parsedVendor) ? "" : parsedVendor;
-  const category = parseFieldByLabel(bodySource.length ? bodySource : body, ["category", "niche", "topic"])
-    || "Digistore24 Marketplace";
+  const parsedCategory = parseFieldByLabel(bodySource.length ? bodySource : body, ["category", "niche", "topic"]);
+  const category = resolveProductCategory({
+    category: parsedCategory,
+    name: title,
+    title: rawTitle || title,
+  });
   const commissionRate = parsePercent(`${importantSections} ${body}`, ["commission", "affiliate"]);
   const conversionRate = parsePercent(`${importantSections} ${body}`, ["conversion", "cart conversion"]);
   const refundRate = parsePercent(`${importantSections} ${body}`, [

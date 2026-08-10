@@ -3,6 +3,7 @@ import fs from "node:fs";
 import process from "node:process";
 import mysql from "mysql2/promise";
 import { ensureTableExists } from "./apf-db-helpers.mjs";
+import { resolveProductCategory } from "./digistore24-detail-extractor.mjs";
 
 function loadEnv(file = ".env") {
   if (!fs.existsSync(file)) return;
@@ -194,7 +195,10 @@ async function addProduct(conn) {
   const dsProductId = cleanId(arg("--ds-product-id") || arg("--product-id"));
   const name = cleanText(arg("--name"));
   const vendor = cleanText(arg("--vendor", "digistore24"));
-  const category = cleanText(arg("--category", "Digistore24"));
+  const category = resolveProductCategory({
+    category: cleanText(arg("--category", "")),
+    name,
+  });
   const description = cleanText(arg("--description", ""), 2000);
 
   if (!dsProductId || !name) {

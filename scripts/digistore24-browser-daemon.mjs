@@ -6,7 +6,7 @@ import path from "node:path";
 import mysql from "mysql2/promise";
 import { firefox } from "playwright";
 import { scoreProduct, SCORING_VERSION } from "./marketplace-scoring.mjs";
-import { extractDigistore24Detail, resolveProductName, resolveExportProductName, isMarketplaceBrandName } from "./digistore24-detail-extractor.mjs";
+import { extractDigistore24Detail, resolveProductName, resolveExportProductName, isMarketplaceBrandName, resolveProductCategory } from "./digistore24-detail-extractor.mjs";
 import { queueReview, upsertAffiliateLink } from "./apf-db-helpers.mjs";
 import {
   classifySourceType,
@@ -979,7 +979,7 @@ async function collectProducts(options) {
         platformProductId,
         name: productName.slice(0, 255),
         vendor: detail.vendor || "",
-        category: detail.category || "Digistore24 Marketplace",
+        category: resolveProductCategory({ category: detail.category, name: productName, title: detail.title }),
         keywords: [
           "digistore24",
           ...clean(productName).toLowerCase().split(/[^a-z0-9]+/).filter(Boolean).slice(0, 10),
@@ -1027,6 +1027,19 @@ async function collectProducts(options) {
             [String(fromMaterials).slice(0, 255), saved.productId],
           );
           product.name = String(fromMaterials).slice(0, 255);
+        }
+        const resolvedCategory = resolveProductCategory({
+          category: product.category,
+          name: product.name,
+          title: detail.title,
+          vendorMaterials: matRows || [],
+        });
+        if (resolvedCategory && resolvedCategory !== product.category) {
+          await conn.query(
+            `UPDATE products SET category=?, lastUpdatedAt=NOW() WHERE id=? AND platform='digistore24'`,
+            [resolvedCategory.slice(0, 255), saved.productId],
+          );
+          product.category = resolvedCategory;
         }
       }
 

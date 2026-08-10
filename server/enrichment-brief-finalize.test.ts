@@ -156,6 +156,42 @@ describe("enrichment brief finalize", () => {
     );
   });
 
+  it("replaces generic common_claims from vendor order-page ledger", () => {
+    const brief = finalizeBrief(
+      digistoreProduct,
+      {
+        review_summary: "Limited independent public review evidence.",
+        common_claims: ["Positioned as a Books product.", "Viewers should verify current price, details, claims, and refund terms."],
+        positive_signals: ["Great book"],
+        common_complaints: ["Shipping was slow"],
+        best_video_angles: ["Worth it?"],
+        confidence_score: 50,
+      },
+      [],
+      {
+        hasVendorMaterial: true,
+        reviewSources: [],
+        vendorMaterials: [
+          {
+            source_type: "order_page",
+            source_url: "https://vendor.example/josephs-well/order",
+            content_text: "This printed book includes homestead methods. 1 Book $47.00 USD. 90-day money-back guarantee.",
+            structured_blocks: {
+              benefits: ["Printed book includes homestead methods designed to help you grow food"],
+              pricing: ["1 Book $47.00"],
+              objections: ["90-day money-back guarantee"],
+            },
+          },
+        ],
+      },
+    );
+    expect(brief.positive_signals).toEqual([]);
+    expect(brief.common_complaints).toEqual([]);
+    expect(brief.claim_ledger.length).toBeGreaterThan(0);
+    expect(brief.common_claims.some((line) => /47\.00|guarantee|homestead|grow food/i.test(line))).toBe(true);
+    expect(brief.common_claims.every((line) => !/positioned as a/i.test(line))).toBe(true);
+  });
+
   it("clears praises/complaints for probe-only empty-content review sources", () => {
     const probes = [
       {

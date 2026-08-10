@@ -114,6 +114,10 @@ export function ProductDetailModal({ productId, open, onOpenChange }: ProductDet
   const enrichmentStatus = String(product.enrichmentStatus || payloadQuery.data?.review_enrichment?.status || "pending");
   const allowDegradedShadowCastExport = Boolean(product.allowDegradedShadowCastExport);
   const enrichmentComplete = isEnrichmentExportReady(enrichmentStatus, allowDegradedShadowCastExport);
+  const claimLedger = payloadQuery.data?.shadowcast_import?.claim_ledger
+    || payloadQuery.data?.review_brief?.claim_ledger
+    || [];
+  const claimLedgerEmpty = Boolean(payloadQuery.data) && Array.isArray(claimLedger) && claimLedger.length === 0;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -194,6 +198,11 @@ export function ProductDetailModal({ productId, open, onOpenChange }: ProductDet
                       ? null
                       : " This brief is degraded and currently blocked by export policy."
                     : null}
+                </p>
+              )}
+              {claimLedgerEmpty && (
+                <p className="text-xs text-amber-700">
+                  No cited claims — scripts will hedge or invent. Re-collect vendor order page.
                 </p>
               )}
             </CardContent>
