@@ -1,4 +1,5 @@
-import "dotenv/config";
+import "./instrument";
+import * as Sentry from "@sentry/node";
 import express from "express";
 import cors from "cors";
 import { createServer } from "http";
@@ -65,6 +66,12 @@ async function startServer() {
   app.get("/api/health", (_req, res) => {
     res.json({ status: "ok", app: "APF", timestamp: Date.now() });
   });
+  if (!ENV.isProduction && process.env.SENTRY_DSN?.trim()) {
+    app.get("/debug-sentry", () => {
+      Sentry.logger.info("User triggered test error", { action: "test_error_endpoint" });
+      throw new Error("My first Sentry error!");
+    });
+  }
   // OAuth callback under /api/oauth/callback
   app.use("/api/oauth", rateLimitMiddleware(30, 60_000, "oauth"));
   registerOAuthRoutes(app);
@@ -82,6 +89,10 @@ async function startServer() {
     await setupVite(app, server);
   } else {
     serveStatic(app);
+  }
+
+  if (process.env.SENTRY_DSN?.trim()) {
+    Sentry.setupExpressErrorHandler(app);
   }
 
   const preferredPort = ENV.port ?? 3000;
