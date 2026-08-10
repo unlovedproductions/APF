@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import { ensureTableExists } from "./apf-db-helpers.mjs";
+import { isAffiliateMetaSignal } from "./enrichment-source-trust.mjs";
 
 const MARKETPLACE_HOSTS = new Set([
   "digistore24.com",
@@ -89,7 +90,7 @@ const GENERIC_CLAIM_RE =
   /positioned as a .+ product|verify (?:current )?(?:price|details|claims|the (?:current )?offer)|viewers should verify|vendor copy presents|solution in (?:this |the )?(?:category|product category)|some marketing claims should be verified/i;
 
 function isChromeLine(line) {
-  return !line || DASHBOARD_CHROME_RE.test(line);
+  return !line || DASHBOARD_CHROME_RE.test(line) || isAffiliateMetaSignal(line);
 }
 
 export function extractBuyerFacingBlocks(text) {
