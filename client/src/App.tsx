@@ -1,4 +1,4 @@
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, type ReactElement } from "react";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Route, Switch } from "wouter";
@@ -19,6 +19,10 @@ function PageFallback() {
   );
 }
 
+function DebugSentry(): ReactElement {
+  throw new Error("Sentry browser test error");
+}
+
 function Router() {
   return (
     <Suspense fallback={<PageFallback />}>
@@ -29,6 +33,11 @@ function Router() {
             <Bookmarks />
           </ProtectedRoute>
         </Route>
+        {import.meta.env.DEV ? (
+          <Route path="/debug-sentry">
+            <DebugSentry />
+          </Route>
+        ) : null}
         <Route path="/404" component={NotFound} />
         {/* Final fallback route */}
         <Route component={NotFound} />
