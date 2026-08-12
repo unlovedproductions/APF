@@ -262,7 +262,7 @@ Digistore prompt says: prioritize vendor materials; use third-party only for ris
 
 ## 6. Fetch full pages for high-trust hosts
 
-**Status (partial):** fetch pipeline, SSRF controls, cache TTL, and candidate selection/attempt budget shipped; transcript-depth / broader host coverage still incremental. Optional Firecrawl scrape fallback (`FIRECRAWL_API_KEY`, capped by `REVIEW_ENRICHMENT_FIRECRAWL_MAX_SCRAPE_PER_JOB`) when local fetch is thin/blocked — SSRF-checked first; YouTube stays on the dedicated path.
+**Status (partial):** fetch pipeline, SSRF controls, cache TTL, and candidate selection/attempt budget shipped; transcript-depth / broader host coverage still incremental. Thin/blocked pages escalate **Playwright Stealth → Jina → Firecrawl** (`REVIEW_ENRICHMENT_PLAYWRIGHT_STEALTH`, self-hosted `FIRECRAWL_BASE_URL` or cloud key). YouTube stays on the dedicated path. Stealth reduces fingerprints; it will not beat every Cloudflare wall.
 
 ### Problem
 

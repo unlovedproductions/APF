@@ -10,6 +10,10 @@ import {
   firecrawlScrape,
   isFirecrawlConfigured,
 } from "./enrichment-firecrawl.mjs";
+import {
+  canPlaywrightStealthFetch,
+  playwrightStealthFetch,
+} from "./enrichment-playwright-stealth.mjs";
 
 const require = createRequire(import.meta.url);
 const __filename = fileURLToPath(import.meta.url);
@@ -803,6 +807,53 @@ async function tryJinaReaderFallback(source, rawJson, options = {}) {
 }
 
 /**
+ * When local fetch is thin/failed (non-permanent), try stealth Chromium before Jina/Firecrawl.
+ * SSRF-checked first. Skips YouTube (dedicated path).
+ */
+async function tryPlaywrightStealthFallback(source, rawJson, options = {}) {
+  if (options.allowPlaywrightStealth === false) return null;
+  if (!canPlaywrightStealthFetch()) return null;
+  if (youtubeVideoId(source?.url)) return null;
+
+  try {
+    await assertSafeFetchUrl(source.url);
+  } catch {
+    return null;
+  }
+
+  try {
+    const fetched = await playwrightStealthFetch(source.url, {
+      timeoutMs: options.stealthTimeoutMs
+        || Math.max(Number(options.timeoutMs || 0), 15000)
+        || 15000,
+    });
+    const contentText = extractMainText(fetched.html, options.textLimit || 8000);
+    if (contentText.length < 80) return null;
+    return {
+      ...source,
+      raw_json: {
+        ...rawJson,
+        content_text: contentText,
+        final_url: fetched.finalUrl || source.url,
+        fetched_at: new Date().toISOString(),
+        fetch_provider: "playwright_stealth",
+        fetch_error: undefined,
+      },
+    };
+  } catch (error) {
+    return {
+      ...source,
+      raw_json: {
+        ...rawJson,
+        fetch_error: cleanText(error?.message || error, 500),
+        fetch_attempted_at: new Date().toISOString(),
+        fetch_provider: "playwright_stealth_failed",
+      },
+    };
+  }
+}
+
+/**
  * When local fetch is thin/failed (non-permanent), try Firecrawl scrape if configured + budget.
  * SSRF-checked before leaving the box. Skips YouTube (dedicated path).
  */
@@ -847,13 +898,30 @@ async function tryFirecrawlPageFallback(source, rawJson, options = {}) {
 }
 
 async function trySecondaryPageFallbacks(source, rawJson, options = {}) {
-  const viaJina = await tryJinaReaderFallback(source, rawJson, options);
+  const viaStealth = await tryPlaywrightStealthFallback(source, rawJson, options);
+  if (viaStealth?.raw_json?.content_text
+    && cleanText(viaStealth.raw_json.content_text).length >= 80) {
+    return viaStealth;
+  }
+
+  const viaJina = await tryJinaReaderFallback(source, {
+    ...rawJson,
+    ...(viaStealth?.raw_json?.fetch_provider
+      ? { stealth_fetch_provider: viaStealth.raw_json.fetch_provider }
+      : {}),
+    ...(viaStealth?.raw_json?.fetch_error
+      ? { stealth_fetch_error: viaStealth.raw_json.fetch_error }
+      : {}),
+  }, options);
   if (viaJina?.raw_json?.content_text
     && cleanText(viaJina.raw_json.content_text).length >= 80) {
     return viaJina;
   }
   const viaFirecrawl = await tryFirecrawlPageFallback(source, {
     ...rawJson,
+    ...(viaStealth?.raw_json?.fetch_provider
+      ? { stealth_fetch_provider: viaStealth.raw_json.fetch_provider }
+      : {}),
     ...(viaJina?.raw_json?.fetch_provider ? { jina_fetch_provider: viaJina.raw_json.fetch_provider } : {}),
     ...(viaJina?.raw_json?.fetch_error ? { jina_fetch_error: viaJina.raw_json.fetch_error } : {}),
   }, options);
@@ -861,7 +929,7 @@ async function trySecondaryPageFallbacks(source, rawJson, options = {}) {
     && cleanText(viaFirecrawl.raw_json.content_text).length >= 80) {
     return viaFirecrawl;
   }
-  return viaFirecrawl || viaJina || null;
+  return viaFirecrawl || viaJina || viaStealth || null;
 }
 
 export async function enrichSourceContent(source, options = {}) {

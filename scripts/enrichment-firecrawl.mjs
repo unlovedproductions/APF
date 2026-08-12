@@ -1,16 +1,36 @@
 /**
- * Firecrawl BYOK client for enrichment fallbacks (search + scrape).
- * Key only via FIRECRAWL_API_KEY. No npm dependency — raw fetch to REST v2.
+ * Firecrawl client for enrichment fallbacks (search + scrape).
+ * Supports cloud (api.firecrawl.dev + FIRECRAWL_API_KEY) and self-hosted
+ * (FIRECRAWL_BASE_URL, e.g. http://localhost:3002/v2 — key optional).
+ * No npm dependency — raw fetch to REST v2.
  */
 
-const FIRECRAWL_BASE = "https://api.firecrawl.dev/v2";
+const DEFAULT_CLOUD_BASE = "https://api.firecrawl.dev/v2";
 
-function apiKey() {
-  return String(process.env.FIRECRAWL_API_KEY || "").trim();
+export function resolveFirecrawlBaseUrl(env = process.env) {
+  const raw = String(env.FIRECRAWL_BASE_URL || "").trim().replace(/\/+$/, "");
+  if (!raw) return DEFAULT_CLOUD_BASE;
+  if (raw.endsWith("/v2")) return raw;
+  return `${raw}/v2`;
 }
 
+function firecrawlBase() {
+  return resolveFirecrawlBaseUrl();
+}
+
+function apiKey(env = process.env) {
+  return String(env.FIRECRAWL_API_KEY || "").trim();
+}
+
+/** True when cloud key is set, or a custom/self-hosted base URL is configured. */
 export function isFirecrawlConfigured(env = process.env) {
-  return Boolean(String(env.FIRECRAWL_API_KEY || "").trim());
+  if (apiKey(env)) return true;
+  return Boolean(String(env.FIRECRAWL_BASE_URL || "").trim());
+}
+
+export function isFirecrawlSelfHosted(env = process.env) {
+  const base = resolveFirecrawlBaseUrl(env);
+  return !base.includes("api.firecrawl.dev");
 }
 
 function defaultMaxSearch() {
@@ -101,15 +121,20 @@ export function extractFirecrawlMarkdown(payload, textLimit = 8000) {
 
 async function firecrawlRequest(path, body) {
   const key = apiKey();
-  if (!key) throw new Error("FIRECRAWL_API_KEY missing");
+  const base = firecrawlBase();
+  if (!isFirecrawlSelfHosted() && !key) {
+    throw new Error("FIRECRAWL_API_KEY missing (required for cloud Firecrawl)");
+  }
 
-  const res = await fetch(`${FIRECRAWL_BASE}${path}`, {
+  const headers = {
+    "Content-Type": "application/json",
+    Accept: "application/json",
+  };
+  if (key) headers.Authorization = `Bearer ${key}`;
+
+  const res = await fetch(`${base}${path}`, {
     method: "POST",
-    headers: {
-      Authorization: `Bearer ${key}`,
-      "Content-Type": "application/json",
-      Accept: "application/json",
-    },
+    headers,
     body: JSON.stringify(body),
   });
 

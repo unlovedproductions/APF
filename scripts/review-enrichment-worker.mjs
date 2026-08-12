@@ -55,6 +55,10 @@ import {
   resetOxylabsBudget,
 } from "./enrichment-oxylabs.mjs";
 import {
+  isPlaywrightStealthEnabled,
+  resetPlaywrightStealthBudget,
+} from "./enrichment-playwright-stealth.mjs";
+import {
   buildSearxngSearchUrl,
   defaultSearchCooldownPath,
   hasEnoughReviewEvidence,
@@ -1308,6 +1312,7 @@ async function processJob(conn, job) {
   searchRateLimitStrikes = 0;
   resetFirecrawlBudget();
   resetOxylabsBudget();
+  resetPlaywrightStealthBudget();
   const cooldown = readSearchCooldown(SEARCH_COOLDOWN_PATH);
   if (isSearchCooldownActive(cooldown)) {
     searchSuspensionSeen = true;
@@ -1555,11 +1560,16 @@ async function main() {
       + `; search delay ${SEARCH_DELAY_MS}ms; max product queries ${MAX_PRODUCT_QUERIES}`,
     );
   }
-  if (String(process.env.FIRECRAWL_API_KEY || "").trim()) {
+  if (String(process.env.FIRECRAWL_BASE_URL || "").trim() || String(process.env.FIRECRAWL_API_KEY || "").trim()) {
     const { maxSearch, maxScrape } = resetFirecrawlBudget();
+    const base = String(process.env.FIRECRAWL_BASE_URL || "").trim() || "https://api.firecrawl.dev/v2";
     console.log(
-      `Firecrawl fallback enabled (max search/job=${maxSearch}, max scrape/job=${maxScrape})`,
+      `Firecrawl fallback enabled (${base}; max search/job=${maxSearch}, max scrape/job=${maxScrape})`,
     );
+  }
+  if (isPlaywrightStealthEnabled()) {
+    const { max } = resetPlaywrightStealthBudget();
+    console.log(`Playwright stealth page-fetch enabled (max/job=${max})`);
   }
   if (String(process.env.OXYLABS_USERNAME || "").trim() && String(process.env.OXYLABS_PASSWORD || "").trim()) {
     const { maxSearch, minGapMs } = resetOxylabsBudget();

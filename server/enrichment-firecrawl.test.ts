@@ -5,19 +5,33 @@ import {
   extractFirecrawlMarkdown,
   getFirecrawlBudget,
   isFirecrawlConfigured,
+  isFirecrawlSelfHosted,
   mapFirecrawlSearchResults,
   resetFirecrawlBudget,
+  resolveFirecrawlBaseUrl,
 } from "../scripts/enrichment-firecrawl.mjs";
 
 describe("enrichment firecrawl", () => {
   afterEach(() => {
     delete process.env.FIRECRAWL_API_KEY;
+    delete process.env.FIRECRAWL_BASE_URL;
     resetFirecrawlBudget({ maxSearch: 2, maxScrape: 3 });
   });
 
-  it("detects configuration from FIRECRAWL_API_KEY", () => {
+  it("detects cloud key or self-hosted base URL", () => {
     expect(isFirecrawlConfigured({ FIRECRAWL_API_KEY: "" })).toBe(false);
     expect(isFirecrawlConfigured({ FIRECRAWL_API_KEY: "fc-test" })).toBe(true);
+    expect(isFirecrawlConfigured({ FIRECRAWL_BASE_URL: "http://localhost:3002/v2" })).toBe(true);
+  });
+
+  it("resolves base URL and self-host detection", () => {
+    expect(resolveFirecrawlBaseUrl({})).toBe("https://api.firecrawl.dev/v2");
+    expect(resolveFirecrawlBaseUrl({ FIRECRAWL_BASE_URL: "http://localhost:3002" }))
+      .toBe("http://localhost:3002/v2");
+    expect(resolveFirecrawlBaseUrl({ FIRECRAWL_BASE_URL: "http://localhost:3002/v2/" }))
+      .toBe("http://localhost:3002/v2");
+    expect(isFirecrawlSelfHosted({ FIRECRAWL_BASE_URL: "http://localhost:3002/v2" })).toBe(true);
+    expect(isFirecrawlSelfHosted({})).toBe(false);
   });
 
   it("maps array and web-shaped search payloads", () => {
@@ -56,12 +70,11 @@ describe("enrichment firecrawl", () => {
   });
 
   it("enforces per-job search and scrape budgets", () => {
-    process.env.FIRECRAWL_API_KEY = "fc-test";
+    process.env.FIRECRAWL_BASE_URL = "http://localhost:3002/v2";
     resetFirecrawlBudget({ maxSearch: 1, maxScrape: 2 });
     expect(canFirecrawlSearch()).toBe(true);
     expect(canFirecrawlScrape()).toBe(true);
 
-    // Simulate consumption via budget counters (no live API).
     const b0 = getFirecrawlBudget();
     expect(b0.maxSearch).toBe(1);
     expect(b0.maxScrape).toBe(2);
