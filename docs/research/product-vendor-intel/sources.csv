@@ -1,0 +1,24 @@
+id,slug,location,type,credibility,recency,bias,one_liner,maps_to
+00,capability_discovery,sources/00_capability_discovery.md,primary,5,5,4,Live SearXNG ladder; competitors+price sanitize shipped,H1-H4
+01,evidence_depth_decision,docs/research/evidence-depth-levers/2026-08-05_decision.md,primary,5,4,4,Way1-3 sequence; Apify deferred,H1,H4
+02,enrichment_improvements_docs,docs/enrichment-improvements.md,primary,4,4,3,Docs still say LLM-only competitors — stale vs code,H2,H3
+03,firecrawl_docs,Context7 /firecrawl/firecrawl-docs,vendor,4,5,2,Search+scrape LLM markdown,H4
+04,jina_reader,evidence-depth sources/04,oss,4,5,3,r.jina.ai in ladder,H4
+05,trustpilot_api,https://developers.trustpilot.com/business-units-api,primary,5,5,3,Paginated review text via BUID,H1
+06,youtube_transcript,youtube-transcript-api prior,oss,5,5,4,Captions without browser,H1
+07,direct_probes,enrichment-source-trust.mjs,primary,5,5,3,Probe discovery; thin SPA gap,H1
+08,sanitize_buyer_price,digistore24-detail-extractor.mjs,primary,5,5,4,Reject EPC; cartValue fallback,H3
+09,competitor_retrieval_shipped,enrichment-source-trust + brief-finalize,primary,5,5,4,vs-SERP extract; no synthetics,H2
+10,ftc_sitejabber,ftc.gov Sitejabber order 2025-01,primary,5,5,4,Pre-fulfilment ratings misrepresented,H1
+11,cbsnooper,https://cbsnooper.com/,industry,3,5,2,ClickBank gravity history SaaS,H2
+12,eachspy,https://www.eachspy.com/affiliate-ad-spy/,industry,3,5,2,Ad→offer spy for CB/Digistore,H2
+13,profitspy,https://profitspytools.com/,industry,3,5,2,Landing ripper + gravity elite,H2
+14,amazon_price_apis,Rainforest/Keepa docs,industry,4,5,3,Amazon ASIN/price history misfit,H3
+15,searxng_oxylabs,review-enrichment-worker + oxylabs,primary,5,5,4,Multi-provider SERP rescue,H4
+16,scamadviser_api,https://www.scamadviser.com/scamadviser-api,vendor,4,5,3,Domain trust not product reviews,H1
+17,bright_data_vs_firecrawl,vendor comparison blogs,industry,2,5,1,Self-serving scraper vendor wars,H4
+18,f3_source_class,evidence-depth findings/F3,primary,5,4,4,Phase A free / Phase B Trustpilot,H1
+19,reddit_json,old.reddit.com .json pattern,discussion,4,4,3,Public thread bodies ToS-aware,H1
+20,prior_competitor_saas,roadmap sources/13,industry,3,4,2,Do-not-build AffSync clone,H2
+21,vendor_materials_price,vendor-materials + refresh script,primary,5,5,4,Offer-page structured pricing,H3
+22,opposition_creative,evidence-depth adversarial,discussion,4,4,3,Creative vs hollow evidence,opp
