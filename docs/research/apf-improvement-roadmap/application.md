@@ -103,8 +103,15 @@
 - Campaign EPC CSV: **skipped** until real promotions exist — do not invent rows; calibrate stays gated.
 - MySQL may be down locally (`ECONNREFUSED :3306`) — unrelated to skip decision.
 
+## Round 18 (Way 1 prune rule coverage)
+
+- Exported `shouldPrune` / `shouldRetain` from `scripts/prune-thin-review-sources.mjs`.
+- Unit tests: retain competitors + high-trust retryable; prune aged thin web orphans + permanent 404/410; hold young thin web; never prune rich / already-pruned; permanent errors override high-trust hold.
+- Live `pnpm review:prune-thin` dry-run still needs MySQL up (`:3306`).
+
 ## Still open
 
 - After real Digistore campaigns: ≥3 weekly `net_epc`/`refund_rate` rows → `--import` → `pnpm promote:calibrate`
 - Set `TRUSTPILOT_API_KEY` and run `pnpm review:trustpilot --apply` (optional BYOK)
 - Wave E catalog re-enrich one-at-a-time when SearXNG/Brave is healthy (DELAY≥10s)
+- When MySQL is up: `pnpm review:prune-thin` dry-run → review sample → `--apply` if candidates look right

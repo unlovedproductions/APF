@@ -65,7 +65,7 @@ function isPermanentFetchError(message) {
   return PERMANENT_FETCH_RE.test(String(message || ""));
 }
 
-function shouldRetain(row, raw, tier) {
+export function shouldRetain(row, raw, tier) {
   if (row.source_type === "competitor" || raw.competitor_search) {
     return { retain: true, reason: "competitor_context" };
   }
@@ -78,7 +78,7 @@ function shouldRetain(row, raw, tier) {
   return { retain: false, reason: "" };
 }
 
-function shouldPrune(row, raw, tier, minAgeDays) {
+export function shouldPrune(row, raw, tier, minAgeDays) {
   if (raw.pruned_at) return { prune: false, reason: "already_pruned" };
   if (contentLen(raw) >= 50) return { prune: false, reason: "rich" };
 
