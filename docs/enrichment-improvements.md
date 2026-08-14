@@ -427,9 +427,9 @@ Ship A → B before broad re-enrich (E). C can land with A/B. D is incremental.
 - [x] Vendor sales-copy detection / narrative scrub (`enrichment-source-trust` + brief-finalize tests)
 - [x] Page-fetch candidate selection + attempt budget (`enrichment-page-fetch` tests)
 - [x] Enrichment job logs resolved name and queries using it (spot-check)
-- [ ] Digistore prompt fixture: no commission/EPC in `positive_signals`
+- [x] Digistore prompt fixture: no commission/EPC in `positive_signals`
 - [ ] APF → ShadowCast send: form shows real name + buyer price
-- [ ] Re-enriched sample of 5 Digistore products audited manually (blocked on Brave health 2026-08-03)
+- [ ] Re-enriched sample of 5 Digistore products audited manually (blocked on Brave health 2026-08-03; Wave E still open)
 
 ---
 

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import fs from "node:fs";
 import {
   attachCompetitorBuyerPrices,
   evidencePriceComparison,
@@ -253,6 +254,54 @@ describe("enrichment brief finalize", () => {
     );
     expect(brief.positive_signals).toContain("Solid packaging quality");
     expect(brief.common_complaints).toContain("Mixed shipping times");
+  });
+
+  it("Digistore fixture: strips commission/EPC from positive_signals even with review text", () => {
+    const reviews = [
+      {
+        url: "https://www.reddit.com/r/x/comments/abc/title/",
+        source_type: "web",
+        title: "Buyer thread",
+        snippet: "Customers report mixed shipping times.",
+        raw_json: { content_text: "Customers report mixed shipping times and refund friction after two weeks.".repeat(2) },
+      },
+    ];
+    const brief = finalizeBrief(
+      digistoreProduct,
+      {
+        review_summary: "Affiliates are seeing 5%+ conversion and $2 EPCs on cold traffic.",
+        positive_signals: [
+          "65% commission on Initial Sale",
+          "Affiliates are seeing strong EPC",
+          "Solid packaging quality",
+        ],
+        common_complaints: [
+          "2 Amazing Upsells with 60% commission",
+          "Mixed shipping times",
+        ],
+        best_video_angles: ["Worth it?"],
+        confidence_score: 80,
+        price_display: "Our Affiliates Are Seeing Over $2 EPCs",
+      },
+      reviews,
+      { hasVendorMaterial: true, reviewSources: reviews },
+    );
+
+    expect(brief.positive_signals).toEqual(["Solid packaging quality"]);
+    expect(brief.positive_signals.every((s) => !/commission|\bepc\b/i.test(s))).toBe(true);
+    expect(brief.common_complaints).toEqual(["Mixed shipping times"]);
+    expect(brief.review_summary.toLowerCase()).not.toMatch(/epc|commission|affiliates are seeing/);
+    expect(brief.price_display).toBe("$47.00");
+  });
+
+  it("Digistore prompt bans commission/EPC language in narrative fields", () => {
+    const prompt = fs.readFileSync(
+      new URL("../docs/prompts/enrichment-digistore24.txt", import.meta.url),
+      "utf8",
+    );
+    expect(prompt).toMatch(/ban affiliate|commission\/EPC|Avoid affiliate-marketer language/i);
+    expect(prompt).toMatch(/positive_signals and common_complaints must come from independent review/);
+    expect(prompt).toMatch(/Never invent brand names/);
   });
 
   it("restores default video angles when scrub removes every LLM angle", () => {

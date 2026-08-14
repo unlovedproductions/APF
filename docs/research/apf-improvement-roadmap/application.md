@@ -94,7 +94,17 @@
 - Added `pnpm promote:outcome --import path.csv` (+ template CSV) for real campaign rows.
 - Live calibrate: campaign ready_count still **0** (listing seeds alone cannot unlock scoring).
 
+## Round 17 (intel Phase A + campaign skip)
+
+- Sitejabber `trust_boost` demoted to **0** (still review tier; FTC pre-fulfilment context).
+- Probe-first page fetch; default probe max **12**; YouTube rich credit requires transcript.
+- Competitor buyer prices: `attachCompetitorBuyerPrices` + evidence `price_comparison`.
+- Digistore prompt/finalize fixture: commission/EPC stripped from `positive_signals` (unit tests).
+- Campaign EPC CSV: **skipped** until real promotions exist — do not invent rows; calibrate stays gated.
+- MySQL may be down locally (`ECONNREFUSED :3306`) — unrelated to skip decision.
+
 ## Still open
 
-- Fill real campaign EPC/refund CSV (≥3/product) → `--import` → `pnpm promote:calibrate`
-- Set `TRUSTPILOT_API_KEY` and run `pnpm review:trustpilot --apply` (optional)
+- After real Digistore campaigns: ≥3 weekly `net_epc`/`refund_rate` rows → `--import` → `pnpm promote:calibrate`
+- Set `TRUSTPILOT_API_KEY` and run `pnpm review:trustpilot --apply` (optional BYOK)
+- Wave E catalog re-enrich one-at-a-time when SearXNG/Brave is healthy (DELAY≥10s)
