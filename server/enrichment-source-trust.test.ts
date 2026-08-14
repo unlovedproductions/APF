@@ -30,6 +30,13 @@ describe("enrichment source trust", () => {
     expect(classifySourceHost("buygoods.com").tier).toBe("affiliate_noise");
   });
 
+  it("keeps Sitejabber as review tier with demoted trust after FTC order", () => {
+    expect(classifySourceHost("www.sitejabber.com").tier).toBe("review");
+    expect(classifySourceHost("sitejabber.com").trust_boost).toBe(0);
+    expect(classifySourceHost("trustpilot.com").trust_boost).toBe(20);
+    expect(classifySourceHost("reddit.com").trust_boost).toBe(20);
+  });
+
   it("detects vendor sales copy for narrative scrubbing", () => {
     expect(
       isVendorSalesCopy(

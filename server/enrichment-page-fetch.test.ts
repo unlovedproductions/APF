@@ -139,6 +139,26 @@ describe("enrichment page fetch", () => {
     expect(candidates.length).toBeLessThanOrEqual(4);
   });
 
+  it("fetches direct_probe URLs before generic web fillers", () => {
+    const { candidates } = selectPageFetchCandidates([
+      {
+        url: "https://random-blog.example/post",
+        relevance_score: 99,
+        trust_score: 99,
+        raw_json: {},
+      },
+      {
+        url: "https://www.trustpilot.com/review/josephs-well",
+        relevance_score: 10,
+        trust_score: 10,
+        raw_json: { direct_probe: true },
+      },
+    ], { limit: 2, maxAttempts: 4 });
+
+    expect(candidates[0].url).toContain("trustpilot.com");
+    expect(candidates[0].raw_json.direct_probe).toBe(true);
+  });
+
   it("loads transitive undici and pins DNS lookup to validated IPs", () => {
     const undici = loadUndici();
     expect(undici).toBeTruthy();

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   extractDigistore24Detail,
   extractBuyerPriceFromVendorMaterials,
+  extractShortBuyerPrice,
   isMarketplaceBrandName,
   resolveExportProductName,
   resolveProductCategory,
@@ -129,6 +130,12 @@ describe("digistore24 detail extractor", () => {
       sanitizeBuyerPrice("Joseph's Well Our Affiliates Are Seeing 5%+ Conversion Rates & Over $2 EPCs On ICE COLD Traffic!"),
     ).toBe("See official offer page");
     expect(sanitizeBuyerPrice("", 47)).toBe("$47.00");
+  });
+
+  it("extracts short buyer prices and skips EPC windows", () => {
+    expect(extractShortBuyerPrice("CircO2 costs $49.95 on the offer page")).toBe("$49.95");
+    expect(extractShortBuyerPrice("Price $67.00 Commission 60% EPC $2.10")).toBe("$67.00");
+    expect(extractShortBuyerPrice("Affiliates are seeing $2 EPCs on cold traffic")).toBe("");
   });
 
   it("extracts honest buyer prices from vendor materials", () => {

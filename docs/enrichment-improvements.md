@@ -103,9 +103,15 @@ Do these in sequence. Later items assume earlier ones exist.
 
 ## 3. Better competitors (retrieval + validate)
 
-### Problem
+### Status (shipped 2026-08-14)
 
-Competitors are LLM-only. `normalizeSuggestedCompetitors` falls back to synthetic names:
+Retrieval + validation is live: `competitorEvidenceQueries`, extract from hits/vendor copy/catalog, LLM constrained to candidates, no synthetic `Top/Popular/Budget …` placeholders, `<2` competitors demotes `vs_battle`/`elimination`.
+
+**Residual (this round):** attach competitor `price_display` from evidence hits and prefer evidence-built `price_comparison` over LLM filler. Do not reopen synthetic names.
+
+### Problem (historical)
+
+Competitors were LLM-only. `normalizeSuggestedCompetitors` fell back to synthetic names:
 
 ```js
 `Top ${category} alternative`
@@ -113,9 +119,9 @@ Competitors are LLM-only. `normalizeSuggestedCompetitors` falls back to syntheti
 `Budget ${category} option`
 ```
 
-Those poison ShadowCast `vs_battle` / `elimination` scripts.
+Those poisoned ShadowCast `vs_battle` / `elimination` scripts.
 
-### How
+### How (landed)
 
 #### 3a. Remove synthetic fallback
 
@@ -126,7 +132,7 @@ In `normalizeSuggestedCompetitors`:
 
 #### 3b. Dedicated competitor search pass
 
-After name resolution, run queries (new helper e.g. `competitorEvidenceQueries(product)`):
+After name resolution, run queries (`competitorEvidenceQueries(product)`):
 
 ```text
 "{name}" vs
@@ -154,13 +160,13 @@ Keep a competitor only if **at least one** of:
 - Matches another row in `products` (same platform or overlapping category), or
 - Appears in vendor sales copy “compare / vs” section with a clear product name
 
-Cap at 2–4. Store optional richer shape later:
+Cap at 2–4. Optional richer shape:
 
 ```json
-{ "name": "CircO2", "why": "same nitric-oxide niche", "source_url": "…" }
+{ "name": "CircO2", "why": "same nitric-oxide niche", "source_url": "…", "price_display": "$49.95" }
 ```
 
-ShadowCast can keep consuming string arrays; map `.name` on export until the UI is updated.
+ShadowCast keeps consuming string arrays; map `.name` on export until the UI is updated.
 
 #### 3e. Prompt change
 
@@ -170,11 +176,18 @@ In `enrichment-digistore24.txt` / `enrichment-generic.txt`:
 - Rule: `suggested_competitors` must be chosen from candidates only; empty array if none are real.
 - Never invent brand names.
 
+#### 3f. Competitor buyer prices (shipped this round)
+
+- `attachCompetitorBuyerPrices` scans competitor/search hit text for short `$` prices via `extractShortBuyerPrice` (rejects EPC windows).
+- `finalizeBrief` prefers `evidencePriceComparison` when rivals have `price_display`; otherwise keeps sanitized LLM/generic fallback.
+- Do **not** use Keepa/Rainforest for Digistore info products.
+
 ### Verify
 
 - No brief contains `Top .* alternative` / `Popular .* competitor`.
 - When vs-style is chosen, competitors are real product names.
 - Unit test: `normalizeSuggestedCompetitors` with empty LLM output → `[]`, not placeholders.
+- When hit text has `$59` near a rival name, `price_comparison` cites that figure.
 
 ---
 
@@ -194,7 +207,9 @@ Add / strengthen tiers:
 |--------------|------|-------|
 | `digistore24-app.com`, `digistore24.com` app/marketplace paths | `affiliate_noise` | ≤ −30 |
 | hop / promolink / jvzoo / warriorplus / clickbank | `affiliate_noise` | ≤ −25 |
-| trustpilot, sitejabber, reddit, bbb, scamadvisor | existing review/scam | keep |
+| trustpilot, reddit | review | +20 |
+| sitejabber | review | **0** (FTC pre-fulfilment ratings; keep probe, demote trust) |
+| bbb, scamadvisor | scam_advisor | keep |
 | youtube.com | video | keep / slight boost for “review” titles |
 
 #### 4b. `scoreSource` (`review-enrichment-worker.mjs`)
@@ -395,9 +410,9 @@ In `scripts/shadowcast-direct-lib.mjs` / Digistore extractors:
 | Slice | Scope | Outcome | Progress |
 |-------|--------|---------|----------|
 | **A** | §1 + §2 + §10 | Correct name/price in export and ShadowCast form | Largely shipped |
-| **B** | §3 | Real or empty competitors; no fake VS targets | Largely shipped |
+| **B** | §3 | Real or empty competitors; no fake VS targets | Shipped + competitor buyer prices (3f) |
 | **C** | §4 + §5 + §8 | Briefs stop treating affiliate chrome as reviews | Shipped — split before prompt, chrome/sales scrub, degrade gates, probe-title clear |
-| **D** | §6 + §7 | Deeper review text from Trustpilot/Reddit/YouTube | Partial — full-page fetch + candidate budget in; YouTube transcripts optional later |
+| **D** | §6 + §7 | Deeper review text from Trustpilot/Reddit/YouTube | Partial — probe-first fetch, Reddit JSON, YT transcript required for video rich; Trustpilot API still deferred |
 | **E** | §9 | Re-enrich Digistore catalog | Blocked on flaky Brave scrape (2026-08-03). R3.9: open-web queries first + 2-strike cooldown. Engine fallbacks (`SEARXNG_FALLBACK_ENGINES`) + optional Firecrawl then Oxylabs search (last; trial ~2k results / 10 jobs/s) when primary dies. Re-run one-at-a-time with DELAY≥10s after a stable probe. |
 
 Ship A → B before broad re-enrich (E). C can land with A/B. D is incremental.

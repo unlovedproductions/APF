@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  attachCompetitorBuyerPrices,
+  evidencePriceComparison,
   finalizeBrief,
   sanitizeJobErrorMessage,
   sanitizeNarrativeString,
@@ -269,5 +271,32 @@ describe("enrichment brief finalize", () => {
     );
     expect(brief.best_video_angles.length).toBeGreaterThan(0);
     expect(brief.best_video_angles.every((a) => !/commission/i.test(a))).toBe(true);
+  });
+
+  it("attaches competitor buyer prices from hit text and prefers evidence price_comparison", () => {
+    const priced = attachCompetitorBuyerPrices(
+      [{ name: "CircO2", source_url: "https://example.com/vs" }],
+      [{
+        url: "https://example.com/vs",
+        title: "Joseph's Well vs CircO2",
+        snippet: "CircO2 sells for $49.95 while Joseph's Well is $83.",
+      }],
+    );
+    expect(priced[0].price_display).toBe("$49.95");
+    expect(evidencePriceComparison(digistoreProduct, priced, "$83.45")).toContain("CircO2 $49.95");
+
+    const brief = finalizeBrief(
+      digistoreProduct,
+      {
+        review_summary: "Limited independent public reviews; verify the offer page.",
+        best_video_angles: ["Worth it?"],
+        price_comparison: "Invented rival is $9 forever",
+        confidence_score: 40,
+      },
+      [],
+      { hasVendorMaterial: true, reviewSources: [], competitorCandidates: priced },
+    );
+    expect(brief.price_comparison).toContain("CircO2 $49.95");
+    expect(brief.price_comparison).not.toMatch(/Invented rival/);
   });
 });
