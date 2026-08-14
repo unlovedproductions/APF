@@ -71,6 +71,37 @@ export function applyClaimLedgerToExport(reviewBrief, vendorMaterials = [], revi
   return { claim_ledger: claimLedger, common_claims: commonClaims };
 }
 
+/** Pure send-time identity for ShadowCast form fields (no DB). */
+export function resolveShadowCastFormIdentity({
+  platform,
+  product,
+  reviewBrief = null,
+  vendorMaterials = [],
+} = {}) {
+  const isDigistore = String(platform || product?.platform || "").toLowerCase() === "digistore24";
+  const cartValue = product?.cartValue;
+  const aggregateSales = product?.aggregateSales;
+  const resolvedName = isDigistore
+    ? resolveExportProductName(product, vendorMaterials)
+    : clean(product?.name || "");
+  const sanitizedBriefPrice = sanitizeBuyerPrice(reviewBrief?.price_display || "", cartValue);
+  const priceDisplay = isDigistore
+    ? sanitizedBriefPrice
+    : (
+      (reviewBrief?.price_display && sanitizedBriefPrice !== "See official offer page")
+        ? sanitizedBriefPrice
+        : (cartValue ? `$${Number(cartValue).toFixed(2)}` : "")
+          || (aggregateSales && Number(aggregateSales) > 0
+            ? `$${Number(aggregateSales).toFixed(2)} avg payout`
+            : "Varies")
+    );
+  return {
+    isDigistore,
+    product_name: resolvedName || clean(product?.name || ""),
+    price: priceDisplay,
+  };
+}
+
 function sourceContentExcerpt(row) {
   const raw = parseJson(row?.raw_json, {}) || {};
   return clean(raw.content_text || "").slice(0, 2000);
@@ -294,9 +325,12 @@ export async function buildPayload(productId) {
       reviewBrief.claim_ledger = claimLedger;
       reviewBrief.common_claims = seededClaims;
     }
-    const resolvedName = isDigistore
-      ? resolveExportProductName(p, mappedVendorMaterials)
-      : clean(p.name || "");
+    const { product_name: resolvedName, price: priceDisplay } = resolveShadowCastFormIdentity({
+      platform: p.platform,
+      product: p,
+      reviewBrief,
+      vendorMaterials: mappedVendorMaterials,
+    });
     const couponCode = clean(reviewBrief?.coupon_code || "");
     const rawDiscount = clean(reviewBrief?.discount_info || "");
     const discountLower = rawDiscount.toLowerCase();
@@ -315,17 +349,6 @@ export async function buildPayload(productId) {
       ? reviewBrief.suggested_competitors
       : [];
     const recommendedStyle = reviewBrief?.recommended_content_style || (isDigistore ? "worth_it_or_waste" : "honest_review");
-    const sanitizedBriefPrice = sanitizeBuyerPrice(reviewBrief?.price_display || "", p.cartValue);
-    const priceDisplay = isDigistore
-      ? sanitizedBriefPrice
-      : (
-        (reviewBrief?.price_display && sanitizedBriefPrice !== "See official offer page")
-          ? sanitizedBriefPrice
-          : (p.cartValue ? `$${Number(p.cartValue).toFixed(2)}` : "")
-            || (p.aggregateSales && Number(p.aggregateSales) > 0
-              ? `$${Number(p.aggregateSales).toFixed(2)} avg payout`
-              : "Varies")
-      );
     const consumerUsp = reviewBrief?.review_summary
       || keyFeatures[0]
       || clean(p.description).slice(0, 240);

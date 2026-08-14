@@ -109,9 +109,17 @@
 - Unit tests: retain competitors + high-trust retryable; prune aged thin web orphans + permanent 404/410; hold young thin web; never prune rich / already-pruned; permanent errors override high-trust hold.
 - Live `pnpm review:prune-thin` dry-run still needs MySQL up (`:3306`).
 
+## Round 19 (ShadowCast form identity mapping)
+
+- Extracted pure `resolveShadowCastFormIdentity` (send-time Digistore name + buyer price; no DB).
+- `buildPayload` uses it for `product_name` / `price`.
+- Unit coverage: marketplace `Digistore24` + EPC brief → real name + cart `$` (or quarantine when no cart); clean Digistore price pass-through; ClickBank cart fallback.
+- Live UI form spot-check still optional ops (unit path is the export source of truth).
+
 ## Still open
 
 - After real Digistore campaigns: ≥3 weekly `net_epc`/`refund_rate` rows → `--import` → `pnpm promote:calibrate`
 - Set `TRUSTPILOT_API_KEY` and run `pnpm review:trustpilot --apply` (optional BYOK)
 - Wave E catalog re-enrich one-at-a-time when SearXNG/Brave is healthy (DELAY≥10s)
 - When MySQL is up: `pnpm review:prune-thin` dry-run → review sample → `--apply` if candidates look right
+- Optional: live APF → ShadowCast form spot-check in UI

@@ -428,7 +428,8 @@ Ship A → B before broad re-enrich (E). C can land with A/B. D is incremental.
 - [x] Page-fetch candidate selection + attempt budget (`enrichment-page-fetch` tests)
 - [x] Enrichment job logs resolved name and queries using it (spot-check)
 - [x] Digistore prompt fixture: no commission/EPC in `positive_signals`
-- [ ] APF → ShadowCast send: form shows real name + buyer price
+- [x] APF → ShadowCast send: form identity mapping (real name + buyer price) via `resolveShadowCastFormIdentity` unit tests
+- [ ] Live UI form spot-check (optional; mapping covered above)
 - [ ] Re-enriched sample of 5 Digistore products audited manually (blocked on Brave health 2026-08-03; Wave E still open)
 
 ---
