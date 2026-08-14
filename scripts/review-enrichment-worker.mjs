@@ -35,6 +35,7 @@ import {
 import { coerceLlmBriefPayload, flattenBriefValue } from "./enrichment-brief-coerce.mjs";
 import {
   briefText,
+  attachCompetitorBuyerPrices,
   derivePriceDisplay,
   finalizeBrief,
   sanitizeJobErrorMessage,
@@ -1485,10 +1486,13 @@ async function processJob(conn, job) {
     catalogMatches = [];
   }
 
-  const competitorCandidates = extractCompetitorCandidatesFromHits(
+  const competitorCandidates = attachCompetitorBuyerPrices(
+    extractCompetitorCandidatesFromHits(
+      [...competitorHits, ...sources],
+      enrichProduct,
+      { vendorMaterials, catalogMatches, vendor: creatorVendor || product.vendor },
+    ),
     [...competitorHits, ...sources],
-    enrichProduct,
-    { vendorMaterials, catalogMatches, vendor: creatorVendor || product.vendor },
   );
 
   const { claimSources, reviewSources } = splitClaimAndReviewSources(sources, vendorDomains);

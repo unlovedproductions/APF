@@ -232,6 +232,24 @@ export function sanitizeBuyerPrice(value, cartValue) {
   return "See official offer page";
 }
 
+/** Pull a short buyer price from prose without cartValue fallback (competitor rows). */
+export function extractShortBuyerPrice(text) {
+  const hay = clean(text, 4000);
+  if (!hay) return "";
+  const matches = [...hay.matchAll(/\$\s*(\d{1,4}(?:\.\d{2})?)/g)];
+  for (const match of matches) {
+    const n = Number(match[1]);
+    if (!Number.isFinite(n) || n < 5 || n > 5000) continue;
+    const idx = match.index ?? 0;
+    const window = hay.slice(Math.max(0, idx - 48), idx + 48).toLowerCase();
+    const hasAffiliate = AFFILIATE_PRICE_MARKERS.some((marker) => window.includes(marker));
+    if (hasAffiliate && !/\bprice\b/.test(window)) continue;
+    const sanitized = sanitizeBuyerPrice(`$${n.toFixed(2)}`);
+    if (/^\$\d/.test(sanitized)) return sanitized;
+  }
+  return "";
+}
+
 /**
  * Extract a buyer-facing price from vendor materials without inventing.
  * Prefer order/sales "only $X" / add-to-cart copy; then Digistore marketplace

@@ -8,7 +8,7 @@ import {
   stripAffiliateMetaLines,
   substantiveReviewSources,
 } from "./enrichment-source-trust.mjs";
-import { sanitizeBuyerPrice } from "./digistore24-detail-extractor.mjs";
+import { sanitizeBuyerPrice, extractShortBuyerPrice } from "./digistore24-detail-extractor.mjs";
 import {
   resolveExportClaimLedger,
   seedCommonClaimsFromLedger,
@@ -70,6 +70,42 @@ export function derivePriceDisplay(product) {
   return String(product?.platform || "").toLowerCase() === "digistore24"
     ? "See official offer page"
     : "Varies";
+}
+
+export function attachCompetitorBuyerPrices(candidates = [], hits = []) {
+  const list = Array.isArray(candidates) ? candidates : [];
+  const pool = Array.isArray(hits) ? hits : [];
+  return list.map((candidate) => {
+    const existing = typeof candidate === "string"
+      ? { name: candidate }
+      : { ...candidate };
+    if (existing.price_display) return existing;
+    const name = String(existing.name || "").trim().toLowerCase();
+    if (!name) return existing;
+    const related = pool.filter((hit) => {
+      if (existing.source_url && hit?.url === existing.source_url) return true;
+      const hay = `${hit?.title || ""} ${hit?.snippet || ""} ${hit?.raw_json?.content_text || ""}`.toLowerCase();
+      return hay.includes(name);
+    });
+    const hay = related
+      .map((hit) => `${hit?.title || ""} ${hit?.snippet || ""} ${hit?.raw_json?.content_text || ""}`)
+      .join(" ");
+    const price_display = extractShortBuyerPrice(hay);
+    return price_display ? { ...existing, price_display } : existing;
+  });
+}
+
+export function evidencePriceComparison(product, candidates = [], subjectPrice = "") {
+  const priced = (Array.isArray(candidates) ? candidates : [])
+    .map((c) => ({
+      name: String(typeof c === "string" ? c : c?.name || "").trim(),
+      price: String(typeof c === "string" ? "" : c?.price_display || "").trim(),
+    }))
+    .filter((c) => c.name && /^\$\d/.test(c.price));
+  if (!priced.length) return "";
+  const subject = sanitizeBuyerPrice(subjectPrice || derivePriceDisplay(product), product.cartValue);
+  const rival = priced.slice(0, 3).map((c) => `${c.name} ${c.price}`).join("; ");
+  return `${product.name} is ${subject} versus ${rival}.`;
 }
 
 function inferContentStyleFromAngles(angles = []) {
@@ -211,10 +247,18 @@ export function finalizeBrief(product, brief, sources = [], options = {}) {
       brief.price_display || derivePriceDisplay(product),
       product.cartValue,
     ),
-    price_comparison: sanitizeNarrativeString(
-      brief.price_comparison,
-      `Compare the current ${derivePriceDisplay(product)} offer against 2-3 category alternatives before buying.`,
-    ),
+    price_comparison: (() => {
+      const fromEvidence = evidencePriceComparison(
+        product,
+        competitorCandidates,
+        brief.price_display || derivePriceDisplay(product),
+      );
+      if (fromEvidence) return fromEvidence;
+      return sanitizeNarrativeString(
+        brief.price_comparison,
+        `Compare the current ${derivePriceDisplay(product)} offer against 2-3 category alternatives before buying.`,
+      );
+    })(),
     series_name: seriesNameForStyle(recommended_content_style),
     coupon_code: "",
     evidence_coverage: coverage,

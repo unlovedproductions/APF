@@ -76,7 +76,7 @@ describe("enrichment source trust", () => {
       vendor: "Acme Labs",
     });
     expect(probes.length).toBeGreaterThan(0);
-    expect(probes.length).toBeLessThanOrEqual(8);
+    expect(probes.length).toBeLessThanOrEqual(12);
     expect(probes.every((p) => p.raw_json?.direct_probe === true)).toBe(true);
     expect(probes.some((p) => /trustpilot\.com/.test(p.url))).toBe(true);
     expect(probes.some((p) => /sitejabber\.com/.test(p.url))).toBe(true);

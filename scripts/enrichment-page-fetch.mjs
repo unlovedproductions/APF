@@ -196,12 +196,14 @@ export function isHighTrustFetchCandidate(source, vendorDomains = new Set()) {
 function fetchTierRank(source, vendorDomains = new Set()) {
   const host = hostnameFromUrl(source?.url);
   const tier = classifySourceHost(host).tier;
+  const raw = source?.raw_json && typeof source.raw_json === "object" ? source.raw_json : {};
   if (youtubeVideoId(source?.url)) return 0;
-  if (tier === "review" || tier === "scam_advisor") return 1;
-  if (tier === "video") return 2;
-  if (tier === "retailer") return 3;
-  if (vendorDomains.has(host)) return 4;
-  return 5;
+  if (raw.direct_probe) return 1;
+  if (tier === "review" || tier === "scam_advisor") return 2;
+  if (tier === "video") return 3;
+  if (tier === "retailer") return 4;
+  if (vendorDomains.has(host)) return 5;
+  return 6;
 }
 
 function isPermanentFetchError(message) {
@@ -958,8 +960,22 @@ export async function enrichSourceContent(source, options = {}) {
   const videoId = youtubeVideoId(source?.url);
   try {
     if (videoId) {
+      const maxAgeMs = Number(
+        options.maxAgeMs
+        ?? (Number(options.maxAgeDays || 14) * 24 * 60 * 60 * 1000),
+      );
+      const youtubeFetchedAt = Date.parse(String(rawJson.fetched_at || ""));
+      if (
+        rawJson.fetch_provider === "youtube"
+        && Number.isFinite(youtubeFetchedAt)
+        && (Date.now() - youtubeFetchedAt) <= maxAgeMs
+        && !options.forceRefresh
+      ) {
+        return { ...source, raw_json: rawJson };
+      }
       const metadata = await fetchYouTubeMetadata(source.url, options);
       const transcript = await fetchYouTubeTranscript(videoId, options);
+      const transcriptText = cleanText(transcript || "", options.textLimit || 8000);
       return {
         ...source,
         title: metadata.video_title || source.title,
@@ -967,13 +983,8 @@ export async function enrichSourceContent(source, options = {}) {
           ...rawJson,
           ...metadata,
           youtube_video_id: videoId,
-          content_text: transcript || cleanText(
-            [metadata.video_title, metadata.channel_name, source.snippet]
-              .filter(Boolean)
-              .join(" — "),
-            options.textLimit || 8000,
-          ),
-          transcript_fetched: Boolean(transcript),
+          content_text: transcriptText,
+          transcript_fetched: Boolean(transcriptText),
           fetched_at: new Date().toISOString(),
           fetch_provider: "youtube",
         },

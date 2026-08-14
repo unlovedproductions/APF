@@ -8,7 +8,8 @@ export const SERIES_NAMES = {
 };
 
 const RETAILERS = new Set(["amazon.com", "walmart.com", "target.com", "bestbuy.com", "costco.com", "homedepot.com"]);
-const REVIEW_SITES = new Set(["trustpilot.com", "sitejabber.com", "reddit.com"]);
+const REVIEW_SITES = new Set(["trustpilot.com", "reddit.com"]);
+const LOW_TRUST_REVIEW_SITES = new Set(["sitejabber.com"]);
 const SCAM_ADVISORS = new Set(["scamadvisor.com", "scam-detector.com", "bbb.org"]);
 const AFFILIATE_NOISE_HOSTS = new Set([
   "digistore24-app.com",
@@ -75,6 +76,9 @@ export function classifySourceHost(host) {
     return { source_type: "web", trust_boost: -30, tier: "affiliate_noise" };
   }
   if (matchesDomain(normalized, RETAILERS)) return { source_type: "retailer", trust_boost: 25, tier: "retailer" };
+  if (matchesDomain(normalized, LOW_TRUST_REVIEW_SITES)) {
+    return { source_type: "review", trust_boost: 0, tier: "review" };
+  }
   if (matchesDomain(normalized, REVIEW_SITES)) return { source_type: "review", trust_boost: 20, tier: "review" };
   if (matchesDomain(normalized, SCAM_ADVISORS)) return { source_type: "scam_advisor", trust_boost: 30, tier: "scam_advisor" };
   if (matchesDomain(normalized, new Set(["youtube.com", "youtu.be"]))) {
@@ -458,7 +462,7 @@ export function directReviewSiteCandidates(product = {}, options = {}) {
   const label = name || vendor;
   if (!label) return [];
 
-  const max = Math.max(1, Number(options.max || 8));
+  const max = Math.max(1, Number(options.max || 12));
   const slug = slugifyForReviewUrl(name || vendor);
   const vendorSlug = slugifyForReviewUrl(vendor || name);
   const q = encodeURIComponent(label);
