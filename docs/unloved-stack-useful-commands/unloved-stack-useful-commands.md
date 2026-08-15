@@ -1,7 +1,7 @@
 ---
 title: Unloved Stack Useful Commands
 author: Unloved Productions
-date: July 2026
+date: August 2026
 ---
 
 # Unloved Stack Useful Commands
@@ -39,15 +39,25 @@ REVIEW_ENRICHMENT_ENABLED=true
 REVIEW_ENRICHMENT_PROVIDER=searxng
 SEARXNG_BASE_URL=http://localhost:8088
 SEARXNG_ENGINES=brave
-REVIEW_ENRICHMENT_SEARCH_DELAY_MS=5000
+SEARXNG_FALLBACK_ENGINES=bing,duckduckgo
+REVIEW_ENRICHMENT_SEARCH_DELAY_MS=8000
 REVIEW_ENRICHMENT_MAX_QUERIES=4
 REVIEW_ENRICHMENT_MAX_VENDOR_QUERIES=2
 # Rich full-page successes to collect (default 6)
 REVIEW_ENRICHMENT_FULL_PAGE_LIMIT=6
 # Max fetch attempts while filling that quota (default 18)
 REVIEW_ENRICHMENT_FULL_PAGE_MAX_ATTEMPTS=18
+# Playwright stealth → Jina → Firecrawl escalate for thin/blocked pages
+# REVIEW_ENRICHMENT_PLAYWRIGHT_STEALTH=1
+# Prefer self-hosted Firecrawl; cloud BYOK if BASE_URL unset + FIRECRAWL_API_KEY
+# FIRECRAWL_BASE_URL=http://localhost:3002/v2
+# FIRECRAWL_API_KEY=
+# Oxylabs last SERP fallback
+# OXYLABS_USERNAME=
+# OXYLABS_PASSWORD=
+# TRUSTPILOT_API_KEY=
 # Free recovery after CAPTCHA/rate-limits: docker restart unloved-searxng, wait,
-# probe until hits return (`&engines=brave`), then re-enrich slowly (DELAY_MS>=5000, MAX_RETRIES=1).
+# probe until hits return, then re-enrich slowly (DELAY_MS>=8000, MAX_RETRIES=1).
 # Brave Search API is optional/paid-adjacent — not required for free-only.
 OLLAMA_BASE_URL=http://localhost:11434
 SHADOWCAST_BASE_URL=http://localhost:8000
@@ -144,6 +154,14 @@ python -m uvicorn app:app --host 0.0.0.0 --port 8000 --reload
 | `pnpm review:once` | Process one job and exit |
 | `pnpm review:status` | Queue status + products not yet complete |
 | `pnpm review:requeue-digistore24` | Re-queue all Digistore24 + seed vendor materials |
+| `pnpm review:dqs` | Digistore enrichment DQS snapshot (`--write` optional) |
+| `pnpm review:prune-thin` | Soft-prune thin review sources (`--days 0` disables age gate) |
+| `pnpm review:depth-backfill` | Depth backfill pass |
+| `pnpm review:trustpilot` | Trustpilot Business Units collector (keyed; dry-run default) |
+| `pnpm digistore:refresh-names` | Refresh Digistore placeholder names from vendor materials |
+| `pnpm promote:outcome` | Log / import campaign promote outcomes |
+| `pnpm promote:outcomes:list` | List promote outcomes |
+| `pnpm promote:calibrate` | Apply gated Hidden Gem calibration (≥3 real `promote_result`) |
 
 ### Typical enrichment flow
 

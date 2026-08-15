@@ -26,6 +26,24 @@
 - ShadowCast handoff smoke test:
   - `pnpm local:smoke-test`
 
+## Enrichment & promote ops
+- Digistore DQS snapshot:
+  - `pnpm review:dqs` (add `--write` to save under research folder)
+- Soft-prune thin review sources:
+  - `pnpm review:prune-thin` (add `--days 0` to disable age gate)
+- Depth backfill:
+  - `pnpm review:depth-backfill`
+- Trustpilot collector (needs `TRUSTPILOT_API_KEY`; dry-run default):
+  - `pnpm review:trustpilot`
+- Refresh Digistore placeholder names:
+  - `pnpm digistore:refresh-names` (`--dry-run` / `--product-id`)
+- Log / import / list promote outcomes:
+  - `pnpm promote:outcome`
+  - `pnpm promote:outcome --import path.csv`
+  - `pnpm promote:outcomes:list`
+- Apply gated calibration (≥3 real `promote_result` rows):
+  - `pnpm promote:calibrate`
+
 ## Health Checks
 - Type checks:
   - `pnpm check`
@@ -40,5 +58,5 @@
 
 ## Common Failures
 - DB connection failures: verify MySQL and `DATABASE_URL`.
-- Enrichment stalls: check SearXNG/Ollama reachability and `pnpm review:status`.
-- ShadowCast send failures: verify `SHADOWCAST_BASE_URL` and shared `INTERNAL_SERVICE_SECRET`.
+- Enrichment stalls: check SearXNG/Ollama reachability and `pnpm review:status`; after Brave/CAPTCHA blocks try `SEARXNG_FALLBACK_ENGINES=bing,duckduckgo` or restart SearXNG.
+- ShadowCast send failures: verify `SHADOWCAST_BASE_URL` and shared `INTERNAL_SERVICE_SECRET`; UI export requires enrichment `complete`.

@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- Sentry observability: Express errors/traces/profiling (`SENTRY_DSN`), structured logs with PII stripping, React client errors + browser tracing (`VITE_SENTRY_DSN`)
+- Oxylabs SERP as last search fallback after Firecrawl (`OXYLABS_USERNAME` / `OXYLABS_PASSWORD`)
+- Playwright stealth full-page fetch escalate path (`REVIEW_ENRICHMENT_PLAYWRIGHT_STEALTH`); prefer self-hosted Firecrawl (`FIRECRAWL_BASE_URL`) over cloud BYOK
+- Review-brief `claim_ledger` persistence + Digistore vendor-material extraction hardened against affiliate meta chrome
+- Competitor buyer-price attachment on suggested competitors; deeper Phase A probe corpus (Sitejabber demotion covered in tests)
 - `pnpm promote:outcome --import path.csv` — bulk campaign promote_result import (rejects `listing_signal` notes); template at `docs/research/apf-improvement-roadmap/promote-result.template.csv`
 - `pnpm review:trustpilot` — Way 3 Phase B Trustpilot Business Units API collector (`TRUSTPILOT_API_KEY`, dry-run default, cursor file under `.data/`)
 - Way 3 Phase A: Digistore direct review probes `max: 12`; Reddit public `.json` body fetch (`redditJsonUrl` / `reddit_json` provider)
@@ -25,8 +30,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `REVIEW_ENRICHMENT_FULL_PAGE_LIMIT` and `REVIEW_ENRICHMENT_FULL_PAGE_MAX_ATTEMPTS` for full-page fetch success target and attempt budget
 - Vendor sales-copy detector (`isVendorSalesCopy`) used when sanitizing narrative fields and video angles
 - Page-fetch candidate ranking: tier preference (YouTube → review/scam → video → retailer → vendor), skip permanent fetch errors, retry until rich-page quota or attempt budget exhausted
-- Unit coverage for brief finalize scrubbing, page-fetch candidate selection, and vendor-sales detection
+- Unit coverage for brief finalize scrubbing, page-fetch candidate selection, vendor-sales detection, ShadowCast Digistore name/price send-time locks, and thin-source prune rules
 - Holistic improvement deep research under `docs/research/apf-improvement-roadmap/`
+- Product-vendor-intel deep research under `docs/research/` (scrape, reviews, pricing)
 
 ### Fixed
 
@@ -35,12 +41,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Digistore daemon client: long `/collect` no longer dies at ~300s (undici/fetch headers timeout). Uses `node:http` with overall deadline = login wait + ~90s/product.
 - Digistore daemon `/health` no longer calls `ensureBrowser()` (was racing the shared page during collect and spamming logs). Collect is single-flight (`collectBusy` → 409).
 - Digistore daemon `ensureBrowser`: real liveness ping (`browser.isConnected` + `page.evaluate`) so dead Firefox contexts are relaunched instead of failing on `newPage`.
+- Sentry Node preload so Express instrumentation starts correctly
 
 ### Changed
 
 - Soft-prune pass: all-rich **80.7%**, deep **67.7%**, high-trust **96.7%** (pruned 367); ≥60% all-rich target cleared
 - Way 2 depth-backfill pass: all-rich **48.9%**, high-trust rich **96.7%**, deep **32.4%** (was ~42% / ~79% / ~24%); +28 newly rich sources
-- Digistore catalog: **11/11** briefs `complete`, live DQS **97**, rich-source rate **9.3%** (was 10/10 / ~8%)
+- Digistore catalog Wave E re-enrich: **11/11** briefs `complete`, live DQS **97**, rich-source rate **9.3%** (was 10/10 / ~8%)
 - Vendor title junk filter skips page-not-found / Coda 404 titles during name resolution
 - Digistore catalog §9 re-enrich: **10/10** briefs `complete`, live DQS **97** (was 70 / 1/10 complete)
 - Default `SEARXNG_FALLBACK_ENGINES` is now `bing,duckduckgo` (Bing returned hits while Brave was rate-limited)
@@ -51,6 +58,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Digistore thin-evidence path prefers an honest limited-independent summary over offer-page sales pitch
 - Enrichment worker logs page-fetch success/attempt counts per product
 - Enrichment rescore + score backfill feed `promote_result` rows into gated calibration
+- Thin/blocked page escalate order: Playwright stealth → Jina → Firecrawl
 
 ## [2026-08-02]
 

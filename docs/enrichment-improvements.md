@@ -412,7 +412,7 @@ In `scripts/shadowcast-direct-lib.mjs` / Digistore extractors:
 | **A** | §1 + §2 + §10 | Correct name/price in export and ShadowCast form | Largely shipped |
 | **B** | §3 | Real or empty competitors; no fake VS targets | Shipped + competitor buyer prices (3f) |
 | **C** | §4 + §5 + §8 | Briefs stop treating affiliate chrome as reviews | Shipped — split before prompt, chrome/sales scrub, degrade gates, probe-title clear |
-| **D** | §6 + §7 | Deeper review text from Trustpilot/Reddit/YouTube | Partial — probe-first fetch, Reddit JSON, YT transcript required for video rich; Trustpilot API still deferred |
+| **D** | §6 + §7 | Deeper review text from Trustpilot/Reddit/YouTube | Partial — probe-first fetch, Reddit JSON, YT transcript for video rich, Playwright stealth escalate; `pnpm review:trustpilot` shipped (keyed / dry-run default) |
 | **E** | §9 | Re-enrich Digistore catalog | **Done 2026-08-15** — 11/11 `complete`, DQS **97** (duckduckgo+bing; Brave RL). Manual ~5-product audit still recommended. |
 
 Ship A → B before broad re-enrich (E). C can land with A/B. D is incremental.

@@ -24,7 +24,13 @@ APF (Affiliate Product Finder) identifies and scores affiliate products, enriche
 - `REVIEW_ENRICHMENT_ENABLED`
 - `REVIEW_ENRICHMENT_PROVIDER`
 - `SEARXNG_BASE_URL`
+- `SEARXNG_FALLBACK_ENGINES`
 - `OLLAMA_BASE_URL`
+- `SENTRY_DSN` / `VITE_SENTRY_DSN` (optional observability)
+- `FIRECRAWL_BASE_URL` / `FIRECRAWL_API_KEY` (optional search/scrape fallback)
+- `OXYLABS_USERNAME` / `OXYLABS_PASSWORD` (optional last SERP fallback)
+- `TRUSTPILOT_API_KEY` (optional `pnpm review:trustpilot`)
+- `APF_ALLOW_DEGRADED_EXPORT` (optional ShadowCast degraded-brief export)
 
 Do not store secret values in docs. Keep values in local env files only.
 
@@ -80,5 +86,5 @@ Do not store secret values in docs. Keep values in local env files only.
 - Mission Control consumes APF APIs and expects aligned `INTERNAL_SERVICE_SECRET`.
 
 ## 11) Last Verified
-- Date: 2026-07-09
-- Commit: `c397ac3`
+- Date: 2026-08-15
+- Commit: `a104c09`

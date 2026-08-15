@@ -8,7 +8,7 @@
 
 ### 1. Multi-Marketplace Discovery
 - **WarriorPlus Integration:** Direct API-level access to the latest WarriorPlus offers.
-- **Digistore24 (Firefox daemon):** Logged-in Firefox session collects affiliate marketplace products, promotes/extracts account-tied promolinks when possible, and scores them with `digistore24_native_v1` (no Digistore REST API key required for this path).
+- **Digistore24 (Firefox daemon):** Logged-in Firefox session collects affiliate marketplace products, promotes/extracts account-tied promolinks when possible, and scores them with `digistore24_native_v2` (no Digistore REST API key required for this path).
 - **ClickBank Integration:** Added a new backend module that parses the ClickBank Marketplace XML feed and applies a custom "Hidden Gem" scoring algorithm based on gravity and sales velocity.
 - **ShareASale Integration:** Implemented a secure API-based integration using SHA256 signatures. It allows you to search for merchants and evaluate them based on EPC (Earnings Per Click) and reversal rates.
 - **Historical Caching:** Local database storage for tracking product performance over time.
@@ -16,8 +16,9 @@
 ### 2. "Hidden Gem" Scoring Algorithm
 Marketplace scorers differ by platform:
 - **WarriorPlus:** Recency / growth / competition / quality from sales and refund signals.
-- **Digistore24 (`digistore24_native_v1`):** Heuristic 0–100 score from structured marketplace fields + affiliate readiness + enrichment confidence (not full Digistore sales/refund history).
+- **Digistore24 (`digistore24_native_v2`):** Heuristic 0–100 score from structured marketplace fields + affiliate readiness + listing refund/cancel rate in quality (enrichment confidence is not part of the score; not full Digistore sales history).
 - **ClickBank / ShareASale:** Gravity, velocity, EPC, and reversal-oriented signals as implemented in each client.
+- **Promote calibration:** Real campaign `promote_result` rows (`pnpm promote:outcome` / `promote:calibrate`) gate Hidden Gem calibration once ≥3 outcomes exist.
 
 ### 3. Product Management & Research
 - **Bookmarks System:** Save high-potential products and track their status (Interested → Researching → Promoting → Archived).
@@ -28,8 +29,8 @@ Marketplace scorers differ by platform:
 ### 4. Direct Integration with ShadowCast
 APF is the primary "source engine" for the **ShadowCast** video generator:
 - **Enriched payload:** `apf_shadowcast_enriched_v1` via `POST /api/import-apf/direct` (shared `INTERNAL_SERVICE_SECRET`).
-- **UI handoff:** Product detail **Send to ShadowCast** and batch export return draft `open_url`s.
-- **Review enrichment:** SearXNG + Ollama fill briefs/sources before a full handoff (see `LOCAL_SHADOWCAST.md`).
+- **UI handoff:** Product detail **Send to ShadowCast** and batch export return draft `open_url`s; UI/workflow export requires enrichment `complete` (`complete_degraded` quarantined unless `APF_ALLOW_DEGRADED_EXPORT` / CLI `--force`).
+- **Review enrichment:** SearXNG (+ engine fallbacks) → optional Firecrawl → Oxylabs SERP; full-page escalate Playwright stealth → Jina → Firecrawl; Ollama briefs (see `LOCAL_SHADOWCAST.md`).
 - **JSON export:** CLI/UI export still available when you want a file instead of live import.
 
 ---
