@@ -116,10 +116,18 @@
 - Unit coverage: marketplace `Digistore24` + EPC brief → real name + cart `$` (or quarantine when no cart); clean Digistore price pass-through; ClickBank cart fallback.
 - Live UI form spot-check still optional ops (unit path is the export source of truth).
 
+## Round 20 (Wave E Digistore re-enrich)
+
+- Started `apf-mysql` Docker; paused review-enrichment daemon for exclusive queue (restarted after).
+- Brave SearXNG engine was rate-limited (`too many requests`); ran with `SEARXNG_ENGINES=duckduckgo` + `bing` fallback, `REVIEW_ENRICHMENT_SEARCH_DELAY_MS=10000`.
+- Re-enriched Digistore catalog **ids 1–11** one-at-a-time (Playwright often hangs on exit — reap after job terminal).
+- Live DQS after Wave E: **97** · `complete` **11/11** · avg confidence **45.5** · synthetic competitors **0** · affiliate chrome **0**.
+- Note: several briefs show `price_display=$67` or quarantine — spot-check buyer prices on send; cart refresh may still help.
+
 ## Still open
 
 - After real Digistore campaigns: ≥3 weekly `net_epc`/`refund_rate` rows → `--import` → `pnpm promote:calibrate`
 - Set `TRUSTPILOT_API_KEY` and run `pnpm review:trustpilot --apply` (optional BYOK)
-- Wave E catalog re-enrich one-at-a-time when SearXNG/Brave is healthy (DELAY≥10s)
-- When MySQL is up: `pnpm review:prune-thin` dry-run → review sample → `--apply` if candidates look right
-- Optional: live APF → ShadowCast form spot-check in UI
+- `pnpm review:prune-thin` dry-run → review sample → `--apply` if candidates look right (MySQL is up)
+- Optional: live APF → ShadowCast form spot-check in UI (+ buyer-price sample for `$67` / quarantine rows)
+- Manual audit of ~5 Digistore briefs post–Wave E

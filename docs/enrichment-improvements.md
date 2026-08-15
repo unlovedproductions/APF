@@ -413,7 +413,7 @@ In `scripts/shadowcast-direct-lib.mjs` / Digistore extractors:
 | **B** | §3 | Real or empty competitors; no fake VS targets | Shipped + competitor buyer prices (3f) |
 | **C** | §4 + §5 + §8 | Briefs stop treating affiliate chrome as reviews | Shipped — split before prompt, chrome/sales scrub, degrade gates, probe-title clear |
 | **D** | §6 + §7 | Deeper review text from Trustpilot/Reddit/YouTube | Partial — probe-first fetch, Reddit JSON, YT transcript required for video rich; Trustpilot API still deferred |
-| **E** | §9 | Re-enrich Digistore catalog | Blocked on flaky Brave scrape (2026-08-03). R3.9: open-web queries first + 2-strike cooldown. Engine fallbacks (`SEARXNG_FALLBACK_ENGINES`) + optional Firecrawl then Oxylabs search (last; trial ~2k results / 10 jobs/s) when primary dies. Re-run one-at-a-time with DELAY≥10s after a stable probe. |
+| **E** | §9 | Re-enrich Digistore catalog | **Done 2026-08-15** — 11/11 `complete`, DQS **97** (duckduckgo+bing; Brave RL). Manual ~5-product audit still recommended. |
 
 Ship A → B before broad re-enrich (E). C can land with A/B. D is incremental.
 
@@ -430,7 +430,8 @@ Ship A → B before broad re-enrich (E). C can land with A/B. D is incremental.
 - [x] Digistore prompt fixture: no commission/EPC in `positive_signals`
 - [x] APF → ShadowCast send: form identity mapping (real name + buyer price) via `resolveShadowCastFormIdentity` unit tests
 - [ ] Live UI form spot-check (optional; mapping covered above)
-- [ ] Re-enriched sample of 5 Digistore products audited manually (blocked on Brave health 2026-08-03; Wave E still open)
+- [x] Wave E Digistore catalog re-enrich (2026-08-15): 11/11 complete, DQS 97
+- [ ] Re-enriched sample of 5 Digistore products audited manually (post–Wave E)
 
 ---
 
