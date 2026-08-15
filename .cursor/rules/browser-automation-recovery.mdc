@@ -1,0 +1,36 @@
+---
+description: IDE browser lease recovery — prefer cursor-ide-browser; never silent Browse fallback for logged-in affiliate portals
+alwaysApply: true
+---
+
+# Browser Automation Recovery
+
+## Stacks
+
+1. **`cursor-ide-browser`** — Cursor IDE Browser Tab. Prefer this when listed by `GetMcpTools` and a tab exists.
+2. **`plugin-browse-browser`** — separate Chrome/Playwright profile. Does **not** share IDE Browser Tab cookies.
+3. **Glass `open_resource`** — view-only. Never treat as driveable automation.
+
+## Preflight (every browser task)
+
+1. Call `GetMcpTools` for `cursor-ide-browser`. If the server is missing or returns `MCP server not found` / empty lease: **stop**. Tell the user to set **Settings → Browser → Browser Automation = Browser Tab**, open an IDE Browser tab, **Developer: Reload Window** (or full quit), then continue in a **new Agent chat**. Do not burn credits retrying the dead lease.
+2. If IDE browser is present: `browser_tabs` list → lock if a tab exists → navigate/snapshot. Unlock at end of the turn.
+3. Prefer short bursts. Fresh snapshot before each click. Avoid CDP spam loops on SPAs (Awin, CJ, Rakuten).
+
+## Browse fallback (strict)
+
+Use `plugin-browse-browser` only when:
+
+- The task does **not** need the IDE tab’s cookies (public pages, docs), **or**
+- The user has already logged into that Browse Chrome for the target site in this session.
+
+**Never** silently substitute Browse for a dead IDE session on logged-in affiliate portals (Awin, CJ, Impact, Rakuten publisher, Amazon Associates). Stop and report lease death instead.
+
+## Mid-session lease drop
+
+On `No browser tab available`, `mcp_provider_unregistered`, or sudden `cursor-ide-browser` disappearance:
+
+1. Stop browser actions immediately.
+2. Report what was completed vs pending.
+3. Instruct: Reload Window or full quit → new Agent chat → re-open the target URL in IDE Browser Tab.
+4. Do not invent a second login path mid-task unless the user explicitly asks to continue via Browse after logging in there.
