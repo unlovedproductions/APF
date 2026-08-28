@@ -4,6 +4,7 @@ import {
   extractBuyerPriceFromVendorMaterials,
   extractShortBuyerPrice,
   isMarketplaceBrandName,
+  reconcileBuyerPriceWithCart,
   resolveExportProductName,
   resolveProductCategory,
   resolveProductName,
@@ -130,6 +131,12 @@ describe("digistore24 detail extractor", () => {
       sanitizeBuyerPrice("Joseph's Well Our Affiliates Are Seeing 5%+ Conversion Rates & Over $2 EPCs On ICE COLD Traffic!"),
     ).toBe("See official offer page");
     expect(sanitizeBuyerPrice("", 47)).toBe("$47.00");
+  });
+
+  it("reconciles stale $67 brief price against cartValue", () => {
+    expect(reconcileBuyerPriceWithCart("$67", 49.86)).toBe("$49.86");
+    expect(reconcileBuyerPriceWithCart("$47.00", 47)).toBe("$47.00");
+    expect(reconcileBuyerPriceWithCart("$47", 47.5)).toBe("$47");
   });
 
   it("extracts short buyer prices and skips EPC windows", () => {

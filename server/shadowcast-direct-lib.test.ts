@@ -30,6 +30,27 @@ describe("resolveShadowCastFormIdentity", () => {
     expect(identity.price).toBe("$79.95");
   });
 
+  it("rewrites stale Digistore $67 brief price to cartValue at send time", () => {
+    const identity = resolveShadowCastFormIdentity({
+      platform: "digistore24",
+      product: { name: "The Genius Wave", cartValue: 49.86 },
+      reviewBrief: { price_display: "$67" },
+      vendorMaterials: [],
+    });
+    expect(identity.price).toBe("$49.86");
+  });
+
+  it("keeps Digistore buyer price when it matches cartValue", () => {
+    const identity = resolveShadowCastFormIdentity({
+      platform: "digistore24",
+      product: { name: "CircO2", cartValue: 47 },
+      reviewBrief: { price_display: "$47.00" },
+      vendorMaterials: [],
+    });
+    expect(identity.product_name).toBe("CircO2");
+    expect(identity.price).toBe("$47.00");
+  });
+
   it("quarantines Digistore EPC price when cartValue is missing", () => {
     const identity = resolveShadowCastFormIdentity({
       platform: "digistore24",
@@ -41,18 +62,6 @@ describe("resolveShadowCastFormIdentity", () => {
     });
 
     expect(identity.price).toBe("See official offer page");
-  });
-
-  it("keeps Digistore buyer price when brief price is clean", () => {
-    const identity = resolveShadowCastFormIdentity({
-      platform: "digistore24",
-      product: { name: "CircO2", cartValue: 47 },
-      reviewBrief: { price_display: "$47.00" },
-      vendorMaterials: [],
-    });
-
-    expect(identity.product_name).toBe("CircO2");
-    expect(identity.price).toBe("$47.00");
   });
 
   it("falls back to cartValue for non-Digistore when brief price is missing", () => {

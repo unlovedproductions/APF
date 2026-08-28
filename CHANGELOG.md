@@ -8,6 +8,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- Digistore faithfulness audit + DQS faithfulness KPIs (`grounded_signal_rate`, `entity_mismatch_rate`, `competitor_empty_rate`, `competitor_price_fill_rate`, `substantive_independent_rate`, `buyer_price_mismatch_rate`)
+- Quote-grounding for `positive_signals` / `common_complaints`; entity-lock + affiliate YouTube filter on review sources
+- `reconcileBuyerPriceWithCart` — rewrite stale brief `$` prices that disagree with `cartValue`/vendor pricing
 - Sentry observability: Express errors/traces/profiling (`SENTRY_DSN`), structured logs with PII stripping, React client errors + browser tracing (`VITE_SENTRY_DSN`)
 - Oxylabs SERP as last search fallback after Firecrawl (`OXYLABS_USERNAME` / `OXYLABS_PASSWORD`)
 - Playwright stealth full-page fetch escalate path (`REVIEW_ENRICHMENT_PLAYWRIGHT_STEALTH`); prefer self-hosted Firecrawl (`FIRECRAWL_BASE_URL`) over cloud BYOK

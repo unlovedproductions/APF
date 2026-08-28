@@ -23,6 +23,8 @@ import {
   digistoreVendorQueries,
   directReviewSiteCandidates,
   extractCompetitorCandidatesFromHits,
+  filterReviewSourcesForAccuracy,
+  isAffiliateVideoPitch,
   productNameTokenMatch,
   shortSearchProductName,
   splitClaimAndReviewSources,
@@ -769,7 +771,8 @@ function collectedHasReviewTier(sources = []) {
 }
 
 function scoreSource(product, source, vendorDomains = new Set()) {
-  const hay = `${source.title} ${source.snippet} ${source.url}`.toLowerCase();
+  const content = String(source?.raw_json?.content_text || "");
+  const hay = `${source.title} ${source.snippet} ${source.url} ${content}`.toLowerCase();
   const name = String(product.name || "").toLowerCase();
   const vendor = String(product.vendor || "").toLowerCase();
   const host = hostnameFromUrl(source.url);
@@ -802,11 +805,40 @@ function scoreSource(product, source, vendorDomains = new Set()) {
     relevance += 12;
   }
 
+  // Entity lock: review/video/scam tiers without product tokens are wrong-product risk.
+  if (
+    !isVendorDomain
+    && ["review", "scam_advisor", "video"].includes(classified.tier)
+    && !nameMatched
+  ) {
+    relevance -= 55;
+  }
+
+  if (
+    (classified.tier === "video" || /youtube\.com|youtu\.be/i.test(source.url || ""))
+    && isAffiliateVideoPitch(`${source.title || ""} ${source.snippet || ""} ${content}`)
+  ) {
+    relevance -= 40;
+  }
+
   let trust = 45 + classified.trust_boost;
   if (isVendorDomain) trust += 25;
   if (/official|refund|ingredients|terms|guarantee/i.test(hay)) trust += 8;
   if (/affiliate|promo|bonus|jvzoo|warriorplus|\bepc\b|commission/i.test(hay)) trust -= 12;
   if (classified.tier === "affiliate_noise") trust = Math.min(trust, 20);
+  if (
+    !isVendorDomain
+    && ["review", "scam_advisor", "video"].includes(classified.tier)
+    && !nameMatched
+  ) {
+    trust = Math.min(trust, 25);
+  }
+  if (
+    (classified.tier === "video" || /youtube\.com|youtu\.be/i.test(source.url || ""))
+    && isAffiliateVideoPitch(`${source.title || ""} ${source.snippet || ""} ${content}`)
+  ) {
+    trust = Math.min(trust, 20);
+  }
 
   let sentiment = "unknown";
   if (/scam|complaint|warning|refund|doesn't work|does not work|side effect/i.test(hay)) sentiment = "negative";
@@ -1495,7 +1527,8 @@ async function processJob(conn, job) {
     [...competitorHits, ...sources],
   );
 
-  const { claimSources, reviewSources } = splitClaimAndReviewSources(sources, vendorDomains);
+  const { claimSources, reviewSources: rawReviewSources } = splitClaimAndReviewSources(sources, vendorDomains);
+  const reviewSources = filterReviewSourcesForAccuracy(rawReviewSources, enrichProduct.name);
   const enrichOptions = {
     competitorCandidates,
     claimSources,

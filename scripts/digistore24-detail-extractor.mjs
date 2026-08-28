@@ -232,6 +232,63 @@ export function sanitizeBuyerPrice(value, cartValue) {
   return "See official offer page";
 }
 
+/** Parse a lone $N buyer price; empty when not a simple numeric price. */
+export function parseBuyerPriceNumber(value) {
+  const text = clean(value, 40);
+  const m = text.match(/^\$?\s*(\d{1,6}(?:[.,]\d{1,2})?)\s*(?:usd|eur|gbp)?$/i);
+  if (!m) return null;
+  const n = Number(String(m[1]).replace(",", "."));
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * Prefer cartValue / vendor pricing when brief price is a stale generic $ amount
+ * that does not match known buyer price (Wave E $67 vs cart mismatch).
+ */
+export function reconcileBuyerPriceWithCart(value, cartValue, options = {}) {
+  const sanitized = sanitizeBuyerPrice(value, cartValue);
+  const briefN = parseBuyerPriceNumber(sanitized);
+  const cart = Number(cartValue);
+  const hasCart = Number.isFinite(cart) && cart > 0;
+
+  let vendorN = null;
+  if (Array.isArray(options.vendorMaterials) && options.vendorMaterials.length) {
+    try {
+      const extracted = extractBuyerPriceFromVendorMaterials(options.vendorMaterials);
+      if (extracted?.cartValue != null) vendorN = Number(extracted.cartValue);
+    } catch {
+      vendorN = null;
+    }
+  }
+
+  const withinTol = (a, b) => {
+    const abs = Math.abs(a - b);
+    const rel = abs / Math.max(a, b, 1);
+    return abs <= 2 || rel <= 0.12;
+  };
+
+  if (briefN != null) {
+    if (vendorN != null && Number.isFinite(vendorN) && withinTol(briefN, vendorN)) {
+      return `$${briefN.toFixed(2)}`;
+    }
+    if (hasCart && withinTol(briefN, cart)) {
+      return sanitized.startsWith("$") ? sanitized : `$${briefN.toFixed(2)}`;
+    }
+    if (hasCart && !withinTol(briefN, cart)) {
+      return `$${cart.toFixed(2)}`;
+    }
+    if (vendorN != null && Number.isFinite(vendorN) && !withinTol(briefN, vendorN)) {
+      return `$${vendorN.toFixed(2)}`;
+    }
+    return sanitized;
+  }
+
+  if (sanitized === "See official offer page" || sanitized === "Varies" || sanitized === "Free") {
+    return sanitized;
+  }
+  return sanitized;
+}
+
 /** Pull a short buyer price from prose without cartValue fallback (competitor rows). */
 export function extractShortBuyerPrice(text) {
   const hay = clean(text, 4000);

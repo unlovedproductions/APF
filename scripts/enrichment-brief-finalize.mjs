@@ -1,5 +1,7 @@
 import {
+  buildReviewGroundingCorpus,
   evidenceCoverageFromSources,
+  filterGroundedSignals,
   isAffiliateMetaSignal,
   isProbeTitleSignal,
   isVendorSalesCopy,
@@ -8,7 +10,11 @@ import {
   stripAffiliateMetaLines,
   substantiveReviewSources,
 } from "./enrichment-source-trust.mjs";
-import { sanitizeBuyerPrice, extractShortBuyerPrice } from "./digistore24-detail-extractor.mjs";
+import {
+  sanitizeBuyerPrice,
+  extractShortBuyerPrice,
+  reconcileBuyerPriceWithCart,
+} from "./digistore24-detail-extractor.mjs";
 import {
   resolveExportClaimLedger,
   seedCommonClaimsFromLedger,
@@ -201,6 +207,20 @@ export function finalizeBrief(product, brief, sources = [], options = {}) {
   if (blockPraiseComplaint) {
     positive_signals = [];
     common_complaints = [];
+    confidence_score = Math.min(confidence_score, 40);
+  } else {
+    const groundingSources = substantiveReviewSources(
+      Array.isArray(reviewSources) ? reviewSources : sources,
+    );
+    const corpus = buildReviewGroundingCorpus(groundingSources, claimLedger);
+    if (corpus.trim()) {
+      positive_signals = filterGroundedSignals(positive_signals, corpus);
+      common_complaints = filterGroundedSignals(common_complaints, corpus);
+    } else {
+      positive_signals = [];
+      common_complaints = [];
+      confidence_score = Math.min(confidence_score, 40);
+    }
   }
 
   const defaultSummary = isDigistore
@@ -243,9 +263,10 @@ export function finalizeBrief(product, brief, sources = [], options = {}) {
     ),
     recommended_content_style,
     suggested_competitors,
-    price_display: sanitizeBuyerPrice(
+    price_display: reconcileBuyerPriceWithCart(
       brief.price_display || derivePriceDisplay(product),
       product.cartValue,
+      { vendorMaterials: options.vendorMaterials },
     ),
     price_comparison: (() => {
       const fromEvidence = evidencePriceComparison(

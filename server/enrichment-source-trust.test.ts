@@ -7,11 +7,16 @@ import {
   evidenceCoverageFromSources,
   extractCompetitorCandidatesFromHits,
   extractCompetitorNamesFromText,
+  filterGroundedSignals,
+  filterReviewSourcesForAccuracy,
+  isAffiliateVideoPitch,
   isProbeTitleSignal,
   isVendorSalesCopy,
   normalizeSuggestedCompetitors,
   looksPhysicalRetailCategory,
+  reviewSourcePassesEntityLock,
   shortSearchProductName,
+  signalGroundedInText,
   slugifyForReviewUrl,
   sourceHasUsableReviewText,
   substantiveReviewSources,
@@ -199,5 +204,69 @@ describe("enrichment source trust", () => {
       { title: "X on Trustpilot", raw_json: { direct_probe: true } },
       { snippet: "Customers report refund friction after two weeks of use.", raw_json: {} },
     ])).toHaveLength(1);
+  });
+
+  it("grounds signals only when text appears in corpus", () => {
+    const corpus = "Customers report refund friction after two weeks of use and slow shipping.";
+    expect(signalGroundedInText("refund friction after two weeks", corpus)).toBe(true);
+    expect(signalGroundedInText("atmospheric water generator miracle", corpus)).toBe(false);
+    expect(filterGroundedSignals(
+      ["refund friction after two weeks", "invented miracle cure"],
+      corpus,
+    )).toEqual(["refund friction after two weeks"]);
+  });
+
+  it("detects affiliate YouTube pitches without buyer framing", () => {
+    expect(isAffiliateVideoPitch("My affiliate link for CircO2 — earn commission today #ad")).toBe(true);
+    expect(
+      isAffiliateVideoPitch("Honest review: CircO2 worth it or scam? Refund complaints discussed"),
+    ).toBe(false);
+  });
+
+  it("entity-locks review sources to resolved product tokens", () => {
+    expect(reviewSourcePassesEntityLock(
+      {
+        title: "Joseph's Well book review",
+        snippet: "Printed book buyers discuss shipping",
+        raw_json: { content_text: "Joseph's Well is a printed book offer." },
+      },
+      "Joseph's Well",
+    )).toBe(true);
+    expect(reviewSourcePassesEntityLock(
+      {
+        title: "Atmospheric water generator review",
+        snippet: "Device pulls water from air",
+        raw_json: { content_text: "This water generator unit failed outdoors." },
+      },
+      "Joseph's Well",
+    )).toBe(false);
+  });
+
+  it("filters affiliate video and wrong-entity review sources", () => {
+    const filtered = filterReviewSourcesForAccuracy(
+      [
+        {
+          url: "https://www.youtube.com/watch?v=1",
+          title: "Promote CircO2 affiliate link #ad earn commission",
+          snippet: "",
+          raw_json: { content_text: "click my affiliate link" },
+        },
+        {
+          url: "https://www.trustpilot.com/review/wrong",
+          title: "Water generator",
+          snippet: "pulls moisture from air",
+          raw_json: { content_text: "Atmospheric water generator unit review body text goes here with enough characters." },
+        },
+        {
+          url: "https://www.trustpilot.com/review/circ",
+          title: "CircO2 review",
+          snippet: "Buyers mention CircO2 nitric oxide results",
+          raw_json: { content_text: "CircO2 buyers mention mixed nitric oxide results after four weeks of use in this long review body." },
+        },
+      ],
+      "CircO2",
+    );
+    expect(filtered).toHaveLength(1);
+    expect(filtered[0].url).toContain("trustpilot.com/review/circ");
   });
 });

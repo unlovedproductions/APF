@@ -237,7 +237,10 @@ describe("enrichment brief finalize", () => {
         source_type: "web",
         title: "Buyer reviews",
         snippet: "Customers report mixed shipping times and solid packaging quality overall.",
-        raw_json: { content_text: "x".repeat(120) },
+        raw_json: {
+          content_text:
+            "Customers report mixed shipping times and solid packaging quality overall after several orders. ".repeat(3),
+        },
       },
     ];
     const brief = finalizeBrief(
@@ -256,6 +259,71 @@ describe("enrichment brief finalize", () => {
     expect(brief.common_complaints).toContain("Mixed shipping times");
   });
 
+  it("drops ungrounded praises/complaints that never appear in source text", () => {
+    const reviews = [
+      {
+        url: "https://www.trustpilot.com/review/example",
+        source_type: "web",
+        title: "Joseph's Well book buyers",
+        snippet: "Printed book shipping was slow for some buyers.",
+        raw_json: {
+          content_text:
+            "Joseph's Well printed book buyers mention slow shipping and unclear print quality. ".repeat(3),
+        },
+      },
+    ];
+    const brief = finalizeBrief(
+      digistoreProduct,
+      {
+        review_summary: "Joseph's Well is an atmospheric water generator.",
+        positive_signals: ["Creates clean drinking water from air", "Printed book shipping was slow for some buyers"],
+        common_complaints: ["Device pulls moisture unreliably", "unclear print quality"],
+        best_video_angles: ["Worth it?"],
+        confidence_score: 70,
+      },
+      reviews,
+      { hasVendorMaterial: true, reviewSources: reviews },
+    );
+    expect(brief.positive_signals).not.toContain("Creates clean drinking water from air");
+    expect(brief.common_complaints).not.toContain("Device pulls moisture unreliably");
+    expect(brief.common_complaints.some((c) => /print quality/i.test(c))).toBe(true);
+    expect(brief.confidence_score).toBeLessThanOrEqual(70);
+  });
+
+  it("caps confidence at 40 when thin independent evidence blocks praises", () => {
+    const brief = finalizeBrief(
+      digistoreProduct,
+      {
+        review_summary: "Sounds great from the offer page.",
+        positive_signals: ["Amazing"],
+        common_complaints: ["Bad"],
+        best_video_angles: ["Worth it?"],
+        confidence_score: 70,
+      },
+      [],
+      { hasVendorMaterial: true, reviewSources: [] },
+    );
+    expect(brief.positive_signals).toEqual([]);
+    expect(brief.confidence_score).toBeLessThanOrEqual(40);
+  });
+
+  it("reconciles stale $67 brief price to cartValue", () => {
+    const brief = finalizeBrief(
+      { ...digistoreProduct, cartValue: 49.86 },
+      {
+        review_summary: "Limited independent public review evidence.",
+        positive_signals: [],
+        common_complaints: [],
+        best_video_angles: ["Worth it?"],
+        confidence_score: 40,
+        price_display: "$67",
+      },
+      [],
+      { hasVendorMaterial: true, reviewSources: [] },
+    );
+    expect(brief.price_display).toBe("$49.86");
+  });
+
   it("Digistore fixture: strips commission/EPC from positive_signals even with review text", () => {
     const reviews = [
       {
@@ -263,7 +331,10 @@ describe("enrichment brief finalize", () => {
         source_type: "web",
         title: "Buyer thread",
         snippet: "Customers report mixed shipping times.",
-        raw_json: { content_text: "Customers report mixed shipping times and refund friction after two weeks.".repeat(2) },
+        raw_json: {
+          content_text:
+            "Customers report mixed shipping times and refund friction after two weeks. Solid packaging quality noted by buyers. ".repeat(2),
+        },
       },
     ];
     const brief = finalizeBrief(
@@ -277,21 +348,18 @@ describe("enrichment brief finalize", () => {
         ],
         common_complaints: [
           "2 Amazing Upsells with 60% commission",
-          "Mixed shipping times",
+          "refund friction after two weeks",
         ],
         best_video_angles: ["Worth it?"],
-        confidence_score: 80,
-        price_display: "Our Affiliates Are Seeing Over $2 EPCs",
+        confidence_score: 70,
       },
       reviews,
       { hasVendorMaterial: true, reviewSources: reviews },
     );
-
-    expect(brief.positive_signals).toEqual(["Solid packaging quality"]);
     expect(brief.positive_signals.every((s) => !/commission|\bepc\b/i.test(s))).toBe(true);
-    expect(brief.common_complaints).toEqual(["Mixed shipping times"]);
-    expect(brief.review_summary.toLowerCase()).not.toMatch(/epc|commission|affiliates are seeing/);
-    expect(brief.price_display).toBe("$47.00");
+    expect(brief.common_complaints.every((s) => !/commission|\bepc\b/i.test(s))).toBe(true);
+    expect(brief.positive_signals).toContain("Solid packaging quality");
+    expect(brief.review_summary.toLowerCase()).not.toMatch(/\bepc\b|commission/);
   });
 
   it("Digistore prompt bans commission/EPC language in narrative fields", () => {

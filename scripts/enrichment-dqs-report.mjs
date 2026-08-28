@@ -11,7 +11,14 @@
 import fs from "node:fs";
 import path from "node:path";
 import mysql from "mysql2/promise";
-import { classifySourceHost } from "./enrichment-source-trust.mjs";
+import {
+  buildReviewGroundingCorpus,
+  classifySourceHost,
+  filterGroundedSignals,
+  productNameTokenMatch,
+  substantiveReviewSources,
+} from "./enrichment-source-trust.mjs";
+import { parseBuyerPriceNumber } from "./digistore24-detail-extractor.mjs";
 
 function loadEnv(file = ".env") {
   if (!fs.existsSync(file)) return;
@@ -76,6 +83,7 @@ async function main() {
         p.id AS product_id,
         p.name,
         p.platform,
+        p.cartValue,
         b.enrichment_status,
         b.confidence_score,
         b.review_summary,
@@ -122,7 +130,7 @@ async function main() {
 
     const [sourceRows] = await conn.query(
       `
-      SELECT s.url, s.raw_json
+      SELECT s.product_id, s.url, s.title, s.snippet, s.source_type, s.raw_json, p.name AS product_name
       FROM product_review_sources s
       INNER JOIN products p ON p.id = s.product_id
       WHERE p.platform LIKE '%digistore%'
@@ -136,6 +144,9 @@ async function main() {
     let deepTotal = 0;
     let deepRich = 0;
     let prunedExcluded = 0;
+
+    /** @type {Map<number, object[]>} */
+    const sourcesByProduct = new Map();
 
     for (const row of sourceRows) {
       const raw = parseJson(row.raw_json, {});
@@ -159,6 +170,73 @@ async function main() {
       if (provider !== "snippet_fallback") {
         deepTotal += 1;
         if (rich) deepRich += 1;
+      }
+
+      const pid = Number(row.product_id);
+      if (!sourcesByProduct.has(pid)) sourcesByProduct.set(pid, []);
+      sourcesByProduct.get(pid).push({
+        url: row.url,
+        title: row.title,
+        snippet: row.snippet,
+        source_type: row.source_type,
+        raw_json: raw,
+        product_name: row.product_name,
+      });
+    }
+
+    // Faithfulness KPIs (beside DQS hygiene — do not fold into dqs_estimate).
+    let competitorEmpty = 0;
+    let competitorTotalSlots = 0;
+    let competitorPriced = 0;
+    let briefsWithSubstantiveIndep = 0;
+    let signalLines = 0;
+    let groundedLines = 0;
+    let entityReviewTotal = 0;
+    let entityMismatch = 0;
+    let priceMismatch = 0;
+    let priceChecked = 0;
+
+    for (const row of briefs) {
+      const rivals = parseJson(row.suggested_competitors, []);
+      const rivalList = Array.isArray(rivals) ? rivals : [];
+      if (rivalList.length === 0) competitorEmpty += 1;
+      for (const rival of rivalList) {
+        competitorTotalSlots += 1;
+        const price = typeof rival === "object" ? String(rival?.price_display || "") : "";
+        if (/^\$\d/.test(price)) competitorPriced += 1;
+      }
+
+      const productSources = sourcesByProduct.get(Number(row.product_id)) || [];
+      const reviewish = productSources.filter((s) => {
+        const tier = classifySourceHost(hostnameFromUrl(s.url)).tier;
+        return HIGH_TRUST_TIERS.has(tier) || s.source_type === "review";
+      });
+      if (substantiveReviewSources(reviewish).length > 0) briefsWithSubstantiveIndep += 1;
+
+      const pos = parseJson(row.positive_signals, []);
+      const comps = parseJson(row.common_complaints, []);
+      const signals = [...(Array.isArray(pos) ? pos : []), ...(Array.isArray(comps) ? comps : [])]
+        .map((x) => String(x || "").trim())
+        .filter(Boolean);
+      const corpus = buildReviewGroundingCorpus(substantiveReviewSources(reviewish), []);
+      signalLines += signals.length;
+      groundedLines += filterGroundedSignals(signals, corpus).length;
+
+      const productName = String(row.name || "");
+      for (const s of reviewish) {
+        entityReviewTotal += 1;
+        const raw = s.raw_json || {};
+        const hay = `${s.title || ""} ${s.snippet || ""} ${raw.content_text || ""}`;
+        if (!productNameTokenMatch(hay, productName)) entityMismatch += 1;
+      }
+
+      const briefPrice = parseBuyerPriceNumber(row.price_display);
+      const cart = Number(row.cartValue);
+      if (briefPrice != null && Number.isFinite(cart) && cart > 0) {
+        priceChecked += 1;
+        const abs = Math.abs(briefPrice - cart);
+        const rel = abs / Math.max(briefPrice, cart, 1);
+        if (abs > 2 && rel > 0.12) priceMismatch += 1;
       }
     }
 
@@ -206,6 +284,19 @@ async function main() {
       sources_pruned_excluded: prunedExcluded,
       video_claim_gate: videoClaimGate,
       dqs_estimate: dqs,
+      // Faithfulness (accuracy) — reported beside DQS, not inside the hygiene formula.
+      competitor_empty_rate: n ? pct(competitorEmpty, n) : 0,
+      competitor_price_fill_rate: competitorTotalSlots ? pct(competitorPriced, competitorTotalSlots) : 0,
+      substantive_independent_rate: n ? pct(briefsWithSubstantiveIndep, n) : 0,
+      grounded_signal_rate: signalLines ? pct(groundedLines, signalLines) : null,
+      grounded_signal_lines: groundedLines,
+      signal_lines_total: signalLines,
+      entity_mismatch_rate: entityReviewTotal ? pct(entityMismatch, entityReviewTotal) : null,
+      entity_review_sources: entityReviewTotal,
+      entity_mismatch_sources: entityMismatch,
+      buyer_price_mismatch_rate: priceChecked ? pct(priceMismatch, priceChecked) : null,
+      buyer_price_checked: priceChecked,
+      buyer_price_mismatch: priceMismatch,
     };
 
     console.log("\nDigistore enrichment DQS snapshot");
@@ -231,7 +322,7 @@ async function main() {
       const md = `# Digistore enrichment DQS snapshot — ${day}
 
 **N:** ${n} Digistore briefs (limit ${limit})  
-**DQS estimate:** **${dqs} / 100** (directional; not full audit re-score)  
+**DQS estimate:** **${dqs} / 100** (directional hygiene; not faithfulness)  
 **Video-claim gate:** ${videoClaimGate ? "PASS" : "FAIL"} (high-trust rich ≥70% OR all rich ≥60%)
 
 | Metric | Value |
@@ -249,11 +340,22 @@ async function main() {
 | sources rich (deep, excl snippet_fallback) | ${deepRich} / ${deepTotal} (${richPctDeep}%) |
 | soft-pruned excluded | ${prunedExcluded} |
 
+### Faithfulness KPIs (beside DQS)
+
+| KPI | Value |
+|-----|------:|
+| competitor_empty_rate | ${report.competitor_empty_rate}% |
+| competitor_price_fill_rate | ${report.competitor_price_fill_rate}% |
+| substantive_independent_rate | ${report.substantive_independent_rate}% |
+| grounded_signal_rate | ${report.grounded_signal_rate ?? "n/a"}${report.grounded_signal_rate != null ? "%" : ""} (${groundedLines}/${signalLines}) |
+| entity_mismatch_rate | ${report.entity_mismatch_rate ?? "n/a"}${report.entity_mismatch_rate != null ? "%" : ""} (${entityMismatch}/${entityReviewTotal}) |
+| buyer_price_mismatch_rate | ${report.buyer_price_mismatch_rate ?? "n/a"}${report.buyer_price_mismatch_rate != null ? "%" : ""} (${priceMismatch}/${priceChecked}) |
+
 \`\`\`json
 ${JSON.stringify(report, null, 2)}
 \`\`\`
 
-**Next:** Prefer \`pnpm review:prune-thin\` then \`review:backfill-content\` over bulk \`review:once\`. Video-claim gate: high-trust rich ≥70% or all rich ≥60%.
+**Next:** Prefer \`pnpm review:prune-thin\` then \`review:backfill-content\` over bulk \`review:once\`. Video-claim gate: high-trust rich ≥70% or all rich ≥60%. Re-check faithfulness KPIs after quote-ground / entity-lock ships.
 `;
       fs.writeFileSync(outPath, md);
       console.log(`\nWrote ${outPath}`);

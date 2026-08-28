@@ -406,6 +406,103 @@ export function substantiveReviewSources(reviewSources = [], options = {}) {
     .filter((s) => sourceHasUsableReviewText(s, options));
 }
 
+/** Normalize prose for grounding / entity substring checks. */
+export function normalizeGroundingText(text) {
+  return String(text || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * True when signal text appears in corpus (exact normalized match or contiguous word window).
+ * Prevents invented praises/complaints that never appear in retrieved bodies.
+ */
+export function signalGroundedInText(signal, corpusText, options = {}) {
+  const minLen = Math.max(6, Number(options.minLen ?? 8));
+  const signalNorm = normalizeGroundingText(signal);
+  if (signalNorm.length < minLen) return false;
+  const corpus = normalizeGroundingText(corpusText);
+  if (!corpus) return false;
+  if (corpus.includes(signalNorm)) return true;
+  const words = signalNorm.split(" ").filter((w) => w.length >= 3);
+  if (!words.length) return false;
+  if (words.length === 1) return corpus.includes(words[0]);
+  const windowSize = Math.min(words.length, Math.max(3, Math.ceil(words.length * 0.6)));
+  for (let i = 0; i <= words.length - windowSize; i++) {
+    const window = words.slice(i, i + windowSize).join(" ");
+    if (window.length >= 10 && corpus.includes(window)) return true;
+  }
+  return false;
+}
+
+/** Join substantive review bodies + claim ledger quotes into one grounding corpus. */
+export function buildReviewGroundingCorpus(sources = [], claimLedger = []) {
+  const parts = [];
+  for (const source of Array.isArray(sources) ? sources : []) {
+    const raw = source?.raw_json && typeof source.raw_json === "object" ? source.raw_json : {};
+    parts.push(raw.content_text || "", source.snippet || "", source.title || "");
+  }
+  for (const row of Array.isArray(claimLedger) ? claimLedger : []) {
+    if (row?.kind && row.kind !== "independent_review" && row.kind !== "testimonial") continue;
+    parts.push(row.text || "", row.quote || "");
+  }
+  return parts.filter(Boolean).join("\n");
+}
+
+export function filterGroundedSignals(signals = [], corpusText = "", options = {}) {
+  return (Array.isArray(signals) ? signals : [])
+    .map((s) => String(s || "").replace(/\s+/g, " ").trim())
+    .filter(Boolean)
+    .filter((s) => signalGroundedInText(s, corpusText, options));
+}
+
+/**
+ * Affiliate promo video pitch without buyer/review framing.
+ * Used to demote YouTube (and similar) as independent review evidence.
+ */
+export function isAffiliateVideoPitch(text) {
+  const hay = String(text || "");
+  if (!hay.trim()) return false;
+  const affiliate = /#ad\b|#sponsored\b|affiliate link|my affiliate|earn commission|\bepc\b|promote this|get paid to promote|clickbank|jvzoo|warriorplus|digistore24 promote|commission rate/i.test(hay);
+  if (!affiliate) return false;
+  const buyerFrame = /\b(honest review|worth it|scam|complaint|refund|didn't work|does not work|buyer|customer review)\b/i.test(hay);
+  return !buyerFrame;
+}
+
+/** Review/video/scam tiers must mention resolved product tokens (entity lock). */
+export function reviewSourcePassesEntityLock(source = {}, productName = "", options = {}) {
+  const name = String(productName || options.productName || "").trim();
+  if (!name) return true;
+  const raw = source?.raw_json && typeof source.raw_json === "object" ? source.raw_json : {};
+  const hay = `${source.title || ""} ${source.snippet || ""} ${raw.content_text || ""} ${source.url || ""}`;
+  return productNameTokenMatch(hay, name);
+}
+
+/**
+ * Drop wrong-product and affiliate-pitch review sources before prompt/finalize.
+ * Direct probes with empty bodies keep title-based entity check only.
+ */
+export function filterReviewSourcesForAccuracy(reviewSources = [], productName = "", options = {}) {
+  const name = String(productName || "").trim();
+  return (Array.isArray(reviewSources) ? reviewSources : []).filter((source) => {
+    const host = (() => {
+      try { return new URL(source.url || "").hostname.replace(/^www\./, ""); } catch { return ""; }
+    })();
+    const tier = classifySourceHost(host).tier;
+    const raw = source?.raw_json && typeof source.raw_json === "object" ? source.raw_json : {};
+    const pitchHay = `${source.title || ""} ${source.snippet || ""} ${raw.content_text || ""}`;
+    if ((tier === "video" || /youtube\.com|youtu\.be/i.test(source.url || "")) && isAffiliateVideoPitch(pitchHay)) {
+      return false;
+    }
+    if (["review", "scam_advisor", "video"].includes(tier) || source.source_type === "review") {
+      if (name && !reviewSourcePassesEntityLock(source, name, options)) return false;
+    }
+    return true;
+  });
+}
+
 export function splitClaimAndReviewSources(sources = [], vendorDomains = new Set()) {
   const claimSources = [];
   const reviewSources = [];

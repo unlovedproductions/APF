@@ -127,7 +127,17 @@
 ## Still open
 
 - After real Digistore campaigns: ≥3 weekly `net_epc`/`refund_rate` rows → `--import` → `pnpm promote:calibrate`
+  - **2026-08-28:** still gated — 5 `promote_result` rows are all `listing_signal` seeds; `ready_count=0`
 - Set `TRUSTPILOT_API_KEY` and run `pnpm review:trustpilot --apply` (optional BYOK)
+  - **2026-08-28:** no key in `.env`; collector fails closed (exit 2) as designed
 - `pnpm review:prune-thin` dry-run → review sample → `--apply` if candidates look right (MySQL is up)
 - Optional: live APF → ShadowCast form spot-check in UI (+ buyer-price sample for `$67` / quarantine rows)
-- Manual audit of ~5 Digistore briefs post–Wave E
+- ~~Manual audit of ~5 Digistore briefs post–Wave E~~ → [`2026-08-28_faithfulness-audit.md`](2026-08-28_faithfulness-audit.md) (**0/5 pass**; drives Tier 1 gates)
+
+## Round 21 (intel accuracy Tier 0–1)
+
+- Faithfulness audit: grounded_signal_rate ~3%, entity_mismatch ~56%, buyer_price_mismatch ~86% (DQS hygiene still ~93)
+- DQS report now emits faithfulness KPIs beside hygiene score
+- Quote-ground `positive_signals` / `common_complaints`; entity-lock + affiliate YouTube filter; thin-evidence conf ≤40
+- `reconcileBuyerPriceWithCart` on finalize + ShadowCast send-time identity
+- Unit tests: source-trust / finalize / detail-extractor / shadowcast-direct-lib

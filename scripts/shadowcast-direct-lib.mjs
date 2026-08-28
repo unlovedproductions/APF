@@ -5,6 +5,7 @@ import { normalizeKeywordList, safeJsonParse } from "./apf-db-helpers.mjs";
 import {
   resolveExportProductName,
   resolveProductCategory,
+  reconcileBuyerPriceWithCart,
   sanitizeBuyerPrice,
 } from "./digistore24-detail-extractor.mjs";
 import {
@@ -85,8 +86,11 @@ export function resolveShadowCastFormIdentity({
     ? resolveExportProductName(product, vendorMaterials)
     : clean(product?.name || "");
   const sanitizedBriefPrice = sanitizeBuyerPrice(reviewBrief?.price_display || "", cartValue);
+  const reconciled = isDigistore
+    ? reconcileBuyerPriceWithCart(reviewBrief?.price_display || "", cartValue, { vendorMaterials })
+    : sanitizedBriefPrice;
   const priceDisplay = isDigistore
-    ? sanitizedBriefPrice
+    ? reconciled
     : (
       (reviewBrief?.price_display && sanitizedBriefPrice !== "See official offer page")
         ? sanitizedBriefPrice
