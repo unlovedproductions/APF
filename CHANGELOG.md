@@ -39,6 +39,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Local APF shutdown treats SIGTERM as a clean exit (`bba381f`)
+- Pin yanked `esbuild@0.24.3` so `pnpm install` restores `tsx` (`b2ca10c`)
 - Promote calibration ignores `listing_signal` marketplace EPC seeds — only real campaign `promote_result` rows count toward the ≥3 gate
 - Digistore daemon `--promote` recovery: reopen known `/detail/{id}` URLs when generated links are not on the current marketplace listing
 - Digistore daemon client: long `/collect` no longer dies at ~300s (undici/fetch headers timeout). Uses `node:http` with overall deadline = login wait + ~90s/product.

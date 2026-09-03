@@ -86,5 +86,5 @@ Do not store secret values in docs. Keep values in local env files only.
 - Mission Control consumes APF APIs and expects aligned `INTERNAL_SERVICE_SECRET`.
 
 ## 11) Last Verified
-- Date: 2026-08-15
-- Commit: `a104c09`
+- Date: 2026-08-28
+- Commit: `ee71469`

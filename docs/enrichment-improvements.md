@@ -235,7 +235,7 @@ In `digistoreEvidenceQueries`:
 
 ## 5. Split claims vs independent reviews
 
-**Status (shipped):** worker splits claim vs review sources before prompt (`splitClaimAndReviewSources`); Digistore prompt fences claim/review blocks; finalize strips affiliate chrome + vendor sales copy and clears probe-title junk when review text is unusable.
+**Status (shipped):** worker splits claim vs review sources before prompt (`splitClaimAndReviewSources`); Digistore prompt fences claim/review blocks; finalize strips affiliate chrome + vendor sales copy and clears probe-title junk when review text is unusable. **2026-08-28:** Digistore faithfulness gates + DQS faithfulness KPIs (`grounded_signal_rate`, `entity_mismatch_rate`, quote-grounding, entity-lock, affiliate YouTube filter, `reconcileBuyerPriceWithCart`) — see `CHANGELOG.md` Unreleased and `docs/research/apf-improvement-roadmap/`.
 
 ### Problem
 

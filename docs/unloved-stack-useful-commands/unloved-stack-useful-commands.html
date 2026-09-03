@@ -173,6 +173,14 @@ pnpm local:start</code></pre>
     <tr><td><code>pnpm review:once</code></td><td>Process one job and exit</td></tr>
     <tr><td><code>pnpm review:status</code></td><td>Queue status + products not yet complete</td></tr>
     <tr><td><code>pnpm review:requeue-digistore24</code></td><td>Re-queue all Digistore24 + seed vendor materials</td></tr>
+    <tr><td><code>pnpm review:dqs</code></td><td>Digistore enrichment DQS snapshot (<code>--write</code> optional)</td></tr>
+    <tr><td><code>pnpm review:prune-thin</code></td><td>Soft-prune thin review sources (<code>--days 0</code> disables age gate)</td></tr>
+    <tr><td><code>pnpm review:depth-backfill</code></td><td>Depth backfill pass</td></tr>
+    <tr><td><code>pnpm review:trustpilot</code></td><td>Trustpilot Business Units collector (keyed; dry-run default)</td></tr>
+    <tr><td><code>pnpm digistore:refresh-names</code></td><td>Refresh Digistore placeholder names from vendor materials</td></tr>
+    <tr><td><code>pnpm promote:outcome</code></td><td>Log / import campaign promote outcomes</td></tr>
+    <tr><td><code>pnpm promote:outcomes:list</code></td><td>List promote outcomes</td></tr>
+    <tr><td><code>pnpm promote:calibrate</code></td><td>Apply gated Hidden Gem calibration (≥3 real <code>promote_result</code>)</td></tr>
   </table>
 
   <h3>Typical enrichment flow</h3>
