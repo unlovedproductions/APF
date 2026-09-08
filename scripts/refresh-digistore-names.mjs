@@ -12,6 +12,7 @@ import path from "node:path";
 import mysql from "mysql2/promise";
 import {
   isMarketplaceBrandName,
+  needsDigistoreNameRefresh,
   resolveExportProductName,
 } from "./digistore24-detail-extractor.mjs";
 
@@ -63,13 +64,19 @@ async function main() {
     const [products] = await conn.query(sql, params);
 
     const updates = [];
+    let placeholders = 0;
+    let commissionTitles = 0;
     for (const product of products) {
-      if (!isMarketplaceBrandName(product.name)) continue;
-
       const [materials] = await conn.query(
         `SELECT title, source_type FROM product_vendor_materials WHERE product_id=? ORDER BY id ASC`,
         [product.id],
       );
+      if (isMarketplaceBrandName(product.name)) placeholders += 1;
+      if (needsDigistoreNameRefresh(product, materials || []) && /^earn\s+\d+%?\s*commission\s+promoting\b/i.test(String(product.name || ""))) {
+        commissionTitles += 1;
+      }
+      if (!needsDigistoreNameRefresh(product, materials || [])) continue;
+
       const resolved = resolveExportProductName(product, materials || []);
       if (!resolved || isMarketplaceBrandName(resolved) || resolved === product.name) continue;
 
@@ -90,7 +97,8 @@ async function main() {
 
     console.log(JSON.stringify({
       scanned: products.length,
-      placeholders: products.filter((p) => isMarketplaceBrandName(p.name)).length,
+      placeholders,
+      commission_titles: commissionTitles,
       updated: updates.length,
       dry_run: dryRun,
       updates,

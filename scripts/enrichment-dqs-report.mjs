@@ -201,9 +201,11 @@ async function main() {
       const rivalList = Array.isArray(rivals) ? rivals : [];
       if (rivalList.length === 0) competitorEmpty += 1;
       for (const rival of rivalList) {
+        // Only object-shaped rivals can carry a price; name-only rivals are not scored
+        // so the KPI reports n/a instead of a permanent 0%.
+        if (typeof rival !== "object" || !rival) continue;
         competitorTotalSlots += 1;
-        const price = typeof rival === "object" ? String(rival?.price_display || "") : "";
-        if (/^\$\d/.test(price)) competitorPriced += 1;
+        if (/^\$\d/.test(String(rival.price_display || ""))) competitorPriced += 1;
       }
 
       const productSources = sourcesByProduct.get(Number(row.product_id)) || [];
@@ -223,7 +225,9 @@ async function main() {
       groundedLines += filterGroundedSignals(signals, corpus).length;
 
       const productName = String(row.name || "");
-      for (const s of reviewish) {
+      // Measure contamination on sources that can actually reach the model
+      // (substantive text), not on thin probe rows that never carry prose.
+      for (const s of substantiveReviewSources(reviewish)) {
         entityReviewTotal += 1;
         const raw = s.raw_json || {};
         const hay = `${s.title || ""} ${s.snippet || ""} ${raw.content_text || ""}`;
@@ -286,7 +290,7 @@ async function main() {
       dqs_estimate: dqs,
       // Faithfulness (accuracy) — reported beside DQS, not inside the hygiene formula.
       competitor_empty_rate: n ? pct(competitorEmpty, n) : 0,
-      competitor_price_fill_rate: competitorTotalSlots ? pct(competitorPriced, competitorTotalSlots) : 0,
+      competitor_price_fill_rate: competitorTotalSlots ? pct(competitorPriced, competitorTotalSlots) : null,
       substantive_independent_rate: n ? pct(briefsWithSubstantiveIndep, n) : 0,
       grounded_signal_rate: signalLines ? pct(groundedLines, signalLines) : null,
       grounded_signal_lines: groundedLines,
@@ -345,7 +349,7 @@ async function main() {
 | KPI | Value |
 |-----|------:|
 | competitor_empty_rate | ${report.competitor_empty_rate}% |
-| competitor_price_fill_rate | ${report.competitor_price_fill_rate}% |
+| competitor_price_fill_rate | ${report.competitor_price_fill_rate ?? "n/a (rivals are name-only)"}${report.competitor_price_fill_rate != null ? "%" : ""} |
 | substantive_independent_rate | ${report.substantive_independent_rate}% |
 | grounded_signal_rate | ${report.grounded_signal_rate ?? "n/a"}${report.grounded_signal_rate != null ? "%" : ""} (${groundedLines}/${signalLines}) |
 | entity_mismatch_rate | ${report.entity_mismatch_rate ?? "n/a"}${report.entity_mismatch_rate != null ? "%" : ""} (${entityMismatch}/${entityReviewTotal}) |

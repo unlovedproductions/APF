@@ -454,7 +454,7 @@ async function claimJob(conn) {
   const [rows] = await conn.query(`
     SELECT id, product_id
     FROM review_enrichment_jobs
-    WHERE status IN ('queued','failed','pending_api_key')
+    WHERE status IN ('queued','pending','failed','pending_api_key')
       AND next_run_at <= NOW()
       AND attempts < 10
       ${scopeSql}
@@ -812,6 +812,15 @@ function scoreSource(product, source, vendorDomains = new Set()) {
     && !nameMatched
   ) {
     relevance -= 55;
+  }
+
+  // Digistore platform / checkout reviews are not product buyer reviews.
+  if (
+    isDigistore
+    && !nameMatched
+    && /digistore24\.com|digistore24-app\.com|checkout-ds24\.com|digistore\.ch|digiistore\.com|capterra\.com.*digistore/i.test(`${host} ${hay}`)
+  ) {
+    relevance -= 50;
   }
 
   if (
@@ -1506,13 +1515,12 @@ async function processJob(conn, job) {
       WHERE id <> ?
         AND name IS NOT NULL
         AND name <> ''
-        AND (
-          platform = ?
-          OR (category IS NOT NULL AND category <> '' AND category = ?)
-        )
+        AND category IS NOT NULL
+        AND category <> ''
+        AND category = ?
       ORDER BY lastUpdatedAt DESC
       LIMIT 25
-    `, [product.id, product.platform || "digistore24", product.category || ""]);
+    `, [product.id, product.category || ""]);
     catalogMatches = rows || [];
   } catch {
     catalogMatches = [];

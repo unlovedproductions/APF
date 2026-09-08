@@ -146,6 +146,28 @@ export function isJunkVendorMaterialTitle(value) {
   return false;
 }
 
+/** Digistore affiliate listing chrome: "Earn 60% Commission Promoting CircO2 …" */
+export function isAffiliateCommissionTitle(value) {
+  const text = clean(value, 255);
+  if (!text) return false;
+  return /^earn\s+\d+%?\s*commission\s+promoting\b/i.test(text)
+    || COMMISSION_PROMOTING_RE.test(text);
+}
+
+/**
+ * True when products.name should be rewritten from vendor materials.
+ * Covers marketplace placeholders AND affiliate commission listing titles.
+ */
+export function needsDigistoreNameRefresh(product = {}, vendorMaterials = []) {
+  const raw = clean(product?.name || "", 255);
+  if (!raw) return true;
+  if (isMarketplaceBrandName(raw) || isAffiliateCommissionTitle(raw)) return true;
+  const resolved = resolveExportProductName(product, vendorMaterials);
+  if (!resolved || isMarketplaceBrandName(resolved)) return false;
+  return sanitizeExportProductName(raw).toLowerCase() !== sanitizeExportProductName(resolved).toLowerCase()
+    && isAffiliateCommissionTitle(raw);
+}
+
 function candidateFromVendorTitle(title) {
   const raw = clean(title, 255);
   if (!raw) return "";
@@ -206,7 +228,9 @@ export function sanitizeBuyerPrice(value, cartValue) {
   const lowered = text.toLowerCase();
   const looksAffiliate = AFFILIATE_PRICE_MARKERS.some((marker) => lowered.includes(marker));
   const sentenceCount = (text.match(/[.!?]/g) || []).length;
-  const looksMarketing = text.length > 40 || sentenceCount > 0;
+  // "per bottle", package copy, trailing "; $" fragments are buyer-prose — not a display price.
+  const looksProsePrice = /\bper\s+(bottle|kit|pack|month|day|jar|unit|course)\b|for\s+(a\s+)?(set|package|printed|digital|one-time|full)\b|buyers?\s+can\s+choose|including\b|;\s*\$?\s*$/i.test(text);
+  const looksMarketing = text.length > 40 || sentenceCount > 0 || looksProsePrice;
 
   const isShortBuyerPrice = /^(free|varies|see official offer page|\$?\d{1,6}(?:[.,]\d{1,2})?(?:\s*(?:usd|eur|gbp))?)$/i.test(text)
     || /^from\s+\$?\d{1,6}(?:[.,]\d{1,2})?$/i.test(text)

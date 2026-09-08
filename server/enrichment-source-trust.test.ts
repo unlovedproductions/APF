@@ -216,6 +216,19 @@ describe("enrichment source trust", () => {
     )).toEqual(["refund friction after two weeks"]);
   });
 
+  it("keeps paraphrased signals that reuse corpus content words", () => {
+    const corpus = "Several buyers said shipping was slow and the refund process took weeks to resolve.";
+    expect(signalGroundedInText("Slow shipping and a lengthy refund process", corpus)).toBe(true);
+    expect(signalGroundedInText("Doctors confirmed reversal of diabetes", corpus)).toBe(false);
+  });
+
+  it("rejects sentence-fragment competitor names", () => {
+    expect(normalizeSuggestedCompetitors(
+      { name: "Self-Sufficient Backyard" },
+      ["Maine. The", "PureWell Filter", "AquaTru and"],
+    )).toEqual(["PureWell Filter"]);
+  });
+
   it("detects affiliate YouTube pitches without buyer framing", () => {
     expect(isAffiliateVideoPitch("My affiliate link for CircO2 — earn commission today #ad")).toBe(true);
     expect(

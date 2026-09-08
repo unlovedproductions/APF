@@ -4,6 +4,8 @@ import {
   extractBuyerPriceFromVendorMaterials,
   extractShortBuyerPrice,
   isMarketplaceBrandName,
+  needsDigistoreNameRefresh,
+  isAffiliateCommissionTitle,
   reconcileBuyerPriceWithCart,
   resolveExportProductName,
   resolveProductCategory,
@@ -131,6 +133,23 @@ describe("digistore24 detail extractor", () => {
       sanitizeBuyerPrice("Joseph's Well Our Affiliates Are Seeing 5%+ Conversion Rates & Over $2 EPCs On ICE COLD Traffic!"),
     ).toBe("See official offer page");
     expect(sanitizeBuyerPrice("", 47)).toBe("$47.00");
+    expect(sanitizeBuyerPrice("$39.95 per bottle; $", 121.71)).toBe("$121.71");
+    expect(sanitizeBuyerPrice("Buyers can choose between packs", 49.86)).toBe("$49.86");
+  });
+
+  it("flags affiliate commission listing titles for name refresh", () => {
+    expect(isAffiliateCommissionTitle(
+      "Earn 60% Commission Promoting CircO2 Nitric Oxide Booster Supplements",
+    )).toBe(true);
+    expect(isAffiliateCommissionTitle("CircO2 Nitric Oxide Booster Supplements")).toBe(false);
+    expect(needsDigistoreNameRefresh(
+      { name: "Earn 60% Commission Promoting CircO2 Nitric Oxide Booster Supplements", platformProductId: "47238" },
+      [{ source_type: "offer_page", title: "Earn 60% Commission Promoting CircO2 Nitric Oxide Booster Supplements - health" }],
+    )).toBe(true);
+    expect(needsDigistoreNameRefresh(
+      { name: "CircO2 Nitric Oxide Booster Supplements", platformProductId: "47238" },
+      [],
+    )).toBe(false);
   });
 
   it("reconciles stale $67 brief price against cartValue", () => {

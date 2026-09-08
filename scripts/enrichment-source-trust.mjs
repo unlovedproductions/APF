@@ -237,12 +237,27 @@ function stripSubjectProduct(candidate, productName) {
   return text.replace(/^(vs|or|and|to|for|with)\s+/i, "").replace(/\s+(vs|or|and)$/i, "").trim();
 }
 
+const COMPETITOR_STOPWORD_TAIL_RE = /\b(the|a|an|and|or|for|with|from|of|to|in|on|is|its|this|that|these|those|my|our|your)$/i;
+
 function looksLikeProductPhrase(name) {
-  const words = cleanCompetitorName(name).split(/\s+/).filter(Boolean);
+  const cleaned = cleanCompetitorName(name);
+  const words = cleaned.split(/\s+/).filter(Boolean);
   if (words.length < 1 || words.length > 6) return false;
   if (words.every(w => w.length <= 2)) return false;
-  if (/^(best|top|alternatives?|review|reviews|scam|complaints?)$/i.test(name)) return false;
-  return /[A-Za-z]/.test(name);
+  if (/^(best|top|alternatives?|review|reviews|scam|complaints?|texas|california|amazon|google|facebook|youtube)$/i.test(cleaned)) {
+    return false;
+  }
+  // Sentence fragments ("Maine. The", "works. Users") are not product names.
+  if (/[.!?]\s/.test(cleaned)) return false;
+  if (COMPETITOR_STOPWORD_TAIL_RE.test(cleaned)) return false;
+  // Single common nouns / place-like tokens are almost never buyer-facing rivals.
+  if (words.length === 1) {
+    if (cleaned.length < 5) return false;
+    if (/^[A-Z][a-z]+$/.test(cleaned) && cleaned.length <= 8) return false;
+    // Allow branded tokens like CircO2 / NitroMax.
+    if (!/[0-9]|[A-Z]{2}|[a-z][A-Z]/.test(cleaned)) return false;
+  }
+  return /[A-Za-z]/.test(cleaned);
 }
 
 /** Extract competitor name phrases from a single title/snippet. */
@@ -338,6 +353,7 @@ export function normalizeSuggestedCompetitors(product, competitors, allowedCandi
     .filter((c) => !vendor || c.toLowerCase() !== vendor)
     .filter((c) => !productName || c.toLowerCase() !== productName)
     .filter((c) => !isMarketplaceOrSyntheticCompetitor(c))
+    .filter((c) => looksLikeProductPhrase(c))
     .filter((c) => !allowed || allowed.has(c.toLowerCase()));
 
   const deduped = [];
@@ -419,22 +435,51 @@ export function normalizeGroundingText(text) {
  * True when signal text appears in corpus (exact normalized match or contiguous word window).
  * Prevents invented praises/complaints that never appear in retrieved bodies.
  */
+const GROUNDING_STOPWORDS = new Set([
+  "the", "and", "for", "with", "that", "this", "from", "have", "has", "had", "was", "were",
+  "are", "but", "not", "you", "your", "they", "their", "them", "its", "it", "a", "an", "of",
+  "to", "in", "on", "is", "be", "as", "at", "or", "by", "some", "many", "most", "more",
+  "very", "also", "than", "then", "there", "here", "about", "after", "before", "into",
+  "over", "such", "only", "other", "users", "user", "customers", "customer", "reviewers",
+  "report", "reported", "reports", "say", "says", "said", "reviews", "review", "product",
+  "products", "people", "who", "how", "when", "while", "would", "could", "should", "will",
+  "can", "may", "might", "one", "two", "get", "got", "make", "makes", "made", "use", "used",
+  "using", "like", "liked", "well", "good", "bad", "much", "lot", "lots", "being", "been",
+]);
+
+/**
+ * True when a signal line is supported by the retrieved corpus.
+ * Accepts paraphrase: requires most distinctive content words to appear in the corpus,
+ * so real-but-reworded praises survive while invented themes are dropped.
+ */
 export function signalGroundedInText(signal, corpusText, options = {}) {
   const minLen = Math.max(6, Number(options.minLen ?? 8));
+  const minOverlap = Number(options.minOverlap ?? 0.6);
   const signalNorm = normalizeGroundingText(signal);
   if (signalNorm.length < minLen) return false;
   const corpus = normalizeGroundingText(corpusText);
   if (!corpus) return false;
   if (corpus.includes(signalNorm)) return true;
+
   const words = signalNorm.split(" ").filter((w) => w.length >= 3);
   if (!words.length) return false;
-  if (words.length === 1) return corpus.includes(words[0]);
-  const windowSize = Math.min(words.length, Math.max(3, Math.ceil(words.length * 0.6)));
-  for (let i = 0; i <= words.length - windowSize; i++) {
-    const window = words.slice(i, i + windowSize).join(" ");
-    if (window.length >= 10 && corpus.includes(window)) return true;
+
+  // Contiguous window match is strong evidence (verbatim-ish quote).
+  if (words.length > 1) {
+    const windowSize = Math.min(words.length, Math.max(3, Math.ceil(words.length * 0.6)));
+    for (let i = 0; i <= words.length - windowSize; i++) {
+      const window = words.slice(i, i + windowSize).join(" ");
+      if (window.length >= 10 && corpus.includes(window)) return true;
+    }
   }
-  return false;
+
+  const content = [...new Set(words.filter((w) => !GROUNDING_STOPWORDS.has(w)))];
+  if (content.length < 2) {
+    return content.length === 1 ? corpus.includes(content[0]) : false;
+  }
+  const corpusWords = new Set(corpus.split(" "));
+  const matched = content.filter((w) => corpusWords.has(w) || corpus.includes(w));
+  return matched.length >= 2 && matched.length / content.length >= minOverlap;
 }
 
 /** Join substantive review bodies + claim ledger quotes into one grounding corpus. */
