@@ -141,3 +141,12 @@
 - Quote-ground `positive_signals` / `common_complaints`; entity-lock + affiliate YouTube filter; thin-evidence conf ≤40
 - `reconcileBuyerPriceWithCart` on finalize + ShadowCast send-time identity
 - Unit tests: source-trust / finalize / detail-extractor / shadowcast-direct-lib
+
+## Round 22 (apply gates + name/price/rival hygiene)
+
+- Catalog IDs are now **186–195** (not 1–11). Three commission listing titles rewritten: Amino, CircO2, Mitochondrial.
+- Re-enriched all 10 (`SEARXNG_ENGINES=bing`, delay 10s). Jobs must be `queued` (worker now also claims `pending`).
+- Live DQS **2026-09-08T05:51Z**: hygiene **95** · complete **10/10** · avg conf **41** · rich 16.2% / HT 23.8% · video-claim gate FAIL
+- Faithfulness: buyer-price mismatch **0%** (0/5) · grounded **100% (1/1)** · entity mismatch **61.6% (217/352)** · competitor empty **50%** · rival prices n/a (name-only)
+- Residual: all `products.category` still `Digistore24 Marketplace` (catalog rivals leak until category is real); 5/10 prices quarantined to offer page; stored SERP junk still inflates entity mismatch
+- Snapshot: [`2026-09-08_dqs-snapshot.md`](2026-09-08_dqs-snapshot.md) · notes: [`2026-09-08_round22.md`](2026-09-08_round22.md)

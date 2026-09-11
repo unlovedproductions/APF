@@ -8,6 +8,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- `needsDigistoreNameRefresh` / `isAffiliateCommissionTitle` — refresh `Earn N% Commission Promoting …` listing titles, not only marketplace placeholders
+- Paraphrase-tolerant quote-grounding (`signalGroundedInText` content-word overlap)
 - Digistore faithfulness audit + DQS faithfulness KPIs (`grounded_signal_rate`, `entity_mismatch_rate`, `competitor_empty_rate`, `competitor_price_fill_rate`, `substantive_independent_rate`, `buyer_price_mismatch_rate`)
 - Quote-grounding for `positive_signals` / `common_complaints`; entity-lock + affiliate YouTube filter on review sources
 - `reconcileBuyerPriceWithCart` — rewrite stale brief `$` prices that disagree with `cartValue`/vendor pricing
@@ -39,6 +41,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- `sanitizeBuyerPrice` treats “per bottle / buyers can choose / trailing `; $`” as prose, not a display price
+- Review worker claims `pending` jobs (was queued/failed/pending_api_key only)
+- Catalog rival matches skip `Digistore24 Marketplace` placeholder categories
+- Competitor fragment names (`Maine. The`) dropped; DQS `competitor_price_fill_rate` is n/a for name-only rivals
 - Local APF shutdown treats SIGTERM as a clean exit (`bba381f`)
 - Pin yanked `esbuild@0.24.3` so `pnpm install` restores `tsx` (`b2ca10c`)
 - Promote calibration ignores `listing_signal` marketplace EPC seeds — only real campaign `promote_result` rows count toward the ≥3 gate
@@ -50,6 +56,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Round 22 Digistore re-enrich (ids 186–195): DQS **95**, buyer-price mismatch **0%** (5/5), grounded signals **1/1**, entity mismatch still **61.6%**
 - Soft-prune pass: all-rich **80.7%**, deep **67.7%**, high-trust **96.7%** (pruned 367); ≥60% all-rich target cleared
 - Way 2 depth-backfill pass: all-rich **48.9%**, high-trust rich **96.7%**, deep **32.4%** (was ~42% / ~79% / ~24%); +28 newly rich sources
 - Digistore catalog Wave E re-enrich: **11/11** briefs `complete`, live DQS **97**, rich-source rate **9.3%** (was 10/10 / ~8%)

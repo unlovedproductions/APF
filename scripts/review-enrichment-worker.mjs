@@ -14,6 +14,7 @@ import {
 } from "./digistore24-vendor-materials.mjs";
 import {
   isMarketplaceBrandName,
+  isMarketplaceCategoryPlaceholder,
   resolveExportProductName,
 } from "./digistore24-detail-extractor.mjs";
 import {
@@ -1509,19 +1510,22 @@ async function processJob(conn, job) {
 
   let catalogMatches = [];
   try {
-    const [rows] = await conn.query(`
-      SELECT name
-      FROM products
-      WHERE id <> ?
-        AND name IS NOT NULL
-        AND name <> ''
-        AND category IS NOT NULL
-        AND category <> ''
-        AND category = ?
-      ORDER BY lastUpdatedAt DESC
-      LIMIT 25
-    `, [product.id, product.category || ""]);
-    catalogMatches = rows || [];
+    const category = product.category || "";
+    if (category && !isMarketplaceCategoryPlaceholder(category)) {
+      const [rows] = await conn.query(`
+        SELECT name
+        FROM products
+        WHERE id <> ?
+          AND name IS NOT NULL
+          AND name <> ''
+          AND category IS NOT NULL
+          AND category <> ''
+          AND category = ?
+        ORDER BY lastUpdatedAt DESC
+        LIMIT 25
+      `, [product.id, category]);
+      catalogMatches = rows || [];
+    }
   } catch {
     catalogMatches = [];
   }
