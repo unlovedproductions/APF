@@ -14,6 +14,7 @@ import {
   isVendorSalesCopy,
   normalizeSuggestedCompetitors,
   looksPhysicalRetailCategory,
+  productNameTokenMatch,
   reviewSourcePassesEntityLock,
   shortSearchProductName,
   signalGroundedInText,
@@ -220,6 +221,18 @@ describe("enrichment source trust", () => {
     const corpus = "Several buyers said shipping was slow and the refund process took weeks to resolve.";
     expect(signalGroundedInText("Slow shipping and a lengthy refund process", corpus)).toBe(true);
     expect(signalGroundedInText("Doctors confirmed reversal of diabetes", corpus)).toBe(false);
+  });
+
+  it("rejects bag-of-words paraphrases that invert polarity", () => {
+    const corpus = "Several buyers said shipping was slow and the refund process took weeks to resolve.";
+    expect(signalGroundedInText("Fast shipping and easy refund process", corpus)).toBe(false);
+  });
+
+  it("entity-locks require distinctive whole-word product tokens", () => {
+    expect(productNameTokenMatch("I love my microwave and the wave of flavor", "The Genius Wave")).toBe(false);
+    expect(productNameTokenMatch("reviews of the wave experience online", "The Genius Wave")).toBe(false);
+    expect(productNameTokenMatch("The Genius Wave buyer review thread", "The Genius Wave")).toBe(true);
+    expect(productNameTokenMatch("Joseph's Well shipping complaints", "Joseph's Well")).toBe(true);
   });
 
   it("rejects sentence-fragment competitor names", () => {

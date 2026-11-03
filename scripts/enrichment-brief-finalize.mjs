@@ -232,6 +232,12 @@ export function finalizeBrief(product, brief, sources = [], options = {}) {
     strictThinEvidence: isDigistore && blockPraiseComplaint,
   });
 
+  const price_display = reconcileBuyerPriceWithCart(
+    brief.price_display || derivePriceDisplay(product),
+    product.cartValue,
+    { vendorMaterials: options.vendorMaterials },
+  );
+
   return {
     ...brief,
     review_summary,
@@ -263,21 +269,17 @@ export function finalizeBrief(product, brief, sources = [], options = {}) {
     ),
     recommended_content_style,
     suggested_competitors,
-    price_display: reconcileBuyerPriceWithCart(
-      brief.price_display || derivePriceDisplay(product),
-      product.cartValue,
-      { vendorMaterials: options.vendorMaterials },
-    ),
+    price_display,
     price_comparison: (() => {
       const fromEvidence = evidencePriceComparison(
         product,
         competitorCandidates,
-        brief.price_display || derivePriceDisplay(product),
+        price_display,
       );
       if (fromEvidence) return fromEvidence;
       return sanitizeNarrativeString(
         brief.price_comparison,
-        `Compare the current ${derivePriceDisplay(product)} offer against 2-3 category alternatives before buying.`,
+        `Compare the current ${price_display || derivePriceDisplay(product)} offer against 2-3 category alternatives before buying.`,
       );
     })(),
     series_name: seriesNameForStyle(recommended_content_style),
