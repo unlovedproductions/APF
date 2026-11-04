@@ -447,6 +447,43 @@ const GROUNDING_STOPWORDS = new Set([
   "using", "like", "liked", "well", "good", "bad", "much", "lot", "lots", "being", "been",
 ]);
 
+/** Product-name stopwords only — keep distinctive tokens like "well" in Joseph's Well. */
+const PRODUCT_NAME_STOPWORDS = new Set([
+  "the", "a", "an", "and", "or", "of", "for", "to", "in", "on", "by", "with", "from",
+]);
+
+/** Opposing sentiment axes — bag-of-words grounding must not flip polarity. */
+const GROUNDING_POLARITY_AXES = [
+  { pos: ["fast", "quick", "rapid", "speedy"], neg: ["slow", "lengthy", "delayed", "late"] },
+  { pos: ["easy", "simple", "smooth", "painless"], neg: ["hard", "difficult", "complicated", "frustrating"] },
+  {
+    pos: ["great", "excellent", "amazing", "wonderful", "helpful", "effective", "works"],
+    neg: ["poor", "terrible", "awful", "useless", "ineffective", "failed", "broken"],
+  },
+];
+
+function escapeRegexToken(token) {
+  return String(token || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function tokenAsWholeWord(hay, token) {
+  if (!token) return false;
+  return new RegExp(`(?:^|[^a-z0-9])${escapeRegexToken(token)}(?:[^a-z0-9]|$)`).test(hay);
+}
+
+function groundingPolarityConflict(signalWords, corpusWords) {
+  const corpusList = [...corpusWords];
+  for (const axis of GROUNDING_POLARITY_AXES) {
+    const sigPos = signalWords.some((w) => axis.pos.includes(w));
+    const sigNeg = signalWords.some((w) => axis.neg.includes(w));
+    const corPos = corpusList.some((w) => axis.pos.includes(w));
+    const corNeg = corpusList.some((w) => axis.neg.includes(w));
+    if (sigPos && corNeg && !corPos) return true;
+    if (sigNeg && corPos && !corNeg) return true;
+  }
+  return false;
+}
+
 /**
  * True when a signal line is supported by the retrieved corpus.
  * Accepts paraphrase: requires most distinctive content words to appear in the corpus,
@@ -475,10 +512,11 @@ export function signalGroundedInText(signal, corpusText, options = {}) {
 
   const content = [...new Set(words.filter((w) => !GROUNDING_STOPWORDS.has(w)))];
   if (content.length < 2) {
-    return content.length === 1 ? corpus.includes(content[0]) : false;
+    return content.length === 1 ? tokenAsWholeWord(corpus, content[0]) : false;
   }
-  const corpusWords = new Set(corpus.split(" "));
-  const matched = content.filter((w) => corpusWords.has(w) || corpus.includes(w));
+  const corpusWords = new Set(corpus.split(" ").filter(Boolean));
+  if (groundingPolarityConflict(content, corpusWords)) return false;
+  const matched = content.filter((w) => corpusWords.has(w) || tokenAsWholeWord(corpus, w));
   return matched.length >= 2 && matched.length / content.length >= minOverlap;
 }
 
@@ -576,10 +614,15 @@ export function productNameTokenMatch(haystack, productName) {
   const name = String(productName || "").toLowerCase().trim();
   if (!name || !hay) return false;
   if (hay.includes(name)) return true;
-  const tokens = name.split(/[^a-z0-9]+/).filter((t) => t.length >= 3);
+  const tokens = name
+    .split(/[^a-z0-9]+/)
+    .filter((t) => t.length >= 3 && !PRODUCT_NAME_STOPWORDS.has(t));
   if (!tokens.length) return false;
-  const hits = tokens.filter((t) => hay.includes(t)).length;
-  return hits >= Math.min(2, tokens.length);
+  // Whole-word hits only — "wave" must not match "microwave".
+  const hits = tokens.filter((t) => tokenAsWholeWord(hay, t)).length;
+  // Require every distinctive token when ≤3; otherwise at least 3 hits.
+  const needed = tokens.length <= 3 ? tokens.length : Math.min(3, tokens.length);
+  return hits >= needed;
 }
 
 /** URL-safe slug for review-site path guesses (free SERP-less discovery). */

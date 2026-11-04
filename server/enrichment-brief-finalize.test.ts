@@ -309,7 +309,7 @@ describe("enrichment brief finalize", () => {
 
   it("reconciles stale $67 brief price to cartValue", () => {
     const brief = finalizeBrief(
-      { ...digistoreProduct, cartValue: 49.86 },
+      { ...digistoreProduct, name: "The Genius Wave", cartValue: 49.86 },
       {
         review_summary: "Limited independent public review evidence.",
         positive_signals: [],
@@ -317,11 +317,18 @@ describe("enrichment brief finalize", () => {
         best_video_angles: ["Worth it?"],
         confidence_score: 40,
         price_display: "$67",
+        price_comparison: "The Genius Wave is $67 versus RivalX $39.",
       },
       [],
-      { hasVendorMaterial: true, reviewSources: [] },
+      {
+        hasVendorMaterial: true,
+        reviewSources: [],
+        competitorCandidates: [{ name: "RivalX", price_display: "$39" }],
+      },
     );
     expect(brief.price_display).toBe("$49.86");
+    expect(brief.price_comparison).toContain("$49.86");
+    expect(brief.price_comparison).not.toMatch(/\$67/);
   });
 
   it("Digistore fixture: strips commission/EPC from positive_signals even with review text", () => {
