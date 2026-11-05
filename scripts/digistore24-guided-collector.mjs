@@ -360,7 +360,7 @@ async function saveDebug(page, reason) {
 
 async function upsertProduct(conn, product) {
   const [existingRows] = await conn.query(`
-    SELECT id, affiliateLink
+    SELECT id, affiliateLink, cartValue
     FROM products
     WHERE userId=?
       AND platform='digistore24'
@@ -373,9 +373,20 @@ async function upsertProduct(conn, product) {
 
   const existingId = existingRows?.[0]?.id || null;
   const existingAffiliateLink = existingRows?.[0]?.affiliateLink || "";
+  const existingCartValue = existingRows?.[0]?.cartValue;
 
   if (!product.affiliateLink && existingAffiliateLink) {
     product.affiliateLink = existingAffiliateLink;
+  }
+
+  // Never wipe a known buyer cartValue with a failed/null detail parse.
+  if (
+    (product.cartValue == null || product.cartValue === "" || !Number.isFinite(Number(product.cartValue)))
+    && existingCartValue != null
+    && Number.isFinite(Number(existingCartValue))
+    && Number(existingCartValue) > 0
+  ) {
+    product.cartValue = Number(existingCartValue);
   }
 
   const scored = scoreProduct({

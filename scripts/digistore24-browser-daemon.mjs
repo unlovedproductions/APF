@@ -652,7 +652,7 @@ async function captureVendorMaterials(conn, productId, detailPage, detailUrl, af
 
 async function upsertProduct(conn, product) {
   const [existingRows] = await conn.query(`
-    SELECT id, affiliateLink, name
+    SELECT id, affiliateLink, name, cartValue
     FROM products
     WHERE userId=?
       AND platform='digistore24'
@@ -666,9 +666,20 @@ async function upsertProduct(conn, product) {
   const existingId = existingRows?.[0]?.id || null;
   const existingAffiliateLink = existingRows?.[0]?.affiliateLink || "";
   const existingName = clean(existingRows?.[0]?.name || "");
+  const existingCartValue = existingRows?.[0]?.cartValue;
 
   if (!product.affiliateLink && existingAffiliateLink) {
     product.affiliateLink = existingAffiliateLink;
+  }
+
+  // Never wipe a known buyer cartValue with a failed/null detail parse.
+  if (
+    (product.cartValue == null || product.cartValue === "" || !Number.isFinite(Number(product.cartValue)))
+    && existingCartValue != null
+    && Number.isFinite(Number(existingCartValue))
+    && Number(existingCartValue) > 0
+  ) {
+    product.cartValue = Number(existingCartValue);
   }
 
   // Never clobber a real product name with Digistore24/marketplace placeholders.
