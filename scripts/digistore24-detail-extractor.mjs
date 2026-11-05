@@ -298,11 +298,16 @@ export function reconcileBuyerPriceWithCart(value, cartValue, options = {}) {
     if (hasCart && withinTol(briefN, cart)) {
       return sanitized.startsWith("$") ? sanitized : `$${briefN.toFixed(2)}`;
     }
-    if (hasCart && !withinTol(briefN, cart)) {
-      return `$${cart.toFixed(2)}`;
-    }
+    // Prefer vendor extract over cart — cartValue may be historic EPC/payout pollution.
     if (vendorN != null && Number.isFinite(vendorN) && !withinTol(briefN, vendorN)) {
       return `$${vendorN.toFixed(2)}`;
+    }
+    if (hasCart && !withinTol(briefN, cart)) {
+      // Tiny cart vs much larger brief is classic EPC stored as cartValue; keep brief.
+      if (cart < 15 && briefN >= 20 && cart < briefN * 0.4) {
+        return sanitized.startsWith("$") ? sanitized : `$${briefN.toFixed(2)}`;
+      }
+      return `$${cart.toFixed(2)}`;
     }
     return sanitized;
   }
@@ -425,6 +430,48 @@ function parseCurrency(text, hints = []) {
   return generic ? Number(generic[1].replace(",", ".")) : null;
 }
 
+/**
+ * Buyer / cart price only — never EPC, avg payout, or bare first-$ in affiliate chrome.
+ * Wrong cartValue here is forced into ShadowCast price by reconcileBuyerPriceWithCart.
+ */
+function parseBuyerCartValue(text) {
+  const source = clean(text, 20000);
+  if (!source) return null;
+
+  const hints = [
+    "cart\\s*value",
+    "average\\s+order\\s+value",
+    "\\baov\\b",
+    "buyer\\s+price",
+    "product\\s+price",
+    "\\bprice\\b",
+  ];
+
+  for (const hint of hints) {
+    const re = new RegExp(
+      `${hint}[^\\d$€£]{0,30}[$€£]?\\s*(\\d{1,6}(?:[\\.,]\\d{1,2})?)`,
+      "i",
+    );
+    const match = source.match(re);
+    if (!match) continue;
+
+    const n = Number(String(match[1]).replace(",", "."));
+    if (!Number.isFinite(n) || n < 5 || n > 5000) continue;
+
+    const idx = match.index ?? 0;
+    const window = source.slice(Math.max(0, idx - 28), idx + match[0].length + 28).toLowerCase();
+    const hasBuyerLabel = /\bprice\b|cart\s*value|\baov\b|order\s+value/.test(window);
+    const affiliateOnly = /\bepc\b|avg\.?\s*payout|average\s+payout|earnings\s+per|per\s+sale/.test(window);
+    // "Price $50 Commission 75% EPC $2" is fine (buyer label present).
+    // "EPC $2" / "avg payout $19" must not become cartValue.
+    if (affiliateOnly && !hasBuyerLabel) continue;
+
+    return n;
+  }
+
+  return null;
+}
+
 function parseDate(text, hints = []) {
   const source = clean(text, 20000);
   for (const hint of hints) {
@@ -499,7 +546,7 @@ export function extractDigistore24Detail(raw) {
     "cancellation rate",
     "cancel rate",
   ]);
-  const cartValue = parseCurrency(`${importantSections} ${body}`, ["cart value", "price", "payout", "earnings", "epc"]);
+  const cartValue = parseBuyerCartValue(`${importantSections} ${body}`);
   const platformCreatedAt = parseDate(`${importantSections} ${body}`, ["created", "listed", "published"]);
   const buyerBlocks = extractBuyerFacingBlocks(description || body);
 

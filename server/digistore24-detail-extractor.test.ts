@@ -126,6 +126,43 @@ describe("digistore24 detail extractor", () => {
     expect(detail.detectedMeta.detected_refund_rate).toBe(8);
   });
 
+  it("stores buyer Price/Cart value, never EPC or avg payout, as cartValue", () => {
+    expect(
+      extractDigistore24Detail({
+        title: "CircO2",
+        body: "Vendor: Acme\nCategory: Health\nPrice $50.99 Commission 75% EPC $26.75",
+      }).cartValue,
+    ).toBe(50.99);
+
+    expect(
+      extractDigistore24Detail({
+        title: "CircO2",
+        body: "Vendor: Acme\nCategory: Health\nCart value: $89.00\nCommission 50%\nEPC $2.45",
+      }).cartValue,
+    ).toBe(89);
+
+    expect(
+      extractDigistore24Detail({
+        title: "CircO2",
+        body: "Vendor: Acme\nCategory: Health\nCommission 75% EPC $26.75",
+      }).cartValue,
+    ).toBeNull();
+
+    expect(
+      extractDigistore24Detail({
+        title: "CircO2",
+        body: "Vendor: Acme\nAvg payout $19.28 Commission 60%",
+      }).cartValue,
+    ).toBeNull();
+
+    expect(
+      extractDigistore24Detail({
+        title: "CircO2",
+        body: "Vendor: Acme\nCommission 75%\nSome text $99 promo\nEPC $2.45",
+      }).cartValue,
+    ).toBeNull();
+  });
+
   it("sanitizes buyer prices and rejects affiliate copy", () => {
     expect(sanitizeBuyerPrice("$67.00")).toBe("$67.00");
     expect(sanitizeBuyerPrice("Varies")).toBe("Varies");
@@ -156,6 +193,20 @@ describe("digistore24 detail extractor", () => {
     expect(reconcileBuyerPriceWithCart("$67", 49.86)).toBe("$49.86");
     expect(reconcileBuyerPriceWithCart("$47.00", 47)).toBe("$47.00");
     expect(reconcileBuyerPriceWithCart("$47", 47.5)).toBe("$47");
+  });
+
+  it("does not force EPC-sized cartValue over a real brief/vendor buyer price", () => {
+    expect(reconcileBuyerPriceWithCart("$67", 2.45)).toBe("$67");
+    expect(
+      reconcileBuyerPriceWithCart("$67", 2.45, {
+        vendorMaterials: [
+          {
+            source_type: "order_page",
+            content_text: "Temporarily only $67 USD Add to cart",
+          },
+        ],
+      }),
+    ).toBe("$67.00");
   });
 
   it("extracts short buyer prices and skips EPC windows", () => {
