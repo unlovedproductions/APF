@@ -128,13 +128,21 @@ function digistore24DetailUrlForShadowCast(product) {
   return "";
 }
 
-function shadowCastAffiliateUrl(product) {
-  const real = clean(product.affiliateLink);
-  if (real) return real;
+/** Login-walled Digistore portal URLs are not buyer checkout/hop links. */
+export function isNonBuyerAffiliateUrl(url) {
+  const low = clean(url).toLowerCase();
+  if (!low) return false;
+  if (low.includes("digistore24-app.com")) return true;
+  if (/digistore24\.com\/.*\/affiliate\/account\//i.test(low)) return true;
+  return false;
+}
 
-  // For products that still need vendor approval/promolink,
-  // give ShadowCast a usable product-detail URL instead of leaving the required field blank.
-  return digistore24DetailUrlForShadowCast(product);
+export function shadowCastAffiliateUrl(product) {
+  const real = clean(product.affiliateLink);
+  if (real && !isNonBuyerAffiliateUrl(real)) return real;
+  // Never substitute marketplace/detail portal URLs for a missing promolink —
+  // those are login-walled and poison published CTAs. product_detail_url carries them.
+  return "";
 }
 
 export function shadowcastBaseUrl() {

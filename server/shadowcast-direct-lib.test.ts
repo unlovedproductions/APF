@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   applyClaimLedgerToExport,
+  isNonBuyerAffiliateUrl,
   resolveShadowCastFormIdentity,
+  shadowCastAffiliateUrl,
 } from "../scripts/shadowcast-direct-lib.mjs";
 
 describe("resolveShadowCastFormIdentity", () => {
@@ -74,6 +76,28 @@ describe("resolveShadowCastFormIdentity", () => {
     expect(identity.isDigistore).toBe(false);
     expect(identity.product_name).toBe("SomeOffer");
     expect(identity.price).toBe("$37.00");
+  });
+});
+
+describe("shadowCastAffiliateUrl", () => {
+  it("rejects Digistore marketplace portal URLs as buyer affiliate links", () => {
+    const portal =
+      "https://www.digistore24-app.com/app/en/affiliate/account/marketplace/all/detail/54669";
+    expect(isNonBuyerAffiliateUrl(portal)).toBe(true);
+    expect(shadowCastAffiliateUrl({ affiliateLink: portal })).toBe("");
+    expect(
+      shadowCastAffiliateUrl({
+        platform: "digistore24",
+        platformProductId: "54669",
+        affiliateLink: "",
+      }),
+    ).toBe("");
+  });
+
+  it("keeps real Digistore checkout/redir hop links", () => {
+    const hop = "https://www.checkout-ds24.com/redir/1/example/apf";
+    expect(isNonBuyerAffiliateUrl(hop)).toBe(false);
+    expect(shadowCastAffiliateUrl({ affiliateLink: hop })).toBe(hop);
   });
 });
 
