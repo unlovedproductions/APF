@@ -194,6 +194,23 @@ async function saveAffiliateLink(conn, productRowId, platformProductId, vendor =
   const link = promolink(platformProductId);
   if (!link) return "";
 
+  const [existing] = await conn.query(`
+    SELECT affiliate_url, status
+    FROM product_affiliate_links
+    WHERE product_id=? AND provider='digistore24'
+    LIMIT 1
+  `, [productRowId]);
+
+  // Catalog re-import must not clobber Phase-11 / browser-approved checkout CTAs.
+  if (
+    existing.length
+    && existing[0].status === "approved"
+    && existing[0].affiliate_url
+    && String(existing[0].affiliate_url).trim()
+  ) {
+    return String(existing[0].affiliate_url).trim();
+  }
+
   await upsertAffiliateLink(conn, {
     productId: productRowId,
     provider: "digistore24",
